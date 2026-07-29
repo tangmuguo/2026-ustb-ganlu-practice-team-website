@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.vihu.ganlu.mappers.TeamPageImageMapper">
+    <resultMap type="com.vihu.ganlu.entitys.TeamPageImageEntity" id="teampageimagemap">
+        <id column="id" property="id"/>
+        <result column="userId" property="userId"/>
+        <result column="pageId" property="pageId"/>
+        <result column="imageUrl" property="imageUrl"/>
+        <result column="caption" property="caption"/>
+        <result column="content" property="content"/>
+        <result column="displayOrder" property="displayOrder"/>
+        <result column="createdAt" property="createdAt"/>
+        <result column="updatedAt" property="updatedAt"/>
+        <result column="type" property="type"/>
+    </resultMap>
+
+    <select id="findAllImages" parameterType="Integer" resultMap="teampageimagemap">
+        select * from team_page_images where userId=#{userId}
+    </select>
+
+    <insert id="insertTeamImage" parameterType="com.vihu.ganlu.entitys.TeamPageImageEntity">
+        insert into team_page_images(
+                userId,imageUrl,caption,content,createdAt,type
+        )VALUES (
+                    #{userId}, #{imageUrl}, #{caption},#{content}, NOW(),#{type}
+                )
+    </insert>
+
+    <delete id="deleteTeamPageImageByIds" parameterType="com.vihu.ganlu.entitys.UserQueryVo">
+        delete from team_page_images
+        <where>
+            id in
+            <foreach collection="ids" item="id" separator="," open="(" close=")">
+                #{id}
+            </foreach>
+        </where>
+    </delete>
+
+    <delete id="deleteTeamPageImageByIdsAndUserId">
+        delete from team_page_images
+        where userId = #{userId}
+          and id in
+        <foreach collection="ids" item="id" separator="," open="(" close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+</mapper>

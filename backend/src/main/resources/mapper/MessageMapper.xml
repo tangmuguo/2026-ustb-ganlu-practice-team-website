@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.vihu.ganlu.mappers.MessageMapper">
+    <resultMap type="com.vihu.ganlu.entitys.MessageEntity" id="messagemap">
+        <id column="id" property="id"/>
+        <result column="name" property="name"/>
+        <result column="user_id" property="userId"/>
+        <result column="content" property="content"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+        <result column="status" property="status"/>
+        <result column="username" property="username"/>
+        <result column="teamname" property="teamname"/>
+    </resultMap>
+
+    <!-- 新增留言 -->
+    <insert id="insertMessage" parameterType="com.vihu.ganlu.entitys.MessageEntity" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO message (
+            user_id,
+            content,
+            create_time,
+            update_time,
+            status
+        ) VALUES (
+                     #{userId},
+                     #{content},
+                     NOW(),
+                     NOW(),
+                     #{status}
+                 )
+    </insert>
+
+    <!-- 获取留言列表（分页） -->
+    <select id="selectMessages" resultMap="messagemap">
+        SELECT
+            m.id,
+            m.user_id,
+            m.content,
+            m.create_time,
+            m.update_time,
+            m.status,
+            u.username,
+            u.teamname
+        FROM
+            message m
+                LEFT JOIN
+            user u ON m.user_id = u.id
+        WHERE
+            m.status = 1
+        ORDER BY
+            m.create_time DESC
+            LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <!-- 获取留言总数 -->
+    <select id="countMessages" resultType="int">
+        SELECT
+            COUNT(*)
+        FROM
+            message
+        WHERE
+            status = 1
+    </select>
+
+    <!-- 根据ID获取留言 -->
+    <select id="selectMessageById" parameterType="int" resultMap="messagemap">
+        SELECT
+            *
+        FROM
+            message
+        WHERE
+            id = #{id}
+          AND
+            status = 1
+    </select>
+
+    <!-- 逻辑删除留言 -->
+    <update id="deleteMessage" parameterType="int">
+        UPDATE
+            message
+        SET
+            status = 0,
+            update_time = NOW()
+        WHERE
+            id = #{id}
+    </update>
+
+    <!-- 获取用户留言 -->
+    <select id="selectMessagesByUserId" parameterType="int" resultMap="messagemap">
+        SELECT
+            m.id,
+            m.user_id,
+            m.content,
+            m.create_time,
+            m.update_time,
+            m.status,
+            u.username,
+            u.teamname
+        FROM
+            message m
+                LEFT JOIN
+            user u ON m.user_id = u.id
+        WHERE
+            m.user_id = #{userId}
+          AND
+            m.status = 1
+        ORDER BY
+            m.create_time DESC
+    </select>
+
+</mapper>

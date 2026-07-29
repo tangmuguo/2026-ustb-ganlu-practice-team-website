@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.vihu.ganlu.mappers.NewsMapper">
+    <resultMap type="com.vihu.ganlu.entitys.NewsEntity" id="newsmap">
+        <id column="id" property="id"/>
+        <result column="caption" property="caption"/>
+        <result column="content" property="content"/>
+        <result column="createAt" property="createAt"/>
+        <result column="imageUrl" property="imageUrl"/>
+        <result column="linkUrl" property="linkUrl"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, caption, content, imageUrl, createAt,linkUrl
+    </sql>
+
+    <select id="findAllWithLimit" resultMap="newsmap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM news
+        ORDER BY createAt DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findAll" resultMap="newsmap">
+        SELECT
+        *
+        FROM news
+        ORDER BY createAt DESC
+    </select>
+
+    <select id="findById" parameterType="int" resultMap="newsmap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM news
+        WHERE id = #{id}
+    </select>
+
+    <insert id="insert" parameterType="com.vihu.ganlu.entitys.NewsEntity" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO news
+            (caption, content, imageUrl, linkUrl,createAt)
+        VALUES
+            (#{caption}, #{content}, #{imageUrl}, #{linkUrl},now())
+    </insert>
+
+    <update id="update" parameterType="com.vihu.ganlu.entitys.NewsEntity">
+        UPDATE news
+        SET
+            caption = #{caption},
+            content = #{content}
+            <if test="linkUrl != null">
+                ,linkUrl = #{linkUrl}
+            </if>
+            <if test="imageUrl != null">
+                ,imageUrl = #{imageUrl}
+            </if>
+
+        WHERE id = #{id}
+    </update>
+
+    <delete id="delete" parameterType="int">
+        DELETE FROM news WHERE id = #{id}
+    </delete>
+
+</mapper>

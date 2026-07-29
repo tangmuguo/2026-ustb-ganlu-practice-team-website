@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.vihu.ganlu.mappers.BannerMapper">
+    <resultMap type="com.vihu.ganlu.entitys.BannerEntity" id="bannermap">
+        <id column="id" property="id"/>
+        <result column="title" property="title"/>
+        <result column="imageUrl" property="imageUrl"/>
+        <result column="linkUrl" property="linkUrl"/>
+        <result column="sortOrder" property="sortOrder"/>
+        <result column="isVisible" property="isVisible"/>
+        <result column="createdAt" property="createdAt"/>
+        <result column="updatedAt" property="updatedAt"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, title, imageUrl, linkUrl, sortOrder, isVisible, createdAt, updatedAt
+    </sql>
+
+    <select id="findAll" resultMap="bannermap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM banner
+        ORDER BY sortOrder DESC
+    </select>
+
+    <select id="count" resultType="int">
+        SELECT COUNT(*) FROM banner
+    </select>
+
+    <insert id="insert" parameterType="com.vihu.ganlu.entitys.BannerEntity" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO banner(title, imageUrl, linkUrl, sortOrder, isVisible)
+        VALUES(#{title}, #{imageUrl}, #{linkUrl}, #{sortOrder}, #{isVisible})
+    </insert>
+
+    <update id="update" parameterType="com.vihu.ganlu.entitys.BannerEntity">
+        UPDATE banner
+        SET title = #{title},
+            imageUrl = #{imageUrl},
+            linkUrl = #{linkUrl},
+            sortOrder = #{sortOrder},
+            isVisible = #{isVisible},
+            updatedAt = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <delete id="delete" parameterType="int">
+        DELETE FROM banner WHERE id = #{id}
+    </delete>
+
+    <update id="updateSort">
+        UPDATE banner
+        SET sortOrder = #{sortOrder},
+            updatedAt = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE banner
+        SET isVisible = #{isVisible},
+            updatedAt = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateLink">
+        UPDATE banner
+        SET linkUrl = #{linkUrl},
+            updatedAt = NOW()
+        WHERE id = #{id}
+    </update>
+
+</mapper>

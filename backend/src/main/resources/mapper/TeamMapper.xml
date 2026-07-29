@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.vihu.ganlu.mappers.TeamMapper">
+    <resultMap type="com.vihu.ganlu.entitys.TeamEntity" id="teammap">
+        <id column="id" property="id"/>
+        <result column="year" property="year"/>
+        <result column="name" property="name"/>
+    </resultMap>
+
+    <select id="getTeam" resultMap="teammap">
+        select *
+        from team
+	</select>
+
+    <select id="getTeamById" resultMap="teammap" parameterType="Integer">
+        select *
+        from team where id=#{id}
+    </select>
+
+    <insert id="addTeam" parameterType="com.vihu.ganlu.entitys.TeamEntity">
+        insert into team(year,name)
+        values (#{year},#{name})
+    </insert>
+
+    <update id="updateTeamById" parameterType="com.vihu.ganlu.entitys.TeamEntity" >
+        update team
+        set year=#{year},name=#{name}
+        where id=#{id}
+    </update>
+
+    <delete id="deleteTeamByIds" parameterType="com.vihu.ganlu.entitys.UserQueryVo">
+        delete from team
+        <where>
+            id in
+            <foreach collection="array" item="id" separator="," open="(" close=")">
+                #{id}
+            </foreach>
+        </where>
+    </delete>
+
+</mapper>

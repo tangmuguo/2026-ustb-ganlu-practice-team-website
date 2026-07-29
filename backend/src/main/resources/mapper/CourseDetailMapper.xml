@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.vihu.ganlu.mappers.CourseDetailMapper">
+    <resultMap type="com.vihu.ganlu.entitys.CourseDetailEntity" id="coursemap">
+        <id column="id" property="id"/>
+        <result column="title" property="title"/>
+        <result column="author" property="author"/>
+        <result column="courseType" property="courseType"/>
+        <result column="thumbnail_url" property="thumbnailUrl"/>
+        <result column="course_id" property="courseId"/>
+        <result column="files" property="files"/>
+        <result column="file_size" property="fileSize"/>
+        <result column="file_type" property="fileType"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+        <result column="course_name" property="courseName"/>
+    </resultMap>
+
+
+    <insert id="insertCourseDetail" parameterType="com.vihu.ganlu.entitys.CourseDetailEntity" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO course_detail (
+            title, author, courseType,thumbnail_url, course_id,
+            files, file_size, file_type, create_time
+        ) VALUES (
+                     #{title}, #{author}, #{courseType},#{thumbnailUrl}, #{courseId},
+                     #{files}, #{fileSize}, #{fileType}, NOW()
+                 )
+    </insert>
+
+    <select id="findAllCourse" resultMap="coursemap">
+        select * from course_detail
+    </select>
+
+    <select id="findCourseList" resultMap="coursemap">
+        SELECT m.*, c.course_name as course_name FROM course_detail m
+        LEFT JOIN course c ON m.course_id = c.id
+        ORDER BY m.create_time DESC
+    </select>
+
+    <select id="getCourseById" resultMap="coursemap" parameterType="Integer">
+        select * from course_detail where id=#{id}
+    </select>
+
+    <delete id="deleteCourseById" parameterType="Integer">
+        delete from course_detail where id=#{id}
+    </delete>
+
+</mapper>

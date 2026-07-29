@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.vihu.ganlu.mappers.TeamPageMapper">
+    <resultMap type="com.vihu.ganlu.entitys.TeamPageEntity" id="teampagemap">
+        <id column="id" property="id"/>
+        <result column="title" property="title"/>
+        <result column="content" property="content"/>
+        <result column="created_at" property="created_at"/>
+        <result column="updated_at" property="updated_at"/>
+        <result column="team_id" property="team_id"/>
+        <result column="status" property="status"/>
+    </resultMap>
+
+    <select id="getTeamPage" resultMap="teampagemap">
+        select *
+        from team_page
+	</select>
+
+    <select id="getTeamPageById" resultMap="teampagemap" parameterType="Integer">
+        select *
+        from team_page where id=#{id}
+    </select>
+
+    <insert id="addTeamPage" parameterType="com.vihu.ganlu.entitys.TeamPageEntity">
+        insert into team_page(title,image_url,link_url,sort_order,is_visible)
+        values (#{title},#{image_url},#{link_url},#{sort_order},#{is_visible})
+    </insert>
+
+    <update id="updateTeamPageById" parameterType="com.vihu.ganlu.entitys.TeamPageEntity" >
+        update team_page
+        set title=#{title},image_url=#{image_url},link_url=#{link_url},sort_order=#{sort_order},is_visible=#{is_visible}
+        where id=#{id}
+    </update>
+
+    <delete id="deleteTeamPageByIds" parameterType="com.vihu.ganlu.entitys.UserQueryVo">
+        delete from team_page
+        <where>
+            id in
+            <foreach collection="array" item="id" separator="," open="(" close=")">
+                #{id}
+            </foreach>
+        </where>
+    </delete>
+
+
+</mapper>

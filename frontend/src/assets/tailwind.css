@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {  
+  .content-auto {
+      content-visibility: auto;
+  }
+  .text-shadow {
+      text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+  .hover-scale {
+      transition: transform 0.3s ease;
+  }
+  .hover-scale:hover {
+      transform: scale(1.05);
+  }
+  .carousel-item {
+      transition: transform 0.5s ease-in-out;
+  }
+}
