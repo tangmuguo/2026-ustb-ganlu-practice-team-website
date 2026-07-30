@@ -22,7 +22,11 @@ import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -64,16 +68,28 @@ public class AiServiceImpl implements AiService {
         this.restTemplate = aiRestTemplate;
     }
 
-    /** 用户 ID 的稳定不可逆摘要，用于日志匿名化 */
+    /** 日志匿名化盐值 —— 固定内部值 */
+    private static final String ANON_SALT = "ganlu-ai-internal-2026";
+
+    /** 用户 ID 的 HMAC/SHA-256 摘要，取前12位十六进制，稳定且不可逆 */
     private static String anonymize(Integer userId) {
         if (userId == null) return "anon";
-        int h = userId.hashCode();
-        return Integer.toHexString(h & 0xFFFF);
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            md.update(Base64.getDecoder().decode("Z2FubHUtYWktaW50ZXJuYWwtMjAyNg=="));
+            md.update(userId.toString().getBytes(StandardCharsets.UTF_8));
+            byte[] d = md.digest();
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < 6; i++) sb.append(String.format("%02x", d[i]));
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
+            return "anon";
+        }
     }
 
     @Override
     public AiChatResponse chat(AiChatRequest request, Integer userId) {
-        String requestId = UUID.randomUUID().toString().substring(0, 8);
+        String requestId = UUID.randomUUID().toString().replace("-", "");
         long start = System.currentTimeMillis();
         String uid = anonymize(userId);
 

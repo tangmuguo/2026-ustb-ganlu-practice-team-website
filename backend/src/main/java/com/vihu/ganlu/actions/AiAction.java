@@ -5,6 +5,7 @@ import com.vihu.ganlu.entitys.UserEntity;
 import com.vihu.ganlu.entitys.ai.AiChatRequest;
 import com.vihu.ganlu.entitys.ai.AiChatResponse;
 import com.vihu.ganlu.security.AuthInterceptor;
+import com.vihu.ganlu.security.RequireRoles;
 import com.vihu.ganlu.service.AiService;
 import com.vihu.ganlu.service.impl.AiServiceImpl.AiServiceException;
 import org.springframework.http.ResponseEntity;
@@ -32,8 +33,10 @@ public class AiAction {
 
     /**
      * AI 对话接口 —— 接收 { "messages": [{ "role":"user", "content":"..." }] }，
-     * 返回 { "code":200, "message":"...", "content":{ "answer":"...", "model":"..." } }。
+     * 返回 { "code":200, "message":"success", "content":{ "answer":"...", "requestId":"..." } }。
+     * 管理员、团队账号、学生账号均可使用。
      */
+    @RequireRoles({0, 1, 2})
     @PostMapping("/chat")
     public ResponseEntity<?> chat(@RequestBody AiChatRequest request) {
         UserEntity currentUser = (UserEntity) httpRequest.getAttribute(AuthInterceptor.CURRENT_USER_ATTRIBUTE);

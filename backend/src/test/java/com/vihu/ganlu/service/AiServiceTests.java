@@ -193,7 +193,7 @@ class AiServiceTests {
     @Test
     void shouldRateLimitByUserId() {
         int limit = 30;
-        // �?0次正�?
+        // 前30次正常
         for (int i = 0; i < limit; i++) {
             mockDeepSeekResponse(
                     "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"}}]}");
@@ -202,10 +202,68 @@ class AiServiceTests {
             aiService.chat(req(new AiMessageDto("user", "msg" + i)), TEST_USER_ID);
         }
 
-        // �?1次触发频率限�?
+        // 第31次触发频率限制
         assertThatThrownBy(() -> aiService.chat(
                 req(new AiMessageDto("user", "one too many")), TEST_USER_ID))
                 .isInstanceOf(AiServiceException.class)
                 .matches(e -> ((AiServiceException) e).getCode() == 429);
+    }
+
+    @Test
+    void shouldRejectNullRequest() {
+        assertThatThrownBy(() -> aiService.chat(null, TEST_USER_ID))
+                .isInstanceOf(AiServiceException.class)
+                .matches(e -> ((AiServiceException) e).getCode() == 400)
+                .hasMessageContaining("请求不能为空");
+    }
+
+    @Test
+    void shouldRejectNullMessageElement() {
+        AiChatRequest request = new AiChatRequest();
+        request.setMessages(Arrays.asList(null, new AiMessageDto("user", "ok")));
+
+        assertThatThrownBy(() -> aiService.chat(request, TEST_USER_ID))
+                .isInstanceOf(AiServiceException.class)
+                .matches(e -> ((AiServiceException) e).getCode() == 400)
+                .hasMessageContaining("不能为null");
+    }
+
+    @Test
+    void shouldRejectBlankContent() {
+        assertThatThrownBy(() -> aiService.chat(
+                req(new AiMessageDto("user", "   ")), TEST_USER_ID))
+                .isInstanceOf(AiServiceException.class)
+                .matches(e -> ((AiServiceException) e).getCode() == 400);
+    }
+
+    @Test
+    void shouldRejectNullRole() {
+        assertThatThrownBy(() -> aiService.chat(
+                req(new AiMessageDto(null, "hello")), TEST_USER_ID))
+                .isInstanceOf(AiServiceException.class)
+                .matches(e -> ((AiServiceException) e).getCode() == 400);
+    }
+
+    @Test
+    void shouldConvertTimeoutTo504() {
+        mockServer.expect(requestTo("https://api.deepseek.com/chat/completions"))
+                .andRespond(request -> { throw new java.net.SocketTimeoutException("timeout"); });
+
+        assertThatThrownBy(() -> aiService.chat(
+                req(new AiMessageDto("user", "hello")), TEST_USER_ID))
+                .isInstanceOf(AiServiceException.class)
+                .matches(e -> ((AiServiceException) e).getCode() == 504);
+    }
+
+    @Test
+    void shouldNotLogApiKeyOrSystemPromptInResponse() {
+        // 验证应答不含 Key、system 提示词 — 不验证日志，因为测试框架日志级别不同
+        mockDeepSeekResponse(
+                "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"}}]}");
+
+        AiChatResponse response = aiService.chat(
+                req(new AiMessageDto("user", "hello")), TEST_USER_ID);
+        assertThat(response.getAnswer()).doesNotContain("sk-");
+        assertThat(response.getAnswer()).doesNotContain("sk-test-key-not-real");
     }
 }

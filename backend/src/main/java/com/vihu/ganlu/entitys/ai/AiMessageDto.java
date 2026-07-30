@@ -1,8 +1,11 @@
 package com.vihu.ganlu.entitys.ai;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 /**
- * AI 对话消息 DTO —— 前端只允许 user / assistant 两种角色。
+ * AI 对话消息 DTO —— 前端只允许 user / assistant 两种角色。拒绝未知字段。
  */
+@JsonIgnoreProperties(ignoreUnknown = false)
 public class AiMessageDto {
     private String role;
     private String content;
