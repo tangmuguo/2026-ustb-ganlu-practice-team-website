@@ -71,7 +71,7 @@ public class AiServiceImpl implements AiService {
     }
 
     /** 日志匿名化 HMAC 密钥 —— 由环境变量注入，缺失时安全降级为 anon */
-    private static final String HMAC_KEY = System.getenv("AI_LOG_HMAC_KEY");
+    public static volatile String hmacKey = System.getenv("AI_LOG_HMAC_KEY");
 
     /** HmacSHA256 算法名 */
     private static final String HMAC_ALGORITHM = "HmacSHA256";
@@ -80,12 +80,12 @@ public class AiServiceImpl implements AiService {
      * 使用 HMAC/SHA-256 生成用户匿名标识。
      * 密钥从环境变量 AI_LOG_HMAC_KEY 读取，缺失时统一返回 "anon"（不记录可关联标识）。
      */
-    private static String anonymize(Integer userId) {
-        if (userId == null || HMAC_KEY == null || HMAC_KEY.isEmpty()) return "anon";
+    public static String anonymize(Integer userId) {
+        if (userId == null || hmacKey == null || hmacKey.isEmpty()) return "anon";
         try {
             Mac mac = Mac.getInstance(HMAC_ALGORITHM);
             SecretKeySpec keySpec = new SecretKeySpec(
-                    HMAC_KEY.getBytes(StandardCharsets.UTF_8), HMAC_ALGORITHM);
+                    hmacKey.getBytes(StandardCharsets.UTF_8), HMAC_ALGORITHM);
             mac.init(keySpec);
             byte[] hmac = mac.doFinal(userId.toString().getBytes(StandardCharsets.UTF_8));
             StringBuilder sb = new StringBuilder();

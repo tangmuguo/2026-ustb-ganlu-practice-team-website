@@ -9,6 +9,8 @@ import com.vihu.ganlu.security.RequireRoles;
 import com.vihu.ganlu.service.AiService;
 import com.vihu.ganlu.service.impl.AiServiceImpl.AiServiceException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -78,5 +80,24 @@ public class AiAction {
             case 504: return org.springframework.http.HttpStatus.GATEWAY_TIMEOUT;
             default:  return org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR;
         }
+    }
+
+    /**
+     * 处理 Jackson 反序列化异常（含 @JsonAnySetter 拒绝的未知字段），
+     * 返回统一 JSON 错误结构 {code, message, content}。
+     * 该异常发生在进入 chat() 之前，因此必须用 @ExceptionHandler 捕获。
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<?> handleUnreadableMessage(HttpMessageNotReadableException e) {
+        String msg = "请求格式错误";
+        Throwable cause = e.getMostSpecificCause();
+        if (cause instanceof IllegalArgumentException && cause.getMessage() != null) {
+            msg = cause.getMessage();
+        }
+        Map<String, Object> body = new HashMap<>();
+        body.put("code", 400);
+        body.put("message", msg);
+        body.put("content", null);
+        return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_REQUEST).body(body);
     }
 }

@@ -1,13 +1,19 @@
 package com.vihu.ganlu.service;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.vihu.ganlu.configs.DeepSeekProperties;
 import com.vihu.ganlu.entitys.ai.AiChatRequest;
 import com.vihu.ganlu.entitys.ai.AiChatResponse;
 import com.vihu.ganlu.entitys.ai.AiMessageDto;
 import com.vihu.ganlu.service.impl.AiServiceImpl;
 import com.vihu.ganlu.service.impl.AiServiceImpl.AiServiceException;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -18,6 +24,7 @@ import org.springframework.web.client.RestTemplate;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -31,6 +38,10 @@ class AiServiceTests {
     private DeepSeekProperties properties;
 
     private static final Integer TEST_USER_ID = 1;
+
+    // 日志捕获
+    private ListAppender<ILoggingEvent> listAppender;
+    private Logger aiLogger;
 
     @BeforeEach
     void setUp() {
@@ -49,6 +60,20 @@ class AiServiceTests {
 
         mockServer = MockRestServiceServer.createServer(restTemplate);
         aiService = new AiServiceImpl(properties, restTemplate);
+
+        // 设置日志捕获
+        aiLogger = (Logger) LoggerFactory.getLogger(AiServiceImpl.class);
+        listAppender = new ListAppender<>();
+        listAppender.start();
+        aiLogger.addAppender(listAppender);
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (listAppender != null && aiLogger != null) {
+            aiLogger.detachAppender(listAppender);
+            listAppender.stop();
+        }
     }
 
     private AiChatRequest req(AiMessageDto... messages) {
@@ -284,5 +309,64 @@ class AiServiceTests {
         assertThatThrownBy(() -> aiService.chat(request, TEST_USER_ID))
                 .isInstanceOf(AiServiceException.class)
                 .hasMessageContaining("消息不能为空");
+    }
+
+    // ---- HMAC 匿名化测试（直接设置包级可见字段） ----
+
+    @Test
+    void shouldProduceStableHmacForSameUser() {
+        AiServiceImpl.hmacKey = "test-hmac-secret-123456";
+        try {
+            String h1 = AiServiceImpl.anonymize(42);
+            String h2 = AiServiceImpl.anonymize(42);
+            assertThat(h1).isNotEmpty().isNotEqualTo("anon");
+            assertThat(h1).isEqualTo(h2); // 同一用户稳定
+            assertThat(h1).doesNotContain("42"); // 不含原始 ID
+        } finally {
+            AiServiceImpl.hmacKey = null;
+        }
+    }
+
+    @Test
+    void shouldProduceDifferentHmacForDifferentUsers() {
+        AiServiceImpl.hmacKey = "test-hmac-secret-789";
+        try {
+            String h1 = AiServiceImpl.anonymize(1);
+            String h2 = AiServiceImpl.anonymize(2);
+            assertThat(h1).isNotEmpty().isNotEqualTo("anon");
+            assertThat(h2).isNotEmpty().isNotEqualTo("anon");
+            assertThat(h1).isNotEqualTo(h2); // 不同用户不同
+        } finally {
+            AiServiceImpl.hmacKey = null;
+        }
+    }
+
+    // ---- 日志安全测试 ----
+
+    @Test
+    void shouldNotLeakSensitiveDataInLogs() {
+        mockDeepSeekResponse(
+                "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"光合作用是植物利用阳光的过程。\"}}]}");
+
+        aiService.chat(req(new AiMessageDto("user", "给三年级学生解释什么是光合作用")), TEST_USER_ID);
+
+        List<ILoggingEvent> logs = listAppender.list;
+        assertThat(logs).isNotEmpty();
+
+        for (ILoggingEvent event : logs) {
+            String msg = event.getFormattedMessage();
+            // 不得泄露 API Key
+            assertThat(msg).doesNotContain("sk-test-key-not-real");
+            assertThat(msg).doesNotContain("sk-");
+            // 不得泄露 Authorization header
+            assertThat(msg).doesNotContain("Bearer");
+            // 不得泄露 system prompt 内容
+            assertThat(msg).doesNotContain("支教");
+            assertThat(msg).doesNotContain("隐私");
+            // 不得泄露用户输入原文
+            assertThat(msg).doesNotContain("三年级学生");
+            // 不得泄露上游完整响应
+            assertThat(msg).doesNotContain("光合作用");
+        }
     }
 }

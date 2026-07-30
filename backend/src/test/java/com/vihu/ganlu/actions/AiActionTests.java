@@ -1,5 +1,6 @@
 package com.vihu.ganlu.actions;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vihu.ganlu.entitys.UserEntity;
 import com.vihu.ganlu.entitys.ai.AiChatRequest;
 import com.vihu.ganlu.entitys.ai.AiChatResponse;
@@ -11,7 +12,10 @@ import com.vihu.ganlu.service.impl.AiServiceImpl.AiServiceException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import javax.servlet.http.HttpServletRequest;
 import java.lang.reflect.Method;
@@ -23,19 +27,27 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class AiActionTests {
 
     private AiAction aiAction;
     private AiService aiService;
     private HttpServletRequest httpRequest;
+    private MockMvc mockMvc;
+    private ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
         aiService = mock(AiService.class);
         httpRequest = mock(HttpServletRequest.class);
         aiAction = new AiAction(aiService, httpRequest);
+        mockMvc = MockMvcBuilders.standaloneSetup(aiAction).build();
     }
+
+    // ---- 直接调用测试（已有） ----
 
     @Test
     void shouldReturnAnswerOnValidRequest() {
@@ -127,5 +139,48 @@ class AiActionTests {
         assertThat(body.get("code")).isEqualTo(400);
         assertThat(body.get("message")).asString().contains("未知字段");
         assertThat(body.get("content")).isNull();
+    }
+
+    // ---- MockMvc 测试：真实 JSON 反序列化链路 ----
+
+    @Test
+    void shouldRejectTopLevelUnknownFieldWithJson400() throws Exception {
+        // 发送含顶层未知字段 "extra" 的 JSON，验证 @JsonAnySetter → @ExceptionHandler 链路
+        String json = "{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"extra\":\"unexpected\"}";
+
+        mockMvc.perform(post("/ai/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").value("未知字段: extra"))
+                .andExpect(jsonPath("$.content").isEmpty());
+    }
+
+    @Test
+    void shouldRejectNestedUnknownFieldInMessageWithJson400() throws Exception {
+        // 发送 messages[0] 中含未知字段 "foo" 的 JSON
+        String json = "{\"messages\":[{\"role\":\"user\",\"content\":\"hi\",\"foo\":\"bar\"}]}";
+
+        mockMvc.perform(post("/ai/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").value("未知字段: foo"))
+                .andExpect(jsonPath("$.content").isEmpty());
+    }
+
+    @Test
+    void shouldRejectMalformedJsonWith400() throws Exception {
+        String json = "{bad json}";
+
+        mockMvc.perform(post("/ai/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").isNotEmpty())
+                .andExpect(jsonPath("$.content").isEmpty());
     }
 }
