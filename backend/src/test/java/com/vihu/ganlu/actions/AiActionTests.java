@@ -111,4 +111,21 @@ class AiActionTests {
         assertThat(annotation).isNotNull();
         assertThat(annotation.value()).containsExactly(0, 1, 2);
     }
+
+    @Test
+    void shouldReturn400OnIllegalArgumentException() {
+        when(httpRequest.getAttribute(AuthInterceptor.CURRENT_USER_ATTRIBUTE)).thenReturn(null);
+        when(aiService.chat(any(AiChatRequest.class), eq(null)))
+                .thenThrow(new IllegalArgumentException("未知字段: extra"));
+
+        ResponseEntity<?> response = aiAction.chat(new AiChatRequest());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> body = (Map<String, Object>) response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.get("code")).isEqualTo(400);
+        assertThat(body.get("message")).asString().contains("未知字段");
+        assertThat(body.get("content")).isNull();
+    }
 }

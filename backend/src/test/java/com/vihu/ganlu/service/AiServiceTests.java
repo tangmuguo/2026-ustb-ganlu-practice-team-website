@@ -257,7 +257,6 @@ class AiServiceTests {
 
     @Test
     void shouldNotLogApiKeyOrSystemPromptInResponse() {
-        // 验证应答不含 Key、system 提示词 — 不验证日志，因为测试框架日志级别不同
         mockDeepSeekResponse(
                 "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"}}]}");
 
@@ -265,5 +264,25 @@ class AiServiceTests {
                 req(new AiMessageDto("user", "hello")), TEST_USER_ID);
         assertThat(response.getAnswer()).doesNotContain("sk-");
         assertThat(response.getAnswer()).doesNotContain("sk-test-key-not-real");
+        // system 提示词不应出现在应答中
+        assertThat(response.getAnswer()).doesNotContain("隐私");
+    }
+
+    @Test
+    void shouldWorkWhenHmacKeyNotSet() {
+        // 未设置 AI_LOG_HMAC_KEY 时，正常回答不应被阻断
+        mockDeepSeekResponse(
+                "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"}}]}");
+        AiChatResponse response = aiService.chat(
+                req(new AiMessageDto("user", "test")), TEST_USER_ID);
+        assertThat(response.getAnswer()).isEqualTo("ok");
+    }
+
+    @Test
+    void shouldRejectMissingMessagesField() {
+        AiChatRequest request = new AiChatRequest();
+        assertThatThrownBy(() -> aiService.chat(request, TEST_USER_ID))
+                .isInstanceOf(AiServiceException.class)
+                .hasMessageContaining("消息不能为空");
     }
 }

@@ -23,15 +23,17 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
+import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 /**
  * AI 服务实现 —— DeepSeek 服务端代理。
@@ -68,21 +70,28 @@ public class AiServiceImpl implements AiService {
         this.restTemplate = aiRestTemplate;
     }
 
-    /** 日志匿名化盐值 —— 固定内部值 */
-    private static final String ANON_SALT = "ganlu-ai-internal-2026";
+    /** 日志匿名化 HMAC 密钥 —— 由环境变量注入，缺失时安全降级为 anon */
+    private static final String HMAC_KEY = System.getenv("AI_LOG_HMAC_KEY");
 
-    /** 用户 ID 的 HMAC/SHA-256 摘要，取前12位十六进制，稳定且不可逆 */
+    /** HmacSHA256 算法名 */
+    private static final String HMAC_ALGORITHM = "HmacSHA256";
+
+    /**
+     * 使用 HMAC/SHA-256 生成用户匿名标识。
+     * 密钥从环境变量 AI_LOG_HMAC_KEY 读取，缺失时统一返回 "anon"（不记录可关联标识）。
+     */
     private static String anonymize(Integer userId) {
-        if (userId == null) return "anon";
+        if (userId == null || HMAC_KEY == null || HMAC_KEY.isEmpty()) return "anon";
         try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            md.update(Base64.getDecoder().decode("Z2FubHUtYWktaW50ZXJuYWwtMjAyNg=="));
-            md.update(userId.toString().getBytes(StandardCharsets.UTF_8));
-            byte[] d = md.digest();
+            Mac mac = Mac.getInstance(HMAC_ALGORITHM);
+            SecretKeySpec keySpec = new SecretKeySpec(
+                    HMAC_KEY.getBytes(StandardCharsets.UTF_8), HMAC_ALGORITHM);
+            mac.init(keySpec);
+            byte[] hmac = mac.doFinal(userId.toString().getBytes(StandardCharsets.UTF_8));
             StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < 6; i++) sb.append(String.format("%02x", d[i]));
+            for (int i = 0; i < 8; i++) sb.append(String.format("%02x", hmac[i]));
             return sb.toString();
-        } catch (NoSuchAlgorithmException e) {
+        } catch (NoSuchAlgorithmException | InvalidKeyException e) {
             return "anon";
         }
     }

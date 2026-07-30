@@ -60,6 +60,12 @@ public class AiAction {
             body.put("message", e.getMessage());
             body.put("content", null);
             return ResponseEntity.status(httpStatus).body(body);
+        } catch (IllegalArgumentException e) {
+            Map<String, Object> body = new HashMap<>();
+            body.put("code", 400);
+            body.put("message", e.getMessage());
+            body.put("content", null);
+            return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_REQUEST).body(body);
         }
     }
 
