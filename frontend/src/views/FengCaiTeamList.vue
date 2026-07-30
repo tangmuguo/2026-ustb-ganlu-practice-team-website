@@ -15,9 +15,12 @@ const currentPage = ref(1)
 const pageSize = 9
 const total = ref(0)
 const year = computed(() => String(route.params.year || ''))
+let latestRequestId = 0
 
-async function loadTeams() {
-  if (!/^\d{4}$/.test(year.value)) {
+async function loadTeams(targetYear = year.value, targetPage = currentPage.value) {
+  const requestId = ++latestRequestId
+
+  if (!/^\d{4}$/.test(targetYear)) {
     teams.value = []
     total.value = 0
     loading.value = false
@@ -29,20 +32,24 @@ async function loadTeams() {
   errorMessage.value = ''
 
   try {
-    const response = await getTeamsByYear(year.value, {
-      page: currentPage.value,
+    const response = await getTeamsByYear(targetYear, {
+      page: targetPage,
       size: pageSize,
     })
+    if (requestId !== latestRequestId) return
+
     const collection = extractCollection(response, ['teams'])
     const publishedTeams = publishedOnly(collection.items)
     teams.value = publishedTeams
     total.value = collection.total
   } catch (error) {
+    if (requestId !== latestRequestId) return
+
     teams.value = []
     total.value = 0
-    errorMessage.value = getErrorMessage(error, `${year.value} 年小队加载失败，请稍后重试`)
+    errorMessage.value = getErrorMessage(error, `${targetYear} 年小队加载失败，请稍后重试`)
   } finally {
-    loading.value = false
+    if (requestId === latestRequestId) loading.value = false
   }
 }
 
@@ -56,12 +63,14 @@ function goToTeam(team) {
   router.push(`/fengcai/team/${teamId}`)
 }
 
-watch(year, () => {
-  currentPage.value = 1
-  loadTeams()
-}, { immediate: true })
+watch([year, currentPage], ([nextYear, nextPage], [previousYear] = []) => {
+  if (nextYear !== previousYear && nextPage !== 1) {
+    currentPage.value = 1
+    return
+  }
 
-watch(currentPage, loadTeams)
+  loadTeams(nextYear, nextPage)
+}, { immediate: true })
 </script>
 
 <template>
@@ -107,7 +116,7 @@ watch(currentPage, loadTeams)
         :sub-title="errorMessage"
       >
         <template #extra>
-          <el-button type="primary" :icon="RefreshRight" @click="loadTeams">重新加载</el-button>
+          <el-button type="primary" :icon="RefreshRight" @click="loadTeams()">重新加载</el-button>
           <el-button @click="goBack">返回年份页</el-button>
         </template>
       </el-result>

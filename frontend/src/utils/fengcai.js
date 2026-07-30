@@ -70,14 +70,31 @@ export function resolveMediaUrl(path) {
   }
 }
 
-export function isPublished(item) {
-  const status = item?.status ?? item?.publishStatus ?? item?.reviewStatus
-  if (status === null || status === undefined || status === '') return true
-  return ['PUBLISHED', 'DISPLAY'].includes(String(status).toUpperCase())
+export function resolveAttachmentUrl(attachment) {
+  if (!attachment || typeof attachment !== 'object') return ''
+
+  const explicitUrl = [
+    attachment.downloadUrl,
+    attachment.fileUrl,
+    attachment.url,
+    attachment.path,
+  ].find((value) => typeof value === 'string' && value.trim())
+  if (explicitUrl) return resolveMediaUrl(explicitUrl)
+
+  const mediaId = attachment.mediaId ?? attachment.id
+  if (mediaId === null || mediaId === undefined || String(mediaId).trim() === '') return ''
+
+  return resolveMediaUrl(`/team-content/media/${encodeURIComponent(mediaId)}/download`)
 }
 
-export function publishedOnly(items) {
-  return (Array.isArray(items) ? items : []).filter(isPublished)
+export function isPublished(item, { allowMissingStatus = false } = {}) {
+  const status = item?.status ?? item?.publishStatus ?? item?.reviewStatus
+  if (status === null || status === undefined || status === '') return allowMissingStatus
+  return String(status).trim().toUpperCase() === 'PUBLISHED'
+}
+
+export function publishedOnly(items, options) {
+  return (Array.isArray(items) ? items : []).filter((item) => isPublished(item, options))
 }
 
 export function formatDate(value) {

@@ -38,7 +38,8 @@ async function loadYears() {
   try {
     const response = await getTeamYears()
     const { items } = extractCollection(response, ['years'])
-    years.value = publishedOnly(items)
+    // 年份是公开数据的聚合维度，接口可不返回内容级发布状态。
+    years.value = publishedOnly(items, { allowMissingStatus: true })
       .map(normalizeYear)
       .filter((item) => /^\d{4}$/.test(item.year))
       .sort((a, b) => Number(b.year) - Number(a.year))

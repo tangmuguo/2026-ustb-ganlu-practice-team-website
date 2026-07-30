@@ -164,7 +164,7 @@
 | 课堂日志 `logs` | `id`, `logDate`, `title`, `summary`, `body`, `attachments`, `status` |
 | 其他附件 `attachments` | `id` / `mediaId`, `fileName`, `mimeType`, `fileSize`, `downloadUrl`, `relatedType`, `relatedId`, `status` |
 
-兼容内容类型：图片 `MEMBER`、`REGION_PHOTO`、`TEACHING_PHOTO`；文字 `HONOR`、`CLASS_LOG`。每条内容如果带状态，前端只显示 `PUBLISHED`。关联到荣誉/日志的附件请返回 `relatedType + relatedId`，没有关联对象的文件会进入“其他附件”。
+兼容内容类型：图片 `MEMBER`、`REGION_PHOTO`、`TEACHING_PHOTO`；文字 `HONOR`、`CLASS_LOG`。每条团队及内容数据必须返回状态，前端只显示 `PUBLISHED`；状态缺失或为其他值时不公开。年份聚合记录不属于内容数据，可以不返回状态。关联到荣誉/日志的附件请返回 `relatedType + relatedId`，没有关联对象的文件会进入“其他附件”。
 
 下载地址可以直接放在 `downloadUrl`；如果只返回 `mediaId`，前端会使用 `/team-content/media/{mediaId}/download`。视频与普通文件均只生成下载链接，页面没有 `<video>` 元素。
 

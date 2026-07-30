@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { ArrowDown, ArrowUp, Download } from '@element-plus/icons-vue'
-import { formatDate, resolveMediaUrl, uniqueItems } from '@/utils/fengcai'
+import { formatDate, resolveAttachmentUrl, uniqueItems } from '@/utils/fengcai'
 
 const props = defineProps({
   log: {
@@ -41,7 +41,7 @@ function attachmentName(attachment) {
 }
 
 function attachmentUrl(attachment) {
-  return resolveMediaUrl(attachment.downloadUrl || attachment.fileUrl || attachment.url || attachment.path)
+  return resolveAttachmentUrl(attachment)
 }
 </script>
 

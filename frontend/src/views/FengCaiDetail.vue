@@ -13,6 +13,7 @@ import {
   getErrorMessage,
   isPublished,
   publishedOnly,
+  resolveAttachmentUrl,
   resolveMediaUrl,
   uniqueItems,
   unwrapApiData,
@@ -191,13 +192,7 @@ function attachmentName(attachment) {
 }
 
 function attachmentUrl(attachment) {
-  const explicitUrl = attachment.downloadUrl || attachment.fileUrl || attachment.url || attachment.path
-  if (explicitUrl) return resolveMediaUrl(explicitUrl)
-
-  const mediaId = attachment.mediaId ?? attachment.id
-  return mediaId === null || mediaId === undefined
-    ? ''
-    : resolveMediaUrl(`/team-content/media/${mediaId}/download`)
+  return resolveAttachmentUrl(attachment)
 }
 
 function isVideo(attachment) {
