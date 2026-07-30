@@ -1,6 +1,36 @@
 import instance from "@/utils/http"
 import AllPATH from "@/utils/path"
 
+// 团队风采公开端：仅使用 teamId/pageId，不携带登录用户的 userId。
+export function getTeamYears () {
+  return instance({
+    url: '/teams/years',
+    method: 'GET'
+  })
+}
+
+export function getTeamsByYear (year, { page = 1, size = 12 } = {}) {
+  return instance({
+    url: '/teams',
+    method: 'GET',
+    params: { year, page, size }
+  })
+}
+
+export function getTeamDetail (teamId) {
+  return instance({
+    url: `/teams/${encodeURIComponent(teamId)}`,
+    method: 'GET'
+  })
+}
+
+export function getPublicTeamContent (teamId) {
+  return instance({
+    url: `/team-content/public/${encodeURIComponent(teamId)}`,
+    method: 'GET'
+  })
+}
+
 export function uploadPhoto (photoFile) {
 
   return instance({
