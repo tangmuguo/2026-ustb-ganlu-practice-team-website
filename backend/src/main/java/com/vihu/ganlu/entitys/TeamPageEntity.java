@@ -5,29 +5,27 @@ import java.sql.Timestamp;
 public class TeamPageEntity {
     public enum Status {
         DRAFT("草稿"),
-        DISPLAY("展示"),
-        ARCHIVE("归档");
+        PUBLISHED("展示"),
+        ARCHIVED("归档");
 
-        private final String description;
+        private final String databaseValue;
 
-        // 构造函数
-        Status(String description) {
-            this.description = description;
+        Status(String databaseValue) {
+            this.databaseValue = databaseValue;
         }
 
-        // 获取描述信息
-        public String getDescription() {
-            return description;
+        public String getDatabaseValue() {
+            return databaseValue;
         }
     }
 
-    Integer id;
-    String title;
-    String content;
-    Timestamp created_at;
-    Timestamp updated_at;
-    Integer team_id;
-    Status status=Status.DRAFT;
+    private Integer id;
+    private String title;
+    private String content;
+    private Timestamp createdAt;
+    private Timestamp updatedAt;
+    private Integer teamId;
+    private Status status = Status.DRAFT;
 
     public Integer getId() {
         return id;
@@ -53,28 +51,28 @@ public class TeamPageEntity {
         this.content = content;
     }
 
-    public Timestamp getCreated_at() {
-        return created_at;
+    public Timestamp getCreatedAt() {
+        return createdAt;
     }
 
-    public void setCreated_at(Timestamp created_at) {
-        this.created_at = created_at;
+    public void setCreatedAt(Timestamp createdAt) {
+        this.createdAt = createdAt;
     }
 
-    public Timestamp getUpdated_at() {
-        return updated_at;
+    public Timestamp getUpdatedAt() {
+        return updatedAt;
     }
 
-    public void setUpdated_at(Timestamp updated_at) {
-        this.updated_at = updated_at;
+    public void setUpdatedAt(Timestamp updatedAt) {
+        this.updatedAt = updatedAt;
     }
 
-    public Integer getTeam_id() {
-        return team_id;
+    public Integer getTeamId() {
+        return teamId;
     }
 
-    public void setTeam_id(Integer team_id) {
-        this.team_id = team_id;
+    public void setTeamId(Integer teamId) {
+        this.teamId = teamId;
     }
 
     public Status getStatus() {

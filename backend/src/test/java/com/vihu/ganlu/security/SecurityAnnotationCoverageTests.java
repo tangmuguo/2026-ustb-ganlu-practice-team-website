@@ -5,6 +5,7 @@ import com.vihu.ganlu.actions.CourseDetailAction;
 import com.vihu.ganlu.actions.FengCaiAction;
 import com.vihu.ganlu.actions.MessageAction;
 import com.vihu.ganlu.actions.NewsAction;
+import com.vihu.ganlu.actions.TeamAction;
 import com.vihu.ganlu.actions.UserAction;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -28,7 +29,8 @@ class SecurityAnnotationCoverageTests {
             NewsAction.class,
             CourseDetailAction.class,
             FengCaiAction.class,
-            MessageAction.class
+            MessageAction.class,
+            TeamAction.class
     );
 
     @Test

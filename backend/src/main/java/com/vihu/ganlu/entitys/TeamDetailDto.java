@@ -2,24 +2,34 @@ package com.vihu.ganlu.entitys;
 
 import java.sql.Timestamp;
 
-public class TeamEntity {
-    public enum Status {
-        DRAFT,
-        PUBLISHED,
-        ARCHIVED
-    }
-
+public class TeamDetailDto {
     private Integer id;
     private String year;
     private String name;
-    private Integer ownerUserId;
     private String region;
     private String school;
     private String description;
     private String coverUrl;
-    private Status status = Status.DRAFT;
+    private TeamEntity.Status status;
+    private Integer pageId;
     private Timestamp createdAt;
     private Timestamp updatedAt;
+
+    public static TeamDetailDto from(TeamEntity team, Integer pageId) {
+        TeamDetailDto detail = new TeamDetailDto();
+        detail.setId(team.getId());
+        detail.setYear(team.getYear());
+        detail.setName(team.getName());
+        detail.setRegion(team.getRegion());
+        detail.setSchool(team.getSchool());
+        detail.setDescription(team.getDescription());
+        detail.setCoverUrl(team.getCoverUrl());
+        detail.setStatus(team.getStatus());
+        detail.setPageId(pageId);
+        detail.setCreatedAt(team.getCreatedAt());
+        detail.setUpdatedAt(team.getUpdatedAt());
+        return detail;
+    }
 
     public Integer getId() {
         return id;
@@ -43,14 +53,6 @@ public class TeamEntity {
 
     public void setName(String name) {
         this.name = name;
-    }
-
-    public Integer getOwnerUserId() {
-        return ownerUserId;
-    }
-
-    public void setOwnerUserId(Integer ownerUserId) {
-        this.ownerUserId = ownerUserId;
     }
 
     public String getRegion() {
@@ -85,12 +87,20 @@ public class TeamEntity {
         this.coverUrl = coverUrl;
     }
 
-    public Status getStatus() {
+    public TeamEntity.Status getStatus() {
         return status;
     }
 
-    public void setStatus(Status status) {
+    public void setStatus(TeamEntity.Status status) {
         this.status = status;
+    }
+
+    public Integer getPageId() {
+        return pageId;
+    }
+
+    public void setPageId(Integer pageId) {
+        this.pageId = pageId;
     }
 
     public Timestamp getCreatedAt() {
