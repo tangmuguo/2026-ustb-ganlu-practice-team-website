@@ -6,6 +6,10 @@
 <mapper namespace="com.vihu.ganlu.mappers.TeamPageImageMapper">
     <resultMap type="com.vihu.ganlu.entitys.TeamPageImageEntity" id="teampageimagemap">
         <id column="id" property="id"/>
+        <result column="team_id" property="teamId"/>
+        <result column="status" property="status"/>
+        <result column="reject_reason" property="rejectReason"/>
+        <result column="log_date" property="logDate"/>
         <result column="userId" property="userId"/>
         <result column="pageId" property="pageId"/>
         <result column="imageUrl" property="imageUrl"/>
@@ -21,13 +25,52 @@
         select * from team_page_images where userId=#{userId}
     </select>
 
+    <select id="findByTeamId" parameterType="Integer" resultMap="teampageimagemap">
+        select * from team_page_images
+        where team_id = #{teamId} and status &lt;&gt; 'ARCHIVED'
+    </select>
+
+    <select id="findByTeamIdAndStatus" resultMap="teampageimagemap">
+        select * from team_page_images
+        where team_id = #{teamId}
+        <if test="status != null and status != ''">
+            and status = #{status}
+        </if>
+    </select>
+
+    <select id="findById" parameterType="Integer" resultMap="teampageimagemap">
+        select * from team_page_images where id = #{id}
+    </select>
+
     <insert id="insertTeamImage" parameterType="com.vihu.ganlu.entitys.TeamPageImageEntity">
         insert into team_page_images(
-                userId,imageUrl,caption,content,createdAt,type
+            team_id, status, reject_reason, log_date,
+            userId, imageUrl, caption, content, createdAt, type
         )VALUES (
-                    #{userId}, #{imageUrl}, #{caption},#{content}, NOW(),#{type}
-                )
+            #{teamId}, #{status}, #{rejectReason}, #{logDate},
+            #{userId}, #{imageUrl}, #{caption}, #{content}, NOW(), #{type}
+        )
     </insert>
+
+    <update id="updateImageStatus">
+        update team_page_images
+        set status = #{status},
+            reject_reason = #{rejectReason},
+            updatedAt = NOW()
+        where id = #{id}
+    </update>
+
+    <update id="archiveById">
+        update team_page_images
+        set status = 'ARCHIVED', updatedAt = NOW()
+        where id = #{id}
+    </update>
+
+    <update id="archiveByIdAndTeamId">
+        update team_page_images
+        set status = 'ARCHIVED', updatedAt = NOW()
+        where id = #{id} and team_id = #{teamId}
+    </update>
 
     <delete id="deleteTeamPageImageByIds" parameterType="com.vihu.ganlu.entitys.UserQueryVo">
         delete from team_page_images
@@ -48,4 +91,7 @@
         </foreach>
     </delete>
 
+    <delete id="purgeById">
+        delete from team_page_images where id = #{id}
+    </delete>
 </mapper>

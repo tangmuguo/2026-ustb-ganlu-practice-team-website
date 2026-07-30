@@ -6,10 +6,12 @@ import HonorList from '@/components/HonorList.vue';
 import PhotoList from '@/components/PhotoList.vue';
 import { useRouter } from 'vue-router';
 import { useRoute } from 'vue-router';
-import {findAllImages,findAllWords} from '@/apis/fengcaiAPI'
+import { getPublicTeamContent, downloadMedia as downloadMediaAPI } from '@/apis/fengcaiAPI'
+import { ElMessage } from 'element-plus'
 
 const imagelists=ref([])
 const wordlists=ref([])
+const medialist=ref([])
 const memberlist=computed(()=>{
     return imagelists.value.filter(item => item.type === 1);
 })
@@ -30,25 +32,33 @@ const returnBack=()=>{
     router.push('/fengcai')
 }
 
-const getAllImage=async ()=>{
-    const d=await findAllImages(id.value)
-    if(d.data.code===200){
-        imagelists.value=d.data.content
+const getAllContent = async ()=>{
+    const d = await getPublicTeamContent(id.value)
+    if(d.data.code === 200){
+        imagelists.value = d.data.content.images || []
+        wordlists.value = d.data.content.words || []
+        medialist.value = d.data.content.media || []
     }
 }
 
-const getAllWord=async ()=>{
-    const d=await findAllWords(id.value)
-    if(d.data.code===200){
-        wordlists.value=d.data.content
+async function downloadMedia(m) {
+    try {
+        const res = await downloadMediaAPI(m.id)
+        const url = URL.createObjectURL(res.data)
+        const a = document.createElement('a')
+        a.href = url
+        const cd = res.headers['content-disposition']
+        a.download = cd ? cd.split('filename=')[1]?.replace(/"/g, '') : m.filename || 'download'
+        a.click()
+        URL.revokeObjectURL(url)
+    } catch (error) {
+        ElMessage.error('下载失败: ' + (error.message || '未知错误'))
     }
 }
 
 onMounted(() => {
-  getAllImage()
-  getAllWord()
+  getAllContent()
 })
-
 </script>
 
 <template>
@@ -61,7 +71,7 @@ onMounted(() => {
         <section class="team-section">
             <h2 class="section-title">队员介绍</h2>
             <div class="team-members">
-                <MemberList 
+                <MemberList
                 :members="memberlist"
                 />
             </div>
@@ -71,7 +81,7 @@ onMounted(() => {
         <section class="team-section">
             <h2 class="section-title">团队荣誉</h2>
             <div class="team-members">
-                <HonorList 
+                <HonorList
                 :honors="honorlist"
                 />
             </div>
@@ -81,7 +91,7 @@ onMounted(() => {
         <section class="team-section">
             <h2 class="section-title">支教照片</h2>
             <div class="team-members">
-                <PhotoList 
+                <PhotoList
                 :photos="photolist"
                 />
             </div>
@@ -91,9 +101,29 @@ onMounted(() => {
         <section class="team-section">
             <h2 class="section-title">支教日志</h2>
             <div class="team-members">
-                <LogList 
+                <LogList
                 :logs="loglist"
                 />
+            </div>
+        </section>
+    </div>
+    <div class="main-container1" v-if="medialist.length > 0">
+        <section class="team-section">
+            <h2 class="section-title">视频附件</h2>
+            <div class="team-members">
+                <el-table :data="medialist" style="width: 100%">
+                    <el-table-column prop="filename" label="文件名" />
+                    <el-table-column label="大小" width="120">
+                        <template #default="{ row }">
+                            {{ row.fileSize ? (row.fileSize / 1024 / 1024).toFixed(2) + ' MB' : '-' }}
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="操作" width="120">
+                        <template #default="{ row }">
+                            <el-button type="primary" size="small" @click="downloadMedia(row)">下载</el-button>
+                        </template>
+                    </el-table-column>
+                </el-table>
             </div>
         </section>
     </div>

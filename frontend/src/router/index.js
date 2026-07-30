@@ -53,16 +53,16 @@ const router = createRouter({
       meta: { layout: 'DefaultLayout', hideBanner: true, requiresAuth: true, roles: [0, 1] } // 指定布局
     },
     {
-      path: '/logh',    //日志与荣誉
-      name: 'logh',
-      component: () => import('@/views/LogHonor.vue'),
-      meta: { layout: 'DefaultLayout', hideBanner: true, requiresAuth: true, roles: [0, 1] } // 指定布局
+      path: '/team-content-manage',   // 团队风采内容管理
+      name: 'teamContentManage',
+      component: () => import('@/views/TeamContentManage.vue'),
+      meta: { layout: 'DefaultLayout', hideBanner: true, requiresAuth: true, roles: [0, 1] }
     },
     {
-      path: '/photo',   //队员照片与执教照片
-      name: 'photo',
-      component: () => import('@/views/Photos.vue'),
-      meta: { layout: 'DefaultLayout', hideBanner: true, requiresAuth: true, roles: [0, 1] } // 指定布局
+      path: '/admin/team-content',   // 管理员审核面板
+      name: 'adminTeamContent',
+      component: () => import('@/views/TeamContentManage.vue'),
+      meta: { layout: 'DefaultLayout', hideBanner: true, requiresAuth: true, roles: [0] }
     },
     {
       path: '/fengcai',   //团队风采
@@ -110,7 +110,7 @@ const router = createRouter({
     //   path: '/about',
     //   name: 'about',
     //   // route level code-splitting
-    //   // this generates a separate chunk (About.[hash].js) for this route
+    //   // this generates a separate chunk (About.[hash] for the route
     //   // which is lazy-loaded when the route is visited.
     //   component: () => import('../views/AboutView.vue'),
     // },

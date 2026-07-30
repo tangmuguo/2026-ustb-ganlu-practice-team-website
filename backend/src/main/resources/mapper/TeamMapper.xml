@@ -138,4 +138,24 @@
         WHERE id = #{id}
           AND status != 'ARCHIVED'
     </update>
+
+    <!-- ===== 团队风采内容管理新增 ===== -->
+
+    <!-- 按 owner_user_id 查找当前用户负责的小队（团队端从 Token 推导 teamId）。
+         权限规则：只要团队未归档即可，允许 DRAFT 状态负责人准备内容。 -->
+    <select id="findOwnedTeamByOwnerUserId" resultMap="teamMap">
+        SELECT <include refid="teamColumns"/>
+        FROM team
+        WHERE owner_user_id = #{ownerUserId}
+          AND status &lt;&gt; 'ARCHIVED'
+        LIMIT 1
+    </select>
+
+    <!-- 查找所有团队（管理员内容管理下拉选择用） -->
+    <select id="findAllTeams" resultMap="teamMap">
+        SELECT <include refid="teamColumns"/>
+        FROM team
+        ORDER BY year DESC, id DESC
+    </select>
+
 </mapper>

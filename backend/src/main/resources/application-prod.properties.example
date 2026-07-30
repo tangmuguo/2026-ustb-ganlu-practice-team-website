@@ -11,10 +11,12 @@ spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
 
 server.port=-1
 
-spring.servlet.multipart.max-request-size=200MB
+# \u5927\u6587\u4EF6\u4E0A\u4F20\u914D\u7F6E\uFF08\u56E2\u961F\u98CE\u91C7\u89C6\u9891/\u9644\u4EF6\uFF0C\u6700\u5927 200MB\uFF09
 spring.servlet.multipart.max-file-size=200MB
+spring.servlet.multipart.max-request-size=210MB
 # \u5185\u5B58\u7F13\u51B2\u5927\u5C0F\uFF08\u8D85\u8FC7\u540E\u4F1A\u5199\u5165\u4E34\u65F6\u6587\u4EF6\uFF09
 spring.servlet.multipart.file-size-threshold=10MB
+spring.servlet.multipart.location=${GANLU_UPLOAD_TMP:/data/ganlu/tmp}
 
 app.base-url=${GANLU_APP_BASE_URL}
 

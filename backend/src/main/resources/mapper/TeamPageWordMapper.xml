@@ -6,6 +6,10 @@
 <mapper namespace="com.vihu.ganlu.mappers.TeamPageWordMapper">
     <resultMap type="com.vihu.ganlu.entitys.TeamPageWordEntity" id="teampagewordmap">
         <id column="id" property="id"/>
+        <result column="team_id" property="teamId"/>
+        <result column="status" property="status"/>
+        <result column="reject_reason" property="rejectReason"/>
+        <result column="log_date" property="logDate"/>
         <result column="userId" property="userId"/>
         <result column="pageId" property="pageId"/>
         <result column="videoUrl" property="videoUrl"/>
@@ -23,13 +27,52 @@
         select * from team_page_word where userId=#{userId}
     </select>
 
+    <select id="findByTeamId" parameterType="Integer" resultMap="teampagewordmap">
+        select * from team_page_word
+        where team_id = #{teamId} and status &lt;&gt; 'ARCHIVED'
+    </select>
+
+    <select id="findByTeamIdAndStatus" resultMap="teampagewordmap">
+        select * from team_page_word
+        where team_id = #{teamId}
+        <if test="status != null and status != ''">
+            and status = #{status}
+        </if>
+    </select>
+
+    <select id="findById" parameterType="Integer" resultMap="teampagewordmap">
+        select * from team_page_word where id = #{id}
+    </select>
+
     <insert id="insertTeamWord" parameterType="com.vihu.ganlu.entitys.TeamPageWordEntity">
         insert into team_page_word(
-            userId,caption,content,createdAt,type
+            team_id, status, reject_reason, log_date,
+            userId, caption, content, createdAt, type
         )VALUES (
-                    #{userId}, #{caption},#{content}, NOW(),#{type}
-                )
+            #{teamId}, #{status}, #{rejectReason}, #{logDate},
+            #{userId}, #{caption}, #{content}, NOW(), #{type}
+        )
     </insert>
+
+    <update id="updateWordStatus">
+        update team_page_word
+        set status = #{status},
+            reject_reason = #{rejectReason},
+            updatedAt = NOW()
+        where id = #{id}
+    </update>
+
+    <update id="archiveById">
+        update team_page_word
+        set status = 'ARCHIVED', updatedAt = NOW()
+        where id = #{id}
+    </update>
+
+    <update id="archiveByIdAndTeamId">
+        update team_page_word
+        set status = 'ARCHIVED', updatedAt = NOW()
+        where id = #{id} and team_id = #{teamId}
+    </update>
 
     <delete id="deleteTeamPageWordByIds" parameterType="com.vihu.ganlu.entitys.UserQueryVo">
         delete from team_page_word
@@ -50,4 +93,7 @@
         </foreach>
     </delete>
 
+    <delete id="purgeById">
+        delete from team_page_word where id = #{id}
+    </delete>
 </mapper>

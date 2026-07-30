@@ -1,6 +1,7 @@
 package com.vihu.ganlu.service.impl;
 
 import com.vihu.ganlu.entitys.TeamPageImageEntity;
+import com.vihu.ganlu.mappers.TeamMediaMapper;
 import com.vihu.ganlu.mappers.TeamPageImageMapper;
 import com.vihu.ganlu.service.TeamPageImageService;
 import com.vihu.ganlu.utils.FileStorageUtil;
@@ -14,6 +15,8 @@ import java.util.List;
 public class TeamPageImageServiceImpl implements TeamPageImageService {
     @Resource
     TeamPageImageMapper teamPageImageMapper;
+    @Resource
+    TeamMediaMapper teamMediaMapper;
     @Resource
     FileStorageUtil fileStorageUtil;
 
@@ -40,13 +43,54 @@ public class TeamPageImageServiceImpl implements TeamPageImageService {
         return teamPageImageMapper.deleteTeamPageImageByIdsAndUserId(ids, userId);
     }
 
-    public String uploadTeamImage(MultipartFile imageFile){
-        try{
+    public String uploadTeamImage(MultipartFile imageFile) {
+        try {
             String thumbnailPath = fileStorageUtil.storeFile(imageFile, "images");
             return thumbnailPath;
-
-        }catch (RuntimeException e) {
+        } catch (RuntimeException e) {
             throw new RuntimeException("文件存储失败", e);
         }
+    }
+
+    @Override
+    public List<TeamPageImageEntity> findByTeamId(int teamId) {
+        return teamPageImageMapper.findByTeamId(teamId);
+    }
+
+    @Override
+    public List<TeamPageImageEntity> findByTeamIdAndStatus(int teamId, String status) {
+        return teamPageImageMapper.findByTeamIdAndStatus(teamId, status);
+    }
+
+    @Override
+    public TeamPageImageEntity findById(int id) {
+        return teamPageImageMapper.findById(id);
+    }
+
+    @Override
+    public boolean archiveById(int id) {
+        int n = teamPageImageMapper.archiveById(id);
+        if (n > 0) {
+            teamMediaMapper.archiveByRelated("IMAGE", id); // 级联归档关联 media
+        }
+        return n > 0;
+    }
+
+    @Override
+    public boolean archiveByIdAndTeamId(int id, int teamId) {
+        int n = teamPageImageMapper.archiveByIdAndTeamId(id, teamId);
+        if (n > 0) {
+            teamMediaMapper.archiveByRelated("IMAGE", id); // 级联归档关联 media
+        }
+        return n > 0;
+    }
+
+    @Override
+    public boolean updateStatus(int id, String status, String rejectReason) {
+        int n = teamPageImageMapper.updateImageStatus(id, status, rejectReason);
+        if (n > 0) {
+            teamMediaMapper.updateStatusByRelated("IMAGE", id, status); // 级联同步 media 状态
+        }
+        return n > 0;
     }
 }

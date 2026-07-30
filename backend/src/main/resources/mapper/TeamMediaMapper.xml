@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.vihu.ganlu.mappers.TeamMediaMapper">
+    <resultMap type="com.vihu.ganlu.entitys.TeamMediaEntity" id="teammediamap">
+        <id column="id" property="id"/>
+        <result column="filename" property="filename"/>
+        <result column="relative_path" property="relativePath"/>
+        <result column="mime_type" property="mimeType"/>
+        <result column="file_size" property="fileSize"/>
+        <result column="uploader_id" property="uploaderId"/>
+        <result column="team_id" property="teamId"/>
+        <result column="related_type" property="relatedType"/>
+        <result column="related_id" property="relatedId"/>
+        <result column="status" property="status"/>
+        <result column="reject_reason" property="rejectReason"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insertTeamMedia" parameterType="com.vihu.ganlu.entitys.TeamMediaEntity"
+            useGeneratedKeys="true" keyProperty="id">
+        insert into team_media(
+            filename, relative_path, mime_type, file_size,
+            uploader_id, team_id, related_type, related_id,
+            status, reject_reason, created_at
+        ) VALUES (
+            #{filename}, #{relativePath}, #{mimeType}, #{fileSize},
+            #{uploaderId}, #{teamId}, #{relatedType}, #{relatedId},
+            #{status}, #{rejectReason}, NOW()
+        )
+    </insert>
+
+    <select id="findById" parameterType="Integer" resultMap="teammediamap">
+        select * from team_media where id = #{id}
+    </select>
+
+    <select id="findByTeamId" parameterType="Integer" resultMap="teammediamap">
+        select * from team_media where team_id = #{teamId}
+    </select>
+
+    <select id="findByStatus" resultMap="teammediamap">
+        select * from team_media
+        where team_id = #{teamId}
+        <if test="status != null and status != ''">
+            and status = #{status}
+        </if>
+    </select>
+
+    <select id="findByRelated" resultMap="teammediamap">
+        select * from team_media
+        where related_type = #{relatedType} and related_id = #{relatedId}
+    </select>
+
+    <update id="updateStatus">
+        update team_media
+        set status = #{status},
+            reject_reason = #{rejectReason},
+            updated_at = NOW()
+        where id = #{id}
+    </update>
+
+    <update id="updateStatusByRelated">
+        update team_media
+        set status = #{status},
+            updated_at = NOW()
+        where related_type = #{relatedType} and related_id = #{relatedId}
+    </update>
+
+    <update id="archiveByRelated">
+        update team_media
+        set status = 'ARCHIVED',
+            updated_at = NOW()
+        where related_type = #{relatedType} and related_id = #{relatedId}
+    </update>
+
+    <delete id="deleteByIds">
+        delete from team_media
+        where id in
+        <foreach collection="ids" item="id" separator="," open="(" close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+    <delete id="deleteByIdsAndUploader">
+        delete from team_media
+        where uploader_id = #{uploaderId}
+          and id in
+        <foreach collection="ids" item="id" separator="," open="(" close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+    <delete id="purgeById">
+        delete from team_media where id = #{id}
+    </delete>
+</mapper>

@@ -39,10 +39,13 @@ const onUpload=()=>{
   router.push('/uppt')
 }
 const onMember=()=>{
-  router.push('/photo')
+  router.push('/team-content-manage')
 }
 const onLog=()=>{
-  router.push('/logh')
+  router.push('/team-content-manage')
+}
+const onTeamContent = ()=>{
+  router.push('/team-content-manage')
 }
 const onManage = ()=>{
   router.push('/mmanage')
@@ -82,7 +85,7 @@ const onNews = ()=>{
                         <el-menu-item index="/messageboard">互动</el-menu-item>
                         <el-menu-item v-if="!userInfo.user.content" index="/login">登录</el-menu-item>
                         <el-menu-item v-else-if="userInfo.user.content.level===0">
-                          <el-dropdown>                            
+                          <el-dropdown>
                             <span class="el-dropdown-link">
                               <el-tooltip :content="displayName" placement="right" v-if="displayName.length > 5">
                                 <span>{{displayName.substring(0, 5)}}...</span>
@@ -98,18 +101,17 @@ const onNews = ()=>{
                                 <el-dropdown-item @click="onNews">新闻管理</el-dropdown-item>
                                 <el-dropdown-item @click="onTeam">团队管理</el-dropdown-item>
                                 <el-dropdown-item @click="onStudent">学生管理</el-dropdown-item>
+                                <el-dropdown-item @click="onTeamContent">风采内容管理</el-dropdown-item>
                                 <el-dropdown-item @click="onUpload">课件上传</el-dropdown-item>
                                 <el-dropdown-item @click="onManage">课件管理</el-dropdown-item>
-                                <el-dropdown-item @click="onLog">日志与荣誉</el-dropdown-item>
-                                <el-dropdown-item @click="onMember">执教与队员</el-dropdown-item>
                                 <el-dropdown-item @click="onLogout">注销</el-dropdown-item>
                               </el-dropdown-menu>
                             </template>
                           </el-dropdown>
                         </el-menu-item>
                         <el-menu-item v-else-if="userInfo.user.content.level===1">
-                          <el-dropdown>                            
-                            <span class="el-dropdown-link">                              
+                          <el-dropdown>
+                            <span class="el-dropdown-link">
                               <el-tooltip :content="displayName" placement="right" v-if="displayName.length > 5">
                                 <span>{{displayName.substring(0, 5)}}...</span>
                               </el-tooltip>
@@ -121,10 +123,9 @@ const onNews = ()=>{
                             <template #dropdown>
                               <el-dropdown-menu>
                                 <el-dropdown-item @click="onStudent">学生管理</el-dropdown-item>
+                                <el-dropdown-item @click="onTeamContent">风采内容管理</el-dropdown-item>
                                 <el-dropdown-item @click="onUpload">课件上传</el-dropdown-item>
                                 <el-dropdown-item @click="onManage">课件管理</el-dropdown-item>
-                                <el-dropdown-item @click="onLog">日志与荣誉</el-dropdown-item>
-                                <el-dropdown-item @click="onMember">执教与队员</el-dropdown-item>
                                 <el-dropdown-item @click="onLogout">注销</el-dropdown-item>
                               </el-dropdown-menu>
                             </template>

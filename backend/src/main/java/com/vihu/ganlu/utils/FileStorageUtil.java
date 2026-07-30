@@ -5,8 +5,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
+
 import java.io.IOException;
 import java.nio.file.*;
+import java.util.Arrays;
+import java.util.List;
 import java.util.UUID;
 
 @Slf4j
@@ -14,6 +17,24 @@ import java.util.UUID;
 public class FileStorageUtil {
     private final Path uploadRoot;
     private final String activeProfile;
+
+    // ---- 文件类型白名单 ----
+    public static final List<String> IMAGE_EXT = Arrays.asList("jpg", "jpeg", "png", "webp");
+    public static final List<String> VIDEO_EXT = Arrays.asList("mp4", "mov");
+    public static final List<String> DOC_EXT = Arrays.asList("pdf", "doc", "docx", "ppt", "pptx", "zip");
+
+    // ---- 魔数签名 ----
+    private static final byte[] MAGIC_JPEG = new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF};
+    private static final byte[] MAGIC_PNG = new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+    private static final byte[] MAGIC_WEBP_RIFF = "RIFF".getBytes();
+    private static final byte[] MAGIC_WEBP_WEBP = "WEBP".getBytes();
+    private static final byte[] MAGIC_MP4_FTYP = "ftyp".getBytes();
+    private static final byte[] MAGIC_PDF = "%PDF".getBytes();
+
+    // ---- 大小限制 ----
+    public static final long MAX_IMAGE_SIZE = 10 * 1024 * 1024;      // 10MB
+    public static final long MAX_VIDEO_SIZE = 200 * 1024 * 1024;     // 200MB
+    public static final long MAX_DOCUMENT_SIZE = 200 * 1024 * 1024;  // 200MB
 
     public FileStorageUtil(
             @Value("${file.upload-dir}") String uploadDir,
@@ -100,9 +121,6 @@ public class FileStorageUtil {
             Files.delete(filePath);
             log.info("文件删除成功: {}", filePath);
 
-            // 可选：删除空目录
-            //deleteEmptyParentDirectories(filePath.getParent());
-
             return true;
         } catch (IOException e) {
             throw new StorageException("删除文件失败: " + relativePath, e);
@@ -131,6 +149,158 @@ public class FileStorageUtil {
         }
     }
 
+    // =====================================================================
+    // 文件校验增强
+    // =====================================================================
+
+    public enum FileCategory {
+        IMAGE, VIDEO, DOCUMENT, REJECTED
+    }
+
+    public static class ValidatedFile {
+        private FileCategory category;
+        private String extension;
+        private String mimeType;
+        private long size;
+        private MultipartFile raw;
+
+        public FileCategory getCategory() { return category; }
+        public void setCategory(FileCategory category) { this.category = category; }
+        public String getExtension() { return extension; }
+        public void setExtension(String extension) { this.extension = extension; }
+        public String getMimeType() { return mimeType; }
+        public void setMimeType(String mimeType) { this.mimeType = mimeType; }
+        public long getSize() { return size; }
+        public void setSize(long size) { this.size = size; }
+        public MultipartFile getRaw() { return raw; }
+        public void setRaw(MultipartFile raw) { this.raw = raw; }
+    }
+
+    /**
+     * 综合校验文件：扩展名 + MIME + 魔数 + 大小。
+     * @param file 上传文件
+     * @param maxSizeBytes 允许的最大字节数
+     * @return 校验通过的文件信息
+     * @throws IllegalArgumentException 校验失败时抛出
+     */
+    public ValidatedFile validate(MultipartFile file, long maxSizeBytes) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("文件为空");
+        }
+
+        String originalFilename = file.getOriginalFilename();
+        if (originalFilename == null || originalFilename.isEmpty()) {
+            throw new IllegalArgumentException("文件名为空");
+        }
+
+        // 1. 提取扩展名
+        String ext = "";
+        int dot = originalFilename.lastIndexOf('.');
+        if (dot >= 0 && dot < originalFilename.length() - 1) {
+            ext = originalFilename.substring(dot + 1).toLowerCase();
+        }
+
+        // 2. 大小校验
+        if (file.getSize() > maxSizeBytes) {
+            throw new IllegalArgumentException(
+                    String.format("文件大小超过限制: %d > %d bytes", file.getSize(), maxSizeBytes));
+        }
+
+        // 3. 确定类别 + 校验扩展名白名单
+        FileCategory category;
+        if (IMAGE_EXT.contains(ext)) {
+            category = FileCategory.IMAGE;
+        } else if (VIDEO_EXT.contains(ext)) {
+            category = FileCategory.VIDEO;
+        } else if (DOC_EXT.contains(ext)) {
+            category = FileCategory.DOCUMENT;
+        } else {
+            throw new IllegalArgumentException("不支持的文件类型: " + ext);
+        }
+
+        // 4. 魔数校验（防伪装）
+        try {
+            byte[] header = file.getBytes();
+            if (header.length < 8) {
+                throw new IllegalArgumentException("文件头过短，无法校验");
+            }
+            if (!matchesMagic(header, category, ext)) {
+                throw new IllegalArgumentException("文件内容与实际扩展名不符（魔数校验失败）");
+            }
+        } catch (IOException e) {
+            throw new IllegalArgumentException("读取文件失败: " + e.getMessage());
+        }
+
+        ValidatedFile vf = new ValidatedFile();
+        vf.setCategory(category);
+        vf.setExtension(ext);
+        vf.setMimeType(file.getContentType());
+        vf.setSize(file.getSize());
+        vf.setRaw(file);
+        return vf;
+    }
+
+    private boolean matchesMagic(byte[] header, FileCategory category, String ext) {
+        switch (category) {
+            case IMAGE:
+                if ("jpg".equals(ext) || "jpeg".equals(ext)) {
+                    return startsWith(header, MAGIC_JPEG);
+                } else if ("png".equals(ext)) {
+                    return startsWith(header, MAGIC_PNG);
+                } else if ("webp".equals(ext)) {
+                    // RIFF....WEBP
+                    return startsWith(header, MAGIC_WEBP_RIFF)
+                            && header.length >= 12
+                            && matchBytes(header, 8, MAGIC_WEBP_WEBP);
+                }
+                return false;
+            case VIDEO:
+                // MP4/MOV: ftyp box at offset 4
+                if (header.length >= 12) {
+                    return matchBytes(header, 4, MAGIC_MP4_FTYP);
+                }
+                return false;
+            case DOCUMENT:
+                if ("pdf".equals(ext)) {
+                    return startsWith(header, MAGIC_PDF);
+                }
+                // doc/docx/ppt/pptx/zip 均为 OOXML/OLE 格式，魔数较复杂，
+                // 这里仅做扩展名校验（后续可补充）
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private boolean startsWith(byte[] data, byte[] prefix) {
+        if (data.length < prefix.length) return false;
+        for (int i = 0; i < prefix.length; i++) {
+            if (data[i] != prefix[i]) return false;
+        }
+        return true;
+    }
+
+    private boolean matchBytes(byte[] data, int offset, byte[] pattern) {
+        if (data.length < offset + pattern.length) return false;
+        for (int i = 0; i < pattern.length; i++) {
+            if (data[offset + i] != pattern[i]) return false;
+        }
+        return true;
+    }
+
+    // ---- 便捷方法 ----
+    public ValidatedFile isAllowedImage(MultipartFile file) {
+        return validate(file, MAX_IMAGE_SIZE);
+    }
+
+    public ValidatedFile isAllowedVideo(MultipartFile file) {
+        return validate(file, MAX_VIDEO_SIZE);
+    }
+
+    public ValidatedFile isAllowedDocument(MultipartFile file) {
+        return validate(file, MAX_DOCUMENT_SIZE);
+    }
+
     // 自定义异常
     public static class StorageException extends RuntimeException {
         public StorageException(String message) {
@@ -140,6 +310,4 @@ public class FileStorageUtil {
             super(message, cause);
         }
     }
-
-
 }

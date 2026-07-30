@@ -29,4 +29,18 @@ public interface TeamMapper {
     int updateTeam(TeamEntity team);
 
     int archiveTeam(@Param("id") int id);
+
+    // ---- 团队风采内容管理新增 ----
+
+    /**
+     * 查找指定用户负责的小队（owner_user_id = userId），用于从 Token 推导 teamId。
+     * 团队端权限规则：只要团队未被归档即可（允许 DRAFT 状态准备内容），
+     * 与公开端 "PUBLISHED 才可见" 的规则区分开。
+     */
+    TeamEntity findOwnedTeamByOwnerUserId(@Param("ownerUserId") int ownerUserId);
+
+    /**
+     * 查找所有团队（管理员内容管理下拉选择用）。
+     */
+    List<TeamEntity> findAllTeams();
 }
