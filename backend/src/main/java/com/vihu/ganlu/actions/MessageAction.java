@@ -1,7 +1,7 @@
 package com.vihu.ganlu.actions;
 
 import com.google.common.collect.ImmutableMap;
-import com.vihu.ganlu.entitys.DeleteReplyEntity;
+import com.vihu.ganlu.entitys.message.DeleteContentRequest;
 import com.vihu.ganlu.entitys.MessageEntity;
 import com.vihu.ganlu.entitys.ReplyEntity;
 import com.vihu.ganlu.entitys.UserEntity;
@@ -59,7 +59,7 @@ public class MessageAction {
     // 删除留言（管理员）
     @RequireRoles({0, 1})
     @RequestMapping("/deleteMessage")
-    public ResponseEntity<?> deleteMessage(@RequestBody DeleteReplyEntity deleteRequest,
+    public ResponseEntity<?> deleteMessage(@RequestBody DeleteContentRequest deleteRequest,
                                            HttpServletRequest request) {
 
         int i = messageService.deleteMessage(deleteRequest.getId(), currentUser(request).getId());
@@ -98,7 +98,7 @@ public class MessageAction {
     // 删除回复（管理员）
     @RequireRoles({0, 1})
     @RequestMapping("/deleteReply")
-    public ResponseEntity<?> deleteReply(@RequestBody DeleteReplyEntity deleteRequest,
+    public ResponseEntity<?> deleteReply(@RequestBody DeleteContentRequest deleteRequest,
                                          HttpServletRequest request) {
         int i = messageService.deleteReply(deleteRequest.getId(), currentUser(request).getId());
         if(i>0){
