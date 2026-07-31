@@ -12,11 +12,12 @@
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
         <result column="status" property="status"/>
+        <!-- username、teamname 由Service批量填充，不在SQL查询获取 -->
         <result column="username" property="username"/>
         <result column="teamname" property="teamname"/>
     </resultMap>
 
-    <!-- ==========原有旧接口（保留过渡使用）========== -->
+    <!-- ==========原有旧接口（完整保留，过渡使用，不改动）========== -->
     <!-- 新增回复【旧】 -->
     <insert id="insertReply" parameterType="com.vihu.ganlu.entitys.ReplyEntity" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO reply (
@@ -118,8 +119,8 @@
             r.id DESC
     </select>
 
-    <!-- ==========【任务新增标准接口，优先调用】========== -->
-    <!-- 【核心优化】批量查询多条留言对应的回复，解决N+1 -->
+    <!-- ==========【任务新增标准接口，Service优先调用】========== -->
+    <!-- 【核心优化】批量查询多条留言对应的回复，解决N+1 【重点修改：去掉联表、修正foreach集合名】 -->
     <select id="selectByMessageIds" resultMap="replymap">
         SELECT
             r.id,
@@ -128,20 +129,17 @@
             r.content,
             r.create_time,
             r.update_time,
-            r.status,
-            u.username,
-            u.teamname
+            r.status
         FROM reply r
-        LEFT JOIN user u ON r.user_id = u.id
         WHERE r.message_id IN
-        <foreach collection="messageIds" item="mid" open="(" separator="," close=")">
+        <foreach collection="msgIdList" item="mid" open="(" separator="," close=")">
             #{mid}
         </foreach>
         AND r.status = #{status}
         ORDER BY r.message_id ASC, r.create_time ASC, r.id ASC
     </select>
 
-    <!-- 根据ID查询单条回复（可查出已删除数据，用于权限校验） -->
+    <!-- 根据ID查询单条回复（可查出已删除数据，用于权限校验）【重点修改：去掉LEFT JOIN user】 -->
     <select id="selectById" parameterType="int" resultMap="replymap">
         SELECT
             r.id,
@@ -150,11 +148,8 @@
             r.content,
             r.create_time,
             r.update_time,
-            r.status,
-            u.username,
-            u.teamname
+            r.status
         FROM reply r
-        LEFT JOIN user u ON r.user_id = u.id
         WHERE r.id = #{id}
     </select>
 

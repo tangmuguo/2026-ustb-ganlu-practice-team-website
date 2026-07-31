@@ -117,4 +117,17 @@
         </where>
     </delete>
 
+    <!-- =====================【新增批量查询接口】===================== -->
+    <select id="selectUserByIdList" resultMap="usermap">
+        SELECT
+            id,
+            username,
+            teamname
+        FROM user
+        WHERE id IN
+        <foreach collection="userIdList" open="(" separator="," close=")" item="uid">
+            #{uid}
+        </foreach>
+    </select>
+
 </mapper>
