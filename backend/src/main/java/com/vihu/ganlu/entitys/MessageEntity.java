@@ -16,7 +16,7 @@ public class MessageEntity {
     private String content;
     private Date createTime;
     private Date updateTime;
-    private Boolean status;
+    private Integer status;
 
     // 非数据库字段
     private String username;
