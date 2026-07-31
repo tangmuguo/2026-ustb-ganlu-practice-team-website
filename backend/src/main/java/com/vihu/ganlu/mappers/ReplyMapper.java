@@ -6,8 +6,8 @@ import java.util.List;
 
 public interface ReplyMapper {
     // 批量根据messageId列表查询回复，解决N+1
-    List<ReplyEntity> selectByMessageIdList(@Param("ids") List<Integer> messageIdList,
-                                            @Param("status") int status);
+    List<ReplyEntity> selectByMessageIdList(@Param("messageIdList") List<Integer> messageIdList,
+                                            @Param("status") Integer status);
 
     ReplyEntity selectById(@Param("id") Integer id);
 

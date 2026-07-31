@@ -132,7 +132,7 @@
             r.status
         FROM reply r
         WHERE r.message_id IN
-        <foreach collection="msgIdList" item="mid" open="(" separator="," close=")">
+        <foreach collection="messageIdList" item="mid" open="(" separator="," close=")">
             #{mid}
         </foreach>
         AND r.status = #{status}

@@ -5,11 +5,11 @@ import org.apache.ibatis.annotations.Param;
 import java.util.List;
 
 public interface MessageMapper {
-    List<MessageEntity> selectPage(@Param("status") int status,
+    List<MessageEntity> selectPage(@Param("status") Integer status,
                                    @Param("offset") int offset,
                                    @Param("limit") int limit);
 
-    int countByStatus(@Param("status") int status);
+    int countByStatus(@Param("status") Integer status);
 
     MessageEntity selectById(@Param("id") Integer id);
 

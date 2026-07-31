@@ -4,7 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vihu.ganlu.entitys.UserEntity;
 import com.vihu.ganlu.entitys.message.DeleteContentRequest;
 import com.vihu.ganlu.entitys.message.MessageCreateRequest;
-import com.vihu.ganlu.security.AuthInterceptor;
+import com.vihu.ganlu.security.TokenService;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,15 +35,22 @@ class MessageActionTests {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private TokenService tokenService;
+
     /**
-     * 工具方法：构造测试用户
+     * 生成带 Bearer 前缀的有效 token
+     * @param userId 用户ID（建议使用数据库中真实存在的用户ID）
+     * @param level  用户等级
      */
-    private UserEntity buildTestUser(int level, int userId) {
+    private String buildToken(int userId, int level) {
         UserEntity user = new UserEntity();
         user.setId(userId);
         user.setLevel(level);
-        return user;
+        String token = tokenService.createToken(user);
+        return "Bearer " + token;
     }
+
 
     // ========== 游客权限测试 ==========
 
@@ -88,16 +96,16 @@ class MessageActionTests {
     @DisplayName("核心安全：level2用户伪造管理员ID删除，仍返回403")
     void testDelete_forgeUserId_still403() throws Exception {
         // 对应任务单：请求体伪造有权用户ID不能越权
-        UserEntity level2User = buildTestUser(2, 2001);
+        // 使用 level=2 的普通用户 token 认证
+        String token = buildToken(2001, 2);
 
         // 恶意请求体：塞入 userId=1（管理员），试图越权删除
         String maliciousBody = "{\"id\":1,\"userId\":1}";
 
         mockMvc.perform(post("/message/delete")
+                        .header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(maliciousBody)
-                        // 模拟拦截器已认证：当前登录用户是level2
-                        .requestAttr(AuthInterceptor.CURRENT_USER_ATTRIBUTE, level2User))
+                        .content(maliciousBody))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value(403));
     }
@@ -106,14 +114,15 @@ class MessageActionTests {
     @DisplayName("新增留言：请求体携带userId无效，以认证身份为准")
     void testAddMessage_forgeUserId_ignored() throws Exception {
         // 对应任务单：后端不信任请求体userId
-        UserEntity level2User = buildTestUser(2, 2001);
+        // 使用 level=2 的普通用户 token 认证
+        String token = buildToken(2001, 2);
         // 请求体里伪造 userId=1（管理员）
         String maliciousBody = "{\"content\":\"测试留言\",\"userId\":1}";
 
         mockMvc.perform(post("/message/add")
+                        .header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(maliciousBody)
-                        .requestAttr(AuthInterceptor.CURRENT_USER_ATTRIBUTE, level2User))
+                        .content(maliciousBody))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200));
         // 实际入库的userId是2001，不是伪造的1，Service层已保证
@@ -148,28 +157,31 @@ class MessageActionTests {
     @Test
     @DisplayName("删除留言：level=1 管理员成功")
     void testDeleteMessage_level1_success() throws Exception {
-        UserEntity admin = buildTestUser(1, 1001);
+        // 使用 level=1 的管理员 token 认证
+        String token = buildToken(1001, 1);
         DeleteContentRequest req = new DeleteContentRequest();
         req.setId(1);
 
         mockMvc.perform(post("/message/delete")
+                        .header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(req))
-                        .requestAttr(AuthInterceptor.CURRENT_USER_ATTRIBUTE, admin))
+                        .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("删除回复：level=2 学生返回403")
     void testDeleteReply_level2_forbidden() throws Exception {
-        UserEntity student = buildTestUser(2, 2001);
+        // 使用 level=2 的普通用户 token 认证
+        String token = buildToken(2001, 2);
+
         DeleteContentRequest req = new DeleteContentRequest();
         req.setId(1);
 
         mockMvc.perform(post("/message/deleteReply")
+                        .header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(req))
-                        .requestAttr(AuthInterceptor.CURRENT_USER_ATTRIBUTE, student))
+                        .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isForbidden());
     }
 }

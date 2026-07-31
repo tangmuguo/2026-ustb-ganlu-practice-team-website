@@ -38,15 +38,13 @@ public class MessageAction {
         if (page < 1) {
             return ResponseEntity.badRequest().body(ImmutableMap.of(
                     "code", 400,
-                    "message", "page 参数必须大于等于 1",
-                    "content", null
+                    "message", "page 参数必须大于等于 1"
             ));
         }
         if (pageSize < 1 || pageSize > 50) {
             return ResponseEntity.badRequest().body(ImmutableMap.of(
                     "code", 400,
-                    "message", "pageSize 范围为 1~50",
-                    "content", null
+                    "message", "pageSize 范围为 1~50"
             ));
         }
 
@@ -72,8 +70,7 @@ public class MessageAction {
         // 走到这里说明成功
         return ResponseEntity.ok(ImmutableMap.of(
                 "code", 200,
-                "message", "留言添加成功",
-                "content", null
+                "message", "留言添加成功"
         ));
     }
 
@@ -91,8 +88,7 @@ public class MessageAction {
 
         return ResponseEntity.ok(ImmutableMap.of(
                 "code", 200,
-                "message", "回复添加成功",
-                "content", null
+                "message", "回复添加成功"
         ));
     }
 
@@ -110,8 +106,7 @@ public class MessageAction {
 
         return ResponseEntity.ok(ImmutableMap.of(
                 "code", 200,
-                "message", "留言删除成功",
-                "content", null
+                "message", "留言删除成功"
         ));
     }
 
@@ -128,8 +123,7 @@ public class MessageAction {
 
         return ResponseEntity.ok(ImmutableMap.of(
                 "code", 200,
-                "message", "回复删除成功",
-                "content", null
+                "message", "回复删除成功"
         ));
     }
 
