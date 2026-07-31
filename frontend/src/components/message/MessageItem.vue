@@ -4,6 +4,7 @@ import { Delete } from '@element-plus/icons-vue'
 import ReplyComposer from '@/components/message/ReplyComposer.vue'
 import ReplyList from '@/components/message/ReplyList.vue'
 import { formatMessageTime } from '@/utils/date'
+import { getMessageAuthor } from '@/utils/messageAuthor'
 
 const props = defineProps({
   message: {
@@ -47,55 +48,25 @@ const replies = computed(() => (
   Array.isArray(props.message.replies) ? props.message.replies : []
 ))
 
-const level = computed(() => {
-  const value = props.message?.userLevel
-    ?? props.message?.level
-    ?? props.message?.user?.level
-  const parsed = Number(value)
-  return Number.isInteger(parsed) ? parsed : null
-})
-
-const displayName = computed(() => (
-  props.message?.displayName
-  || props.message?.teamname
-  || props.message?.realname
-  || props.message?.username
-  || '已注销用户'
-))
-
-const initial = computed(() => Array.from(displayName.value)[0] || '甘')
-
-const roleName = computed(() => {
-  if (level.value === 0) return '系统管理员'
-  if (level.value === 1) return props.message?.teamname || '甘露团队'
-  if (level.value === 2) return '学生账号'
-  if (props.message?.teamname) return props.message.teamname
-  return '注册用户'
-})
-
-const roleClass = computed(() => {
-  if (level.value === 0) return 'admin'
-  if (level.value === 1 || props.message?.teamname) return 'team'
-  if (level.value === 2) return 'student'
-  return 'member'
-})
+const author = computed(() => getMessageAuthor(props.message))
+const initial = computed(() => Array.from(author.value.displayName)[0] || '甘')
 </script>
 
 <template>
-  <article class="message-card" :class="roleClass">
+  <article class="message-card" :class="author.roleClass">
     <header class="message-header">
-      <div class="author-avatar" :class="roleClass" aria-hidden="true">
+      <div class="author-avatar" :class="author.roleClass" aria-hidden="true">
         {{ initial }}
       </div>
 
       <div class="author-info">
         <div class="author-name-row">
-          <h3>{{ displayName }}</h3>
-          <span class="role-tag" :class="roleClass">{{ roleName }}</span>
+          <h3>{{ author.displayName }}</h3>
+          <span class="role-tag" :class="author.roleClass">{{ author.roleName }}</span>
         </div>
         <div class="message-meta">
-          <span v-if="message.username && message.username !== displayName">
-            @{{ message.username }}
+          <span v-if="author.username && author.username !== author.displayName">
+            @{{ author.username }}
           </span>
           <time>{{ formatMessageTime(message.createTime) }}</time>
         </div>

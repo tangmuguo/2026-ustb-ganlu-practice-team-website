@@ -19,7 +19,11 @@ import {
 import MessageComposer from '@/components/message/MessageComposer.vue'
 import MessageItem from '@/components/message/MessageItem.vue'
 import MessageListSkeleton from '@/components/message/MessageListSkeleton.vue'
-import communityLearningPhoto from '@/assets/message/community-learning.jpg'
+import {
+  createLatestRequestGuard,
+  finishPending,
+  startPending
+} from '@/utils/messageState'
 import { userinfoStore } from '@/stores/userStore'
 
 const PAGE_SIZE = 10
@@ -40,9 +44,10 @@ const refreshing = ref(false)
 const hasLoaded = ref(false)
 const loadError = ref('')
 const submittingMessage = ref(false)
-const submittingReplyId = ref(null)
+const submittingReplyIds = ref(new Set())
 const deletingMessageId = ref(null)
 const deletingReplyId = ref(null)
+const fetchGuard = createLatestRequestGuard()
 
 const isLoggedIn = computed(() => Boolean(userStore.isLoggedIn))
 const userLevel = computed(() => {
@@ -123,6 +128,7 @@ async function requestMessagePage(page) {
 }
 
 async function fetchMessages({ correctPage = true, scroll = false } = {}) {
+  const fetchId = fetchGuard.begin()
   const firstLoad = !hasLoaded.value
   if (firstLoad) {
     loading.value = true
@@ -132,16 +138,19 @@ async function fetchMessages({ correctPage = true, scroll = false } = {}) {
   loadError.value = ''
 
   try {
-    let result = await requestMessagePage(currentPage.value)
+    const requestedPage = currentPage.value
+    let result = await requestMessagePage(requestedPage)
+    if (!fetchGuard.isLatest(fetchId)) return
 
     if (
       correctPage
-      && currentPage.value > 1
+      && requestedPage > 1
       && result.items.length === 0
       && result.total > 0
     ) {
       currentPage.value = Math.max(1, Math.ceil(result.total / PAGE_SIZE))
       result = await requestMessagePage(currentPage.value)
+      if (!fetchGuard.isLatest(fetchId)) return
     }
 
     messages.value = result.items
@@ -149,18 +158,24 @@ async function fetchMessages({ correctPage = true, scroll = false } = {}) {
 
     if (scroll) {
       await nextTick()
-      listAnchor.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      if (fetchGuard.isLatest(fetchId)) {
+        listAnchor.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
     }
   } catch (error) {
-    loadError.value = getErrorMessage(error, '暂时无法加载留言，请稍后重试')
-    if (firstLoad) {
-      messages.value = []
-      total.value = 0
+    if (fetchGuard.isLatest(fetchId)) {
+      loadError.value = getErrorMessage(error, '暂时无法加载留言，请稍后重试')
+      if (firstLoad) {
+        messages.value = []
+        total.value = 0
+      }
     }
   } finally {
-    hasLoaded.value = true
-    loading.value = false
-    refreshing.value = false
+    if (fetchGuard.isLatest(fetchId)) {
+      hasLoaded.value = true
+      loading.value = false
+      refreshing.value = false
+    }
   }
 }
 
@@ -209,7 +224,7 @@ function updateReplyDraft(messageId, value) {
 }
 
 async function submitReply(messageId) {
-  if (submittingReplyId.value === messageId) return
+  if (submittingReplyIds.value.has(messageId)) return
 
   if (!canPublish.value) {
     ElMessage.warning('登录后才能回复')
@@ -228,7 +243,7 @@ async function submitReply(messageId) {
     return
   }
 
-  submittingReplyId.value = messageId
+  if (!startPending(submittingReplyIds.value, messageId)) return
   try {
     ensureSuccessfulResponse(await addReply(messageId, content), '回复发布失败')
     replyDrafts.value[messageId] = ''
@@ -237,7 +252,7 @@ async function submitReply(messageId) {
   } catch (error) {
     showActionError(error, '回复发布失败，请稍后重试')
   } finally {
-    submittingReplyId.value = null
+    finishPending(submittingReplyIds.value, messageId)
   }
 }
 
@@ -338,10 +353,19 @@ onMounted(() => {
           </div>
         </div>
         <figure class="hero-visual">
-          <img
-            :src="communityLearningPhoto"
-            alt="在校园活动中认真聆听的学生"
-          />
+          <div class="community-illustration" aria-hidden="true">
+            <span class="illustration-sun"></span>
+            <span class="illustration-cloud cloud-one"></span>
+            <span class="illustration-cloud cloud-two"></span>
+            <span class="illustration-hill hill-back"></span>
+            <span class="illustration-hill hill-front"></span>
+            <div class="illustration-book">
+              <span></span>
+              <span></span>
+            </div>
+            <span class="illustration-bubble bubble-question">问</span>
+            <span class="illustration-bubble bubble-answer">答</span>
+          </div>
           <div class="photo-label">
             <span>GANLU COMMUNITY</span>
             <small>倾听 · 分享 · 成长</small>
@@ -433,7 +457,7 @@ onMounted(() => {
               :can-reply="canPublish"
               :can-delete="canDelete"
               :reply-draft="replyDrafts[message.id] || ''"
-              :reply-loading="submittingReplyId === message.id"
+              :reply-loading="submittingReplyIds.has(message.id)"
               :deleting-message-id="deletingMessageId"
               :deleting-reply-id="deletingReplyId"
               @update:reply-draft="updateReplyDraft(message.id, $event)"
@@ -640,15 +664,167 @@ onMounted(() => {
   transform: rotate(3deg);
 }
 
-.hero-visual > img {
+.community-illustration {
+  position: relative;
   display: block;
+  overflow: hidden;
   width: 100%;
   height: 100%;
   border: 7px solid #fff;
   border-radius: 28px 28px 84px 28px;
-  object-fit: cover;
-  object-position: center 42%;
+  background:
+    linear-gradient(180deg, #dff3fb 0 61%, #f7e7bd 61% 100%);
   box-shadow: 0 28px 64px rgb(30 73 98 / 18%);
+}
+
+.illustration-sun {
+  position: absolute;
+  top: 32px;
+  right: 55px;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: #f7c75b;
+  box-shadow: 0 0 0 12px rgb(247 199 91 / 18%);
+}
+
+.illustration-cloud {
+  position: absolute;
+  height: 17px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 75%);
+}
+
+.illustration-cloud::before,
+.illustration-cloud::after {
+  position: absolute;
+  bottom: 0;
+  border-radius: 50%;
+  background: inherit;
+  content: '';
+}
+
+.illustration-cloud::before {
+  left: 15px;
+  width: 29px;
+  height: 29px;
+}
+
+.illustration-cloud::after {
+  right: 14px;
+  width: 22px;
+  height: 22px;
+}
+
+.cloud-one {
+  top: 61px;
+  left: 46px;
+  width: 82px;
+}
+
+.cloud-two {
+  top: 112px;
+  right: 25px;
+  width: 68px;
+  opacity: 0.72;
+}
+
+.illustration-hill {
+  position: absolute;
+  bottom: 86px;
+  border-radius: 55% 55% 0 0;
+  transform-origin: bottom;
+}
+
+.hill-back {
+  right: -20px;
+  width: 78%;
+  height: 127px;
+  background: #86cdb2;
+  transform: rotate(-5deg);
+}
+
+.hill-front {
+  bottom: 66px;
+  left: -32px;
+  width: 76%;
+  height: 115px;
+  background: #4fa47f;
+  transform: rotate(7deg);
+}
+
+.illustration-book {
+  position: absolute;
+  right: 25%;
+  bottom: 29px;
+  z-index: 2;
+  display: flex;
+  width: 174px;
+  height: 91px;
+  filter: drop-shadow(0 15px 13px rgb(38 75 59 / 18%));
+  transform: rotate(-2deg);
+}
+
+.illustration-book::after {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 50%;
+  width: 2px;
+  background: #e4c986;
+  content: '';
+}
+
+.illustration-book span {
+  width: 50%;
+  border: 2px solid #e5cd91;
+  background:
+    repeating-linear-gradient(
+      180deg,
+      #fffdf4 0 12px,
+      #dce8dd 13px 14px
+    );
+}
+
+.illustration-book span:first-child {
+  border-radius: 15px 4px 7px 20px;
+  transform: skewY(5deg);
+}
+
+.illustration-book span:last-child {
+  border-radius: 4px 15px 20px 7px;
+  transform: skewY(-5deg);
+}
+
+.illustration-bubble {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 4px solid #fff;
+  border-radius: 15px 15px 15px 4px;
+  color: #fff;
+  box-shadow: 0 10px 20px rgb(37 78 101 / 16%);
+  font-family: "Noto Serif SC", "Songti SC", serif;
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.bubble-question {
+  top: 89px;
+  left: 31%;
+  background: #1e88e5;
+  transform: rotate(-7deg);
+}
+
+.bubble-answer {
+  top: 130px;
+  right: 18%;
+  border-radius: 15px 15px 4px;
+  background: #e2aa42;
+  transform: rotate(6deg);
 }
 
 .photo-label {
@@ -1030,9 +1206,32 @@ onMounted(() => {
     right: 25px;
   }
 
-  .hero-visual > img {
+  .community-illustration {
     border-width: 5px;
     border-radius: 22px 22px 58px 22px;
+  }
+
+  .illustration-book {
+    right: 21%;
+    bottom: 23px;
+    width: 126px;
+    height: 67px;
+  }
+
+  .illustration-bubble {
+    width: 36px;
+    height: 36px;
+    border-width: 3px;
+    font-size: 15px;
+  }
+
+  .bubble-question {
+    top: 64px;
+  }
+
+  .bubble-answer {
+    top: 96px;
+    right: 14%;
   }
 
   .photo-label {

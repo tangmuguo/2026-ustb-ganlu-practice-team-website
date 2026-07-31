@@ -1,6 +1,7 @@
 <script setup>
 import { Delete } from '@element-plus/icons-vue'
 import { formatMessageTime } from '@/utils/date'
+import { getMessageAuthor } from '@/utils/messageAuthor'
 
 defineProps({
   replies: {
@@ -19,18 +20,8 @@ defineProps({
 
 defineEmits(['delete'])
 
-function getLevel(item) {
-  const value = item?.userLevel ?? item?.level ?? item?.user?.level
-  const parsed = Number(value)
-  return Number.isInteger(parsed) ? parsed : null
-}
-
 function getDisplayName(item) {
-  return item?.displayName
-    || item?.teamname
-    || item?.realname
-    || item?.username
-    || '已注销用户'
+  return getMessageAuthor(item).displayName
 }
 
 function getInitial(item) {
@@ -38,20 +29,11 @@ function getInitial(item) {
 }
 
 function getRoleName(item) {
-  const level = getLevel(item)
-  if (level === 0) return '系统管理员'
-  if (level === 1) return item?.teamname || '甘露团队'
-  if (level === 2) return '学生账号'
-  if (item?.teamname) return item.teamname
-  return '注册用户'
+  return getMessageAuthor(item).roleName
 }
 
 function getRoleClass(item) {
-  const level = getLevel(item)
-  if (level === 0) return 'admin'
-  if (level === 1 || item?.teamname) return 'team'
-  if (level === 2) return 'student'
-  return 'member'
+  return getMessageAuthor(item).roleClass
 }
 </script>
 
