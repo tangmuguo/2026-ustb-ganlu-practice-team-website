@@ -4,14 +4,9 @@ import com.vihu.ganlu.entitys.UserEntity;
 import java.util.Map;
 
 public interface MessageService {
-
     Map<String, Object> getMessages(int page, int pageSize);
-
-    int addMessage(String content, Integer loginUserId);
-
-    int addReply(Integer messageId, String content, Integer loginUserId);
-
-    int deleteMessage(Integer messageId, UserEntity loginUser);
-
-    int deleteReply(Integer replyId, UserEntity loginUser);
+    void addMessage(String content, Integer loginUserId);
+    void addReply(Integer messageId, String content, Integer loginUserId);
+    void deleteMessage(Integer messageId, UserEntity loginUser);
+    void deleteReply(Integer replyId, UserEntity loginUser);
 }

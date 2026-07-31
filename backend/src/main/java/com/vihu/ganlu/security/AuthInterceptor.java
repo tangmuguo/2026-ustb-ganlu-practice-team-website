@@ -45,6 +45,7 @@ public class AuthInterceptor implements HandlerInterceptor {
         }
 
         String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
+        // 没有token，直接401
         if (authorization == null || !authorization.startsWith("Bearer ")) {
             return reject(response, HttpStatus.UNAUTHORIZED, "请先登录");
         }
@@ -60,7 +61,7 @@ public class AuthInterceptor implements HandlerInterceptor {
         } catch (RuntimeException ex) {
             return reject(response, HttpStatus.UNAUTHORIZED, "Token无效或已过期");
         }
-
+        // token无效/用户不存在，401
         if (currentUser == null || currentUser.getLevel() == null) {
             return reject(response, HttpStatus.UNAUTHORIZED, "账号不存在或已失效");
         }
