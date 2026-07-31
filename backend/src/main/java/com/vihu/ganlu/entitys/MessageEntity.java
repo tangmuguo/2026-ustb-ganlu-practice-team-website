@@ -1,6 +1,5 @@
 package com.vihu.ganlu.entitys;
 
-
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
