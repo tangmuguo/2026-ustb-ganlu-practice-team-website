@@ -1,10 +1,17 @@
 package com.vihu.ganlu.entitys.message;
 
-import lombok.Data;
 import javax.validation.constraints.NotNull;
 
-@Data
 public class DeleteContentRequest {
-    @NotNull(message = "待删除资源id不能为空")
+
+    @NotNull(message = "资源ID不能为空")
     private Integer id;
+
+    public Integer getId() {
+        return id;
+    }
+
+    public void setId(Integer id) {
+        this.id = id;
+    }
 }
