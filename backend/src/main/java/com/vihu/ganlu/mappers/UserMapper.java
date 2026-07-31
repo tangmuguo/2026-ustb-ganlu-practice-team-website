@@ -11,15 +11,25 @@ import java.util.List;
 public interface UserMapper {
 
     List<UserEntity> findAllUser();
+
     UserEntity findUserById(int id);
+
     List<UserEntity> findUserByLevel(int level);
+
     List<UserEntity> findUserBigLevel(int level);
+
     UserEntity login(UserEntity e);
+
     int findCountUserByPage(UserQueryVo vo);
+
     List<UserEntity> findUserByPage(UserQueryVo vo);
+
     Integer addUser(UserEntity e);
+
     Integer updateUserById(UserEntity e);
-    Integer deleteUserByIds(List<Integer> ids);
+
+    // 唯一改动：给 List 参数加 @Param，和 XML 中的变量名保持一致
+    Integer deleteUserByIds(@Param("ids") List<Integer> ids);
 
     // ====================【新增新标准接口】====================
     /**

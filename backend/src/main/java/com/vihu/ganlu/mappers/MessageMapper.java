@@ -7,7 +7,7 @@ import java.util.List;
 public interface MessageMapper {
     List<MessageEntity> selectPage(@Param("status") Integer status,
                                    @Param("offset") int offset,
-                                   @Param("limit") int limit);
+                                   @Param("pageSize") int pageSize);
 
     int countByStatus(@Param("status") Integer status);
 
