@@ -52,9 +52,10 @@ public class TeamPageWordServiceImpl implements TeamPageWordService {
 
     @Override
     public boolean archiveById(int id) {
+        TeamPageWordEntity e = teamPageWordMapper.findById(id);
         int n = teamPageWordMapper.archiveById(id);
-        if (n > 0) {
-            teamMediaMapper.archiveByRelated("WORD", id); // 级联归档关联 media
+        if (n > 0 && e != null && e.getTeamId() != null) {
+            teamMediaMapper.archiveByRelated("WORD", id, e.getTeamId()); // 级联归档关联 media
         }
         return n > 0;
     }
@@ -63,16 +64,17 @@ public class TeamPageWordServiceImpl implements TeamPageWordService {
     public boolean archiveByIdAndTeamId(int id, int teamId) {
         int n = teamPageWordMapper.archiveByIdAndTeamId(id, teamId);
         if (n > 0) {
-            teamMediaMapper.archiveByRelated("WORD", id); // 级联归档关联 media
+            teamMediaMapper.archiveByRelated("WORD", id, teamId); // 级联归档关联 media
         }
         return n > 0;
     }
 
     @Override
     public boolean updateStatus(int id, String status, String rejectReason) {
+        TeamPageWordEntity e = teamPageWordMapper.findById(id);
         int n = teamPageWordMapper.updateWordStatus(id, status, rejectReason);
-        if (n > 0) {
-            teamMediaMapper.updateStatusByRelated("WORD", id, status); // 级联同步 media 状态
+        if (n > 0 && e != null && e.getTeamId() != null) {
+            teamMediaMapper.updateStatusByRelated("WORD", id, status, e.getTeamId()); // 级联同步 media 状态
         }
         return n > 0;
     }

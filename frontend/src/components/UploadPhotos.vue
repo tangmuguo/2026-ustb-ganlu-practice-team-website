@@ -56,6 +56,7 @@ const submitForm = async () => {
       caption: form.value.caption,
       content: form.value.content,
       logDate: form.value.logDate || undefined,
+      type: form.value.type !== 1 ? form.value.type : undefined, // type=2/3 传给后端
     }
     const file = form.value.rawFile
     const res = (form.value.type === 1)

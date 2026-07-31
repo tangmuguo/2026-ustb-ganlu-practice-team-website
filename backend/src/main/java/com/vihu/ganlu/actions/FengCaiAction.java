@@ -114,7 +114,7 @@ public class FengCaiAction {
     @RequestMapping("/words")
     public ResponseEntity<?> findAllWord(@RequestBody TeamPageWordEntity entity){
         int teamId = entity.getUserId();
-        List<TeamPageWordEntity> allWord = teamPageWordService.findByTeamId(teamId);
+        List<TeamPageWordEntity> allWord = teamPageWordService.findByTeamIdAndStatus(teamId, "PUBLISHED");
         if(allWord!=null){
             return ResponseEntity.ok().body(ImmutableMap.of(
                     "code", 200,
@@ -138,7 +138,7 @@ public class FengCaiAction {
     @RequestMapping("/images")
     public ResponseEntity<?> findAllImage(@RequestBody TeamPageImageEntity entity){
         int teamId = entity.getUserId();
-        List<TeamPageImageEntity> allWord = teamPageImageService.findByTeamId(teamId);
+        List<TeamPageImageEntity> allWord = teamPageImageService.findByTeamIdAndStatus(teamId, "PUBLISHED");
         if(allWord!=null){
             return ResponseEntity.ok().body(ImmutableMap.of(
                     "code", 200,

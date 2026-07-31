@@ -2,6 +2,12 @@
 -- Patch 11: 团队风采内容管理 — team_media 表 + 旧表加列 + 数据回填
 -- 依赖: ganlu.sql（team_page_images / team_page_word 表已存在）
 -- 执行顺序: ganlu.sql → 本文件
+--
+-- PR #5 合并兼容说明：
+--   当前（PR #5 未合并）: team_page.userId 列存在，迁移通过 page.userId 回填 team_id
+--   PR #5 合并后（Patch 10）: team_page.userId 已被 team_page.team_id 替代，
+--   需将本文中的 page.userId → page.team_id，userid → team_id
+--   涉及行：第 67、77、83 行（共 4 处引用）
 -- =====================================================================
 
 SET NAMES utf8mb4;
@@ -10,8 +16,7 @@ SET FOREIGN_KEY_CHECKS = 0;
 -- ---------------------------------------------------------------------
 -- 1. CREATE TABLE team_media — 视频/附件表
 -- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `team_media`;
-CREATE TABLE `team_media`  (
+CREATE TABLE IF NOT EXISTS `team_media` (
   `id` int(0) NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `filename` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '原始文件名',
   `relative_path` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '存储相对路径（uploadRoot 下）',
@@ -91,5 +96,11 @@ FROM team_page_images WHERE team_id IS NULL
 UNION ALL
 SELECT 'team_page_word_orphan', COUNT(*)
 FROM team_page_word WHERE team_id IS NULL;
+
+-- ---------------------------------------------------------------------
+-- 6. 历史内容回填 PUBLISHED — 已有 pageId 关联的记录视为已发布内容
+-- ---------------------------------------------------------------------
+UPDATE team_page_images SET status = 'PUBLISHED' WHERE team_id IS NOT NULL AND pageId IS NOT NULL;
+UPDATE team_page_word SET status = 'PUBLISHED' WHERE team_id IS NOT NULL AND pageId IS NOT NULL;
 
 SET FOREIGN_KEY_CHECKS = 1;

@@ -7,6 +7,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.*;
 import java.util.Arrays;
 import java.util.List;
@@ -177,6 +178,22 @@ public class FileStorageUtil {
     }
 
     /**
+     * 从文件名提取小写扩展名（不含点号）。
+     * @param filename 文件名，如 "photo.JPG"
+     * @return 小写扩展名，如 "jpg"；无法提取时返回空字符串
+     */
+    public String extractExtension(String filename) {
+        if (filename == null || filename.isEmpty()) {
+            return "";
+        }
+        int dot = filename.lastIndexOf('.');
+        if (dot >= 0 && dot < filename.length() - 1) {
+            return filename.substring(dot + 1).toLowerCase();
+        }
+        return "";
+    }
+
+    /**
      * 综合校验文件：扩展名 + MIME + 魔数 + 大小。
      * @param file 上传文件
      * @param maxSizeBytes 允许的最大字节数
@@ -218,11 +235,14 @@ public class FileStorageUtil {
             throw new IllegalArgumentException("不支持的文件类型: " + ext);
         }
 
-        // 4. 魔数校验（防伪装）
+        // 4. 魔数校验（防伪装）— 只读文件头，避免大文件 OOM
         try {
-            byte[] header = file.getBytes();
-            if (header.length < 8) {
-                throw new IllegalArgumentException("文件头过短，无法校验");
+            byte[] header = new byte[12];
+            try (InputStream is = file.getInputStream()) {
+                int n = is.read(header);
+                if (n < 8) {
+                    throw new IllegalArgumentException("文件头过短，无法校验");
+                }
             }
             if (!matchesMagic(header, category, ext)) {
                 throw new IllegalArgumentException("文件内容与实际扩展名不符（魔数校验失败）");

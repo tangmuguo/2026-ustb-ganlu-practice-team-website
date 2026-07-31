@@ -17,9 +17,11 @@ public interface TeamMediaService {
 
     boolean updateStatus(int id, String status, String rejectReason);
 
-    boolean archiveByRelated(String relatedType, int relatedId);
+    boolean archiveByRelated(String relatedType, int relatedId, int teamId);
 
     int deleteByIds(List<Integer> ids);
 
     int deleteByIdsAndUploader(List<Integer> ids, int uploaderId);
+
+    boolean archiveByIdAndTeamId(int id, int teamId);
 }

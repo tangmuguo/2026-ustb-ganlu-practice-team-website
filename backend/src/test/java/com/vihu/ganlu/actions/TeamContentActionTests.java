@@ -136,6 +136,10 @@ class TeamContentActionTests {
     @SuppressWarnings("unchecked")
     @Test
     void getPublicTeamContent_onlyPublished() {
+        TeamEntity team = new TeamEntity();
+        team.setId(5);
+        team.setStatus("PUBLISHED");
+        when(teamMapper.getTeamById(5)).thenReturn(Collections.singletonList(team));
         when(imageService.findByTeamIdAndStatus(5, "PUBLISHED")).thenReturn(Collections.emptyList());
         when(wordService.findByTeamIdAndStatus(5, "PUBLISHED")).thenReturn(Collections.emptyList());
         when(mediaService.findByStatus(5, "PUBLISHED")).thenReturn(Collections.emptyList());
@@ -143,6 +147,31 @@ class TeamContentActionTests {
         ResponseEntity<?> resp = action.getPublicTeamContent(5);
         assertEquals(200, resp.getStatusCodeValue());
         verify(imageService).findByTeamIdAndStatus(5, "PUBLISHED");
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void getPublicTeamContent_archivedTeam_returnsEmpty() {
+        // 归档团队 → 公开页返回空结果，不调用子内容查询
+        TeamEntity team = new TeamEntity();
+        team.setId(5);
+        team.setStatus("ARCHIVED");
+        when(teamMapper.getTeamById(5)).thenReturn(Collections.singletonList(team));
+
+        ResponseEntity<?> resp = action.getPublicTeamContent(5);
+        assertEquals(200, resp.getStatusCodeValue());
+        // 不应查询子内容
+        verify(imageService, never()).findByTeamIdAndStatus(anyInt(), anyString());
+        verify(wordService, never()).findByTeamIdAndStatus(anyInt(), anyString());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void getPublicTeamContent_teamNotFound_returnsEmpty() {
+        when(teamMapper.getTeamById(999)).thenReturn(Collections.emptyList());
+
+        ResponseEntity<?> resp = action.getPublicTeamContent(999);
+        assertEquals(200, resp.getStatusCodeValue());
     }
 
     @SuppressWarnings("unchecked")
@@ -220,6 +249,41 @@ class TeamContentActionTests {
         ResponseEntity<?> resp = action.uploadLog("标题", "内容", null, req(user));
         assertEquals(400, resp.getStatusCodeValue());
         verify(wordService, never()).insertTeamWord(any(TeamPageWordEntity.class));
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void uploadMedia_invalidRelatedType_returns400() {
+        UserEntity user = user(5, 1);
+        mockTeamUser(5, 10);
+        MockMultipartFile file = new MockMultipartFile("file", "test.mp4",
+                "video/mp4", new byte[]{0, 0, 0, 0, 'f', 't', 'y', 'p'});
+        when(fileStorageUtil.extractExtension("test.mp4")).thenReturn("mp4");
+        when(fileStorageUtil.isAllowedVideo(file)).thenReturn(null);
+
+        ResponseEntity<?> resp = action.uploadMedia(file, "INVALID", 1, req(user));
+        assertEquals(400, resp.getStatusCodeValue());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void uploadMedia_parentNotBelongToTeam_returns400() {
+        UserEntity user = user(5, 1);
+        mockTeamUser(5, 10);
+        MockMultipartFile file = new MockMultipartFile("file", "test.doc",
+                "application/msword", new byte[]{0, 0, 0, 0, 0, 0, 0, 0});
+        when(fileStorageUtil.extractExtension("test.doc")).thenReturn("doc");
+        when(fileStorageUtil.isAllowedDocument(file)).thenReturn(null);
+
+        // 父内容属于另一个 team
+        TeamPageWordEntity parent = new TeamPageWordEntity();
+        parent.setId(1);
+        parent.setTeamId(99); // 不是 10
+        parent.setStatus("PUBLISHED");
+        when(wordService.findById(1)).thenReturn(parent);
+
+        ResponseEntity<?> resp = action.uploadMedia(file, "WORD", 1, req(user));
+        assertEquals(400, resp.getStatusCodeValue());
     }
 
     // =====================================================================

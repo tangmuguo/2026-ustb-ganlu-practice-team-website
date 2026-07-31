@@ -42,7 +42,8 @@
         select * from team_page_images where id = #{id}
     </select>
 
-    <insert id="insertTeamImage" parameterType="com.vihu.ganlu.entitys.TeamPageImageEntity">
+    <insert id="insertTeamImage" parameterType="com.vihu.ganlu.entitys.TeamPageImageEntity"
+            useGeneratedKeys="true" keyProperty="id">
         insert into team_page_images(
             team_id, status, reject_reason, log_date,
             userId, imageUrl, caption, content, createdAt, type

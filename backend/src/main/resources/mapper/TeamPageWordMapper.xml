@@ -44,7 +44,8 @@
         select * from team_page_word where id = #{id}
     </select>
 
-    <insert id="insertTeamWord" parameterType="com.vihu.ganlu.entitys.TeamPageWordEntity">
+    <insert id="insertTeamWord" parameterType="com.vihu.ganlu.entitys.TeamPageWordEntity"
+            useGeneratedKeys="true" keyProperty="id">
         insert into team_page_word(
             team_id, status, reject_reason, log_date,
             userId, caption, content, createdAt, type

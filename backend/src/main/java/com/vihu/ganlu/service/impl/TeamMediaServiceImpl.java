@@ -60,8 +60,8 @@ public class TeamMediaServiceImpl implements TeamMediaService {
     }
 
     @Override
-    public boolean archiveByRelated(String relatedType, int relatedId) {
-        return teamMediaMapper.archiveByRelated(relatedType, relatedId) > 0;
+    public boolean archiveByRelated(String relatedType, int relatedId, int teamId) {
+        return teamMediaMapper.archiveByRelated(relatedType, relatedId, teamId) > 0;
     }
 
     @Override
@@ -72,5 +72,10 @@ public class TeamMediaServiceImpl implements TeamMediaService {
     @Override
     public int deleteByIdsAndUploader(List<Integer> ids, int uploaderId) {
         return teamMediaMapper.deleteByIdsAndUploader(ids, uploaderId);
+    }
+
+    @Override
+    public boolean archiveByIdAndTeamId(int id, int teamId) {
+        return teamMediaMapper.archiveByIdAndTeamId(id, teamId) > 0;
     }
 }

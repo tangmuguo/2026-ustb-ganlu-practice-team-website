@@ -67,6 +67,7 @@
         set status = #{status},
             updated_at = NOW()
         where related_type = #{relatedType} and related_id = #{relatedId}
+          and team_id = #{teamId}
     </update>
 
     <update id="archiveByRelated">
@@ -74,25 +75,36 @@
         set status = 'ARCHIVED',
             updated_at = NOW()
         where related_type = #{relatedType} and related_id = #{relatedId}
+          and team_id = #{teamId}
     </update>
 
-    <delete id="deleteByIds">
-        delete from team_media
+    <!-- 逻辑归档：将状态置为 ARCHIVED（保留审计追溯，与 image/word 一致） -->
+    <update id="deleteByIds">
+        update team_media
+        set status = 'ARCHIVED', updated_at = NOW()
         where id in
         <foreach collection="ids" item="id" separator="," open="(" close=")">
             #{id}
         </foreach>
-    </delete>
+    </update>
 
-    <delete id="deleteByIdsAndUploader">
-        delete from team_media
+    <update id="deleteByIdsAndUploader">
+        update team_media
+        set status = 'ARCHIVED', updated_at = NOW()
         where uploader_id = #{uploaderId}
           and id in
         <foreach collection="ids" item="id" separator="," open="(" close=")">
             #{id}
         </foreach>
-    </delete>
+    </update>
 
+    <update id="archiveByIdAndTeamId">
+        update team_media
+        set status = 'ARCHIVED', updated_at = NOW()
+        where id = #{id} and team_id = #{teamId}
+    </update>
+
+    <!-- 物理删除（仅用于管理员 purge 流程） -->
     <delete id="purgeById">
         delete from team_media where id = #{id}
     </delete>

@@ -299,5 +299,6 @@ function buildImageFormData (file, extra) {
   if (extra.caption) formData.append("caption", extra.caption);
   if (extra.content) formData.append("content", extra.content);
   if (extra.logDate) formData.append("logDate", extra.logDate);
+  if (extra.type != null) formData.append("type", extra.type);
   return formData;
 }

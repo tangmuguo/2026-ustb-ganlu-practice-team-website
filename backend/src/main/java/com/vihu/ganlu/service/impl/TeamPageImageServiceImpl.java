@@ -69,9 +69,10 @@ public class TeamPageImageServiceImpl implements TeamPageImageService {
 
     @Override
     public boolean archiveById(int id) {
+        TeamPageImageEntity e = teamPageImageMapper.findById(id);
         int n = teamPageImageMapper.archiveById(id);
-        if (n > 0) {
-            teamMediaMapper.archiveByRelated("IMAGE", id); // 级联归档关联 media
+        if (n > 0 && e != null && e.getTeamId() != null) {
+            teamMediaMapper.archiveByRelated("IMAGE", id, e.getTeamId()); // 级联归档关联 media
         }
         return n > 0;
     }
@@ -80,16 +81,17 @@ public class TeamPageImageServiceImpl implements TeamPageImageService {
     public boolean archiveByIdAndTeamId(int id, int teamId) {
         int n = teamPageImageMapper.archiveByIdAndTeamId(id, teamId);
         if (n > 0) {
-            teamMediaMapper.archiveByRelated("IMAGE", id); // 级联归档关联 media
+            teamMediaMapper.archiveByRelated("IMAGE", id, teamId); // 级联归档关联 media
         }
         return n > 0;
     }
 
     @Override
     public boolean updateStatus(int id, String status, String rejectReason) {
+        TeamPageImageEntity e = teamPageImageMapper.findById(id);
         int n = teamPageImageMapper.updateImageStatus(id, status, rejectReason);
-        if (n > 0) {
-            teamMediaMapper.updateStatusByRelated("IMAGE", id, status); // 级联同步 media 状态
+        if (n > 0 && e != null && e.getTeamId() != null) {
+            teamMediaMapper.updateStatusByRelated("IMAGE", id, status, e.getTeamId()); // 级联同步 media 状态
         }
         return n > 0;
     }

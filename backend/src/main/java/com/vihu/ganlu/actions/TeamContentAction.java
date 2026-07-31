@@ -91,8 +91,12 @@ public class TeamContentAction {
                                          @RequestParam(value = "caption", required = false) String caption,
                                          @RequestParam(value = "content", required = false) String content,
                                          @RequestParam(value = "logDate", required = false) Date logDate,
+                                         @RequestParam(value = "type", defaultValue = "2") int type,
                                          HttpServletRequest request) {
-        return uploadImage(file, caption, content, logDate, 2, request);
+        if (type != 2 && type != 3) {
+            return badRequest("无效的图片类型: " + type + "（仅支持 2=支教照片, 3=地区照片）");
+        }
+        return uploadImage(file, caption, content, logDate, type, request);
     }
 
     @RequireRoles({0, 1})
@@ -125,10 +129,29 @@ public class TeamContentAction {
             return badRequest("当前用户未绑定小队");
         }
 
+        // 校验父内容归属：附件只能关联到当前团队的内容
+        if (relatedType != null && relatedId != null) {
+            if (!"IMAGE".equals(relatedType) && !"WORD".equals(relatedType)) {
+                return badRequest("无效的关联类型: " + relatedType);
+            }
+            if (!parentExistsAndBelongsToTeam(relatedType, relatedId, teamId)) {
+                return badRequest("关联的父内容不存在或不属于当前团队");
+            }
+        }
+
         TeamMediaEntity media;
         try {
             if (file.getSize() > FileStorageUtil.MAX_VIDEO_SIZE) {
                 return badRequest("文件大小超过限制");
+            }
+            // 服务端文件类型校验（扩展名 + 魔数，防伪装）
+            String ext = fileStorageUtil.extractExtension(file.getOriginalFilename());
+            if (FileStorageUtil.VIDEO_EXT.contains(ext)) {
+                fileStorageUtil.isAllowedVideo(file);
+            } else if (FileStorageUtil.DOC_EXT.contains(ext)) {
+                fileStorageUtil.isAllowedDocument(file);
+            } else {
+                return badRequest("不支持的文件类型: " + ext);
             }
             media = teamMediaService.uploadMedia(file, u.getId(), teamId, relatedType, relatedId);
         } catch (IllegalArgumentException e) {
@@ -159,9 +182,8 @@ public class TeamContentAction {
                 break;
             case "media":
                 ok = (u.getLevel() == 0)
-                        ? teamMediaService.deleteByIds(java.util.Collections.singletonList(id)) > 0
-                        : teamMediaService.deleteByIdsAndUploader(
-                                java.util.Collections.singletonList(id), u.getId()) > 0;
+                        ? teamMediaService.updateStatus(id, "ARCHIVED", null)
+                        : teamMediaService.archiveByIdAndTeamId(id, teamId);
                 break;
             default:
                 return badRequest("未知类型: " + type);
@@ -176,22 +198,21 @@ public class TeamContentAction {
     @PublicEndpoint
     @GetMapping("/team-content/public/{teamId}")
     public ResponseEntity<?> getPublicTeamContent(@PathVariable int teamId) {
-        // 先直接按 teamId 查；如果查不到，尝试当作 user.id 查找其绑定的 team
-        int resolvedTeamId = teamId;
-        List<TeamPageImageEntity> images = teamPageImageService.findByTeamIdAndStatus(resolvedTeamId, "PUBLISHED");
-        List<TeamPageWordEntity> words = teamPageWordService.findByTeamIdAndStatus(resolvedTeamId, "PUBLISHED");
-        List<TeamMediaEntity> media = teamMediaService.findByStatus(resolvedTeamId, "PUBLISHED");
-
-        // 如果直接查无结果，可能是传入了 user.id，尝试通过 owner_user_id 反查
-        if (images.isEmpty() && words.isEmpty() && media.isEmpty()) {
-            TeamEntity team = teamMapper.findPublishedTeamIdsByOwnerUserId(teamId);
-            if (team != null) {
-                resolvedTeamId = team.getId();
-                images = teamPageImageService.findByTeamIdAndStatus(resolvedTeamId, "PUBLISHED");
-                words = teamPageWordService.findByTeamIdAndStatus(resolvedTeamId, "PUBLISHED");
-                media = teamMediaService.findByStatus(resolvedTeamId, "PUBLISHED");
-            }
+        // 校验团队存在且状态为 PUBLISHED
+        List<TeamEntity> teams = teamMapper.getTeamById(teamId);
+        TeamEntity team = (teams != null && !teams.isEmpty()) ? teams.get(0) : null;
+        if (team == null || !"PUBLISHED".equals(team.getStatus())) {
+            // 团队不存在或已归档/未发布，返回空结果（不暴露团队是否存在）
+            Map<String, Object> content = ImmutableMap.of(
+                    "images", java.util.Collections.emptyList(),
+                    "words", java.util.Collections.emptyList(),
+                    "media", java.util.Collections.emptyList());
+            return ok("查询成功", content);
         }
+
+        List<TeamPageImageEntity> images = teamPageImageService.findByTeamIdAndStatus(teamId, "PUBLISHED");
+        List<TeamPageWordEntity> words = teamPageWordService.findByTeamIdAndStatus(teamId, "PUBLISHED");
+        List<TeamMediaEntity> media = teamMediaService.findByStatus(teamId, "PUBLISHED");
 
         Map<String, Object> content = ImmutableMap.of(
                 "images", images,
@@ -207,9 +228,17 @@ public class TeamContentAction {
         if (m == null || !"PUBLISHED".equals(m.getStatus())) {
             return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "资源不存在"));
         }
-        // 级联检查：如果 media 关联了父内容，父内容也必须 PUBLISHED
+        // 校验所属团队存在且状态为 PUBLISHED
+        if (m.getTeamId() != null) {
+            List<TeamEntity> teams = teamMapper.getTeamById(m.getTeamId());
+            TeamEntity team = (teams != null && !teams.isEmpty()) ? teams.get(0) : null;
+            if (team == null || !"PUBLISHED".equals(team.getStatus())) {
+                return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "资源不存在"));
+            }
+        }
+        // 级联检查：如果 media 关联了父内容，父内容也必须 PUBLISHED 且属于同一 team
         if (m.getRelatedType() != null && m.getRelatedId() != null) {
-            boolean parentPublished = isParentPublished(m.getRelatedType(), m.getRelatedId());
+            boolean parentPublished = isParentPublishedAndBelongsToTeam(m.getRelatedType(), m.getRelatedId(), m.getTeamId());
             if (!parentPublished) {
                 return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "资源不存在"));
             }
@@ -393,15 +422,33 @@ public class TeamContentAction {
     }
 
     /**
-     * 级联检查父内容是否 PUBLISHED。
+     * 校验父内容存在且属于指定 team（用于上传附件的归属校验）。
      */
-    private boolean isParentPublished(String relatedType, int relatedId) {
+    private boolean parentExistsAndBelongsToTeam(String relatedType, int relatedId, int teamId) {
         if ("IMAGE".equals(relatedType)) {
             TeamPageImageEntity e = teamPageImageService.findById(relatedId);
-            return e != null && "PUBLISHED".equals(e.getStatus());
+            return e != null && Integer.valueOf(teamId).equals(e.getTeamId())
+                    && !"ARCHIVED".equals(e.getStatus());
         } else if ("WORD".equals(relatedType)) {
             TeamPageWordEntity e = teamPageWordService.findById(relatedId);
-            return e != null && "PUBLISHED".equals(e.getStatus());
+            return e != null && Integer.valueOf(teamId).equals(e.getTeamId())
+                    && !"ARCHIVED".equals(e.getStatus());
+        }
+        return false;
+    }
+
+    /**
+     * 级联检查父内容是否 PUBLISHED 且属于指定 team。
+     */
+    private boolean isParentPublishedAndBelongsToTeam(String relatedType, int relatedId, Integer teamId) {
+        if ("IMAGE".equals(relatedType)) {
+            TeamPageImageEntity e = teamPageImageService.findById(relatedId);
+            return e != null && "PUBLISHED".equals(e.getStatus())
+                    && (teamId == null || teamId.equals(e.getTeamId()));
+        } else if ("WORD".equals(relatedType)) {
+            TeamPageWordEntity e = teamPageWordService.findById(relatedId);
+            return e != null && "PUBLISHED".equals(e.getStatus())
+                    && (teamId == null || teamId.equals(e.getTeamId()));
         }
         return false;
     }
