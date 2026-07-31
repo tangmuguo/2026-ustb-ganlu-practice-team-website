@@ -17,7 +17,7 @@
     </resultMap>
 
     <!-- 原有：新增留言 -->
-    <insert id="insertMessage" parameterType="com.vihu.ganlu.entitys.MessageEntity" useGeneratedKeys="true" keyProperty="id">
+    <insert id="insert" parameterType="com.vihu.ganlu.entitys.MessageEntity" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO message (
             user_id,
             content,

@@ -16,4 +16,5 @@ public interface MessageMapper {
     void insert(MessageEntity entity);
 
     void logicDeleteById(@Param("id") Integer id);
+    
 }
