@@ -96,10 +96,10 @@ ai.read-timeout=60000
 
 测试使用 `MockRestServiceServer` 模拟 DeepSeek，不消耗真实额度。
 
-- `AiServiceTests`（24 项）：正常回答、空消息、超长消息、超 20 条、非法角色、未配置 Key、上游 401→502、上游 429→429、上游 5xx→503、空 choices、缺失 content、API Key 不泄露、频率限制、null 请求、null 消息元素、空白内容、null 角色、超时→504、缺失 messages、缺 HMAC 密钥不阻断、同一用户 HMAC 稳定、不同用户 HMAC 不同、日志不含敏感数据
+- `AiServiceTests`（25 项）：正常回答、空消息、超长消息、超 20 条、非法角色、未配置 Key、上游 401→502、上游 429→429、上游 5xx→503、空 choices、缺失 content、API Key 不泄露、频率限制、null 请求、null 消息元素、空白内容、null 角色、超时→504、缺失 messages、缺 HMAC 密钥不阻断、同一用户 HMAC 稳定、不同用户 HMAC 不同、精确 HmacSHA256 测试向量、日志不含敏感数据
 - `AiActionTests`（9 项）：正常响应、503/400/429 HTTP 状态、@RequireRoles 注解、IllegalArgumentException→400、顶层未知字段→400 JSON、嵌套未知字段→400 JSON、畸形 JSON→400 JSON
 
-共计 AI 专项测试 33 项。
+共计 AI 专项测试 34 项。
 
 ## 给乔轩轲（前端）
 

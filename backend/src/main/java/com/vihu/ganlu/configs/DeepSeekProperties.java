@@ -29,6 +29,9 @@ public class DeepSeekProperties {
     /** 读取超时（毫秒），默认 60 秒 */
     private int readTimeout = 60000;
 
+    /** 日志匿名化 HMAC 密钥，由 application.properties 的 ${AI_LOG_HMAC_KEY:} 占位符注入 */
+    private String logHmacKey = "";
+
     // ---- getters / setters ----
 
     public boolean isEnabled() {
@@ -77,6 +80,14 @@ public class DeepSeekProperties {
 
     public void setReadTimeout(int readTimeout) {
         this.readTimeout = readTimeout;
+    }
+
+    public String getLogHmacKey() {
+        return logHmacKey;
+    }
+
+    public void setLogHmacKey(String logHmacKey) {
+        this.logHmacKey = logHmacKey;
     }
 
     /**

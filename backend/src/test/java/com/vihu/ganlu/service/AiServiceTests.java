@@ -1,6 +1,5 @@
 package com.vihu.ganlu.service;
 
-import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -21,6 +20,9 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestTemplate;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
@@ -39,9 +41,9 @@ class AiServiceTests {
 
     private static final Integer TEST_USER_ID = 1;
 
-    // 日志捕获
+    // 日志捕获 — 挂在 root logger 上，覆盖业务日志和框架日志
     private ListAppender<ILoggingEvent> listAppender;
-    private Logger aiLogger;
+    private Logger rootLogger;
 
     @BeforeEach
     void setUp() {
@@ -61,17 +63,17 @@ class AiServiceTests {
         mockServer = MockRestServiceServer.createServer(restTemplate);
         aiService = new AiServiceImpl(properties, restTemplate);
 
-        // 设置日志捕获
-        aiLogger = (Logger) LoggerFactory.getLogger(AiServiceImpl.class);
+        // 日志捕获挂在 root logger
+        rootLogger = (Logger) LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
         listAppender = new ListAppender<>();
         listAppender.start();
-        aiLogger.addAppender(listAppender);
+        rootLogger.addAppender(listAppender);
     }
 
     @AfterEach
     void tearDown() {
-        if (listAppender != null && aiLogger != null) {
-            aiLogger.detachAppender(listAppender);
+        if (listAppender != null && rootLogger != null) {
+            rootLogger.detachAppender(listAppender);
             listAppender.stop();
         }
     }
@@ -311,34 +313,71 @@ class AiServiceTests {
                 .hasMessageContaining("消息不能为空");
     }
 
-    // ---- HMAC 匿名化测试（直接设置包级可见字段） ----
+    /** 创建一个设置了 HMAC 密钥的 AiServiceImpl，用于测试匿名化 */
+    private AiServiceImpl createServiceWithHmacKey(String key) {
+        DeepSeekProperties p = new DeepSeekProperties();
+        p.setEnabled(true);
+        p.setBaseUrl("https://api.deepseek.com");
+        p.setApiKey("sk-test-key");
+        p.setModel("deepseek-v4-flash");
+        p.setLogHmacKey(key);
+        p.setConnectTimeout(10000);
+        p.setReadTimeout(60000);
+        RestTemplate rt = new RestTemplateBuilder()
+                .setConnectTimeout(Duration.ofMillis(10000))
+                .setReadTimeout(Duration.ofMillis(60000))
+                .build();
+        return new AiServiceImpl(p, rt);
+    }
 
-    @Test
-    void shouldProduceStableHmacForSameUser() {
-        AiServiceImpl.hmacKey = "test-hmac-secret-123456";
+    // ---- HMAC 匿名化测试（通过 DeepSeekProperties 注入密钥） ----
+
+    /** 通过反射调用 private anonymize 方法 */
+    private String invokeAnonymize(AiServiceImpl svc, Integer userId) {
         try {
-            String h1 = AiServiceImpl.anonymize(42);
-            String h2 = AiServiceImpl.anonymize(42);
-            assertThat(h1).isNotEmpty().isNotEqualTo("anon");
-            assertThat(h1).isEqualTo(h2); // 同一用户稳定
-            assertThat(h1).doesNotContain("42"); // 不含原始 ID
-        } finally {
-            AiServiceImpl.hmacKey = null;
+            java.lang.reflect.Method m = AiServiceImpl.class.getDeclaredMethod("anonymize", Integer.class);
+            m.setAccessible(true);
+            return (String) m.invoke(svc, userId);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
     }
 
     @Test
+    void shouldProduceStableHmacForSameUser() {
+        AiServiceImpl svc = createServiceWithHmacKey("test-hmac-secret-123456");
+        // 通过反射调用 private anonymize 来验证
+        String h1 = invokeAnonymize(svc, 42);
+        String h2 = invokeAnonymize(svc, 42);
+        assertThat(h1).isNotEmpty().isNotEqualTo("anon");
+        assertThat(h1).isEqualTo(h2); // 同一用户稳定
+        assertThat(h1).doesNotContain("42"); // 不含原始 ID
+    }
+
+    @Test
     void shouldProduceDifferentHmacForDifferentUsers() {
-        AiServiceImpl.hmacKey = "test-hmac-secret-789";
-        try {
-            String h1 = AiServiceImpl.anonymize(1);
-            String h2 = AiServiceImpl.anonymize(2);
-            assertThat(h1).isNotEmpty().isNotEqualTo("anon");
-            assertThat(h2).isNotEmpty().isNotEqualTo("anon");
-            assertThat(h1).isNotEqualTo(h2); // 不同用户不同
-        } finally {
-            AiServiceImpl.hmacKey = null;
-        }
+        AiServiceImpl svc = createServiceWithHmacKey("test-hmac-secret-789");
+        String h1 = invokeAnonymize(svc, 1);
+        String h2 = invokeAnonymize(svc, 2);
+        assertThat(h1).isNotEmpty().isNotEqualTo("anon");
+        assertThat(h2).isNotEmpty().isNotEqualTo("anon");
+        assertThat(h1).isNotEqualTo(h2); // 不同用户不同
+    }
+
+    @Test
+    void shouldMatchIndependentHmacSha256Vector() throws Exception {
+        // 精确测试向量：用 JDK 标准 HmacSHA256 独立计算，与 anonymize 输出精确对比
+        String key = "test-vector-key-42";
+        int userId = 77;
+        Mac mac = Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+        byte[] expected = mac.doFinal(String.valueOf(userId).getBytes(StandardCharsets.UTF_8));
+        StringBuilder expectedHex = new StringBuilder();
+        for (int i = 0; i < 8; i++) expectedHex.append(String.format("%02x", expected[i]));
+
+        AiServiceImpl svc = createServiceWithHmacKey(key);
+        String actual = invokeAnonymize(svc, userId);
+        assertThat(actual).isEqualTo(expectedHex.toString());
     }
 
     // ---- 日志安全测试 ----

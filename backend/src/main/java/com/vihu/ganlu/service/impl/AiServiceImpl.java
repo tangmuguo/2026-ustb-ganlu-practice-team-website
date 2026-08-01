@@ -64,32 +64,32 @@ public class AiServiceImpl implements AiService {
     private final DeepSeekProperties properties;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
-
-    public AiServiceImpl(DeepSeekProperties properties, RestTemplate aiRestTemplate) {
-        this.properties = properties;
-        this.restTemplate = aiRestTemplate;
-    }
-
-    /** 日志匿名化 HMAC 密钥 —— 由环境变量注入，缺失时安全降级为 anon */
-    public static volatile String hmacKey = System.getenv("AI_LOG_HMAC_KEY");
+    private final String hmacKey;
 
     /** HmacSHA256 算法名 */
     private static final String HMAC_ALGORITHM = "HmacSHA256";
 
+    public AiServiceImpl(DeepSeekProperties properties, RestTemplate aiRestTemplate) {
+        this.properties = properties;
+        this.restTemplate = aiRestTemplate;
+        String key = properties.getLogHmacKey();
+        this.hmacKey = (key != null && !key.isEmpty()) ? key : null;
+    }
+
     /**
      * 使用 HMAC/SHA-256 生成用户匿名标识。
-     * 密钥从环境变量 AI_LOG_HMAC_KEY 读取，缺失时统一返回 "anon"（不记录可关联标识）。
+     * 密钥从 DeepSeekProperties 注入，缺失时统一返回 "anon"（不记录可关联标识）。
      */
-    public static String anonymize(Integer userId) {
-        if (userId == null || hmacKey == null || hmacKey.isEmpty()) return "anon";
+    private String anonymize(Integer userId) {
+        if (userId == null || hmacKey == null) return "anon";
         try {
             Mac mac = Mac.getInstance(HMAC_ALGORITHM);
             SecretKeySpec keySpec = new SecretKeySpec(
                     hmacKey.getBytes(StandardCharsets.UTF_8), HMAC_ALGORITHM);
             mac.init(keySpec);
-            byte[] hmac = mac.doFinal(userId.toString().getBytes(StandardCharsets.UTF_8));
+            byte[] h = mac.doFinal(userId.toString().getBytes(StandardCharsets.UTF_8));
             StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < 8; i++) sb.append(String.format("%02x", hmac[i]));
+            for (int i = 0; i < 8; i++) sb.append(String.format("%02x", h[i]));
             return sb.toString();
         } catch (NoSuchAlgorithmException | InvalidKeyException e) {
             return "anon";
