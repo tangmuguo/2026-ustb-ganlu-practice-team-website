@@ -38,7 +38,7 @@
     </insert>
 
     <!-- 获取留言的所有回复【旧单条查询，禁止在分页列表使用】 -->
-    <select id="selectRepliesByMessageId" parameterType="int" resultMap="replymap">
+    <select id="selectByMessageIdList" parameterType="int" resultMap="replymap">
         SELECT
             r.id,
             r.message_id,
@@ -121,7 +121,7 @@
 
     <!-- ==========【任务新增标准接口，Service优先调用】========== -->
     <!-- 【核心优化】批量查询多条留言对应的回复，解决N+1 【重点修改：去掉联表、修正foreach集合名】 -->
-    <select id="selectByMessageIds" resultMap="replymap">
+    <select id="selectByMessageIdList" resultMap="replymap">
         SELECT
             r.id,
             r.message_id,
