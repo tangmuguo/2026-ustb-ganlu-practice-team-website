@@ -66,11 +66,12 @@ public class MessageAction {
                                                           HttpServletRequest httpRequest) {
         UserEntity loginUser = currentUser(httpRequest);
         // Service 内部做参数校验，失败直接抛异常，由全局异常处理器返回 400
-        messageService.addMessage(request.getContent(), loginUser.getId());
+        Integer messageId=messageService.addMessage(request.getContent(), loginUser.getId());
         // 走到这里说明成功
         return ResponseEntity.ok(ImmutableMap.of(
                 "code", 200,
-                "message", "留言添加成功"
+                "message", "留言添加成功",
+                "content", messageId
         ));
     }
 

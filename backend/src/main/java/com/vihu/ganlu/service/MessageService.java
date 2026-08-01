@@ -5,7 +5,7 @@ import java.util.Map;
 
 public interface MessageService {
     Map<String, Object> getMessages(int page, int pageSize);
-    void addMessage(String content, Integer loginUserId);
+    Integer addMessage(String content, Integer loginUserId);
     void addReply(Integer messageId, String content, Integer loginUserId);
     void deleteMessage(Integer messageId, UserEntity loginUser);
     void deleteReply(Integer replyId, UserEntity loginUser);

@@ -118,7 +118,7 @@ public class MessageServiceImpl implements MessageService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void addMessage(String content, Integer loginUserId) {
+    public Integer addMessage(String content, Integer loginUserId) {
         if (loginUserId == null) {
             throw new BadRequestException("用户未登录");
         }
@@ -136,6 +136,7 @@ public class MessageServiceImpl implements MessageService {
         entity.setStatus(STATUS_NORMAL);
         entity.setCreateTime(new Date());
         messageMapper.insert(entity);
+        return entity.getId();
     }
 
     @Override
