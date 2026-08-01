@@ -58,6 +58,8 @@ const submitForm = async () => {
       form.value.logDate = ''
       emit('uploaded')
     } else {
+      // 提交失败时清除上次 id，避免后续附件误挂到旧记录
+      lastUploadedId.value = null
       ElMessage.error(res.data.message || '提交失败')
     }
   } catch (error) {

@@ -108,6 +108,19 @@ class TeamContentActionTests {
 
     @SuppressWarnings("unchecked")
     @Test
+    void delete_level1WithoutTeam_returns400_notNpe500() {
+        // 回归测试：团队账号未绑定小队时 resolveTeamId 返回 null，
+        // delete 必须返回 400，而不是对 archiveByIdAndTeamId(id, null) 自动拆箱触发 NPE → 500
+        UserEntity team = user(5, 1);
+        when(teamMapper.findOwnedTeamByOwnerUserId(5)).thenReturn(null);
+
+        ResponseEntity<?> resp = action.delete("image", 10, req(team));
+        assertEquals(400, resp.getStatusCodeValue());
+        verify(imageService, never()).archiveByIdAndTeamId(anyInt(), anyInt());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
     void adminPublish_image_success() {
         when(imageService.updateStatus(10, "PUBLISHED", null)).thenReturn(true);
 

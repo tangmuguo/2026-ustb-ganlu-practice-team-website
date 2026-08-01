@@ -172,6 +172,12 @@ public class TeamContentAction {
                                     HttpServletRequest request) {
         UserEntity u = currentUser(request);
         Integer teamId = resolveTeamId(u);
+        // 团队账号（level=1）必须绑定小队；未绑定时 resolveTeamId 返回 null，
+        // 直接拒绝，避免后续 archiveByIdAndTeamId(id, teamId) 对 int 形参自动拆箱触发 NPE → 500。
+        // 管理员（level=0）走 archiveById 分支，不依赖 teamId，无需此守卫。
+        if (u.getLevel() != 0 && teamId == null) {
+            return badRequest("当前用户未绑定小队");
+        }
         boolean ok;
         switch (type) {
             case "image":

@@ -111,8 +111,10 @@ public class TeamServieImpl implements TeamServie {
         if (existing.getStatus() != TeamEntity.Status.ARCHIVED) {
             teamMapper.archiveTeam(teamId);
             existing.setStatus(TeamEntity.Status.ARCHIVED);
+            // 仅在状态实际变化时同步详情页，避免幂等再归档触发无意义的 UPDATE
+            // 而推进 team_page.updated_at（审计噪声）。
+            teamPageService.ensureTeamPage(existing);
         }
-        teamPageService.ensureTeamPage(existing);
     }
 
     private TeamEntity validatedTeam(Integer teamId, TeamSaveRequest request) {
