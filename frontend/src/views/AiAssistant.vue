@@ -30,6 +30,14 @@ watch(
   () => scrollToBottom(),
 )
 
+watch(
+  () => [userStore.isLoggedIn, userStore.currentUser?.id, userStore.currentUser?.username],
+  () => {
+    draft.value = ''
+  },
+  { flush: 'sync' },
+)
+
 function chooseExample(question) {
   draft.value = question
   nextTick(() => composerRef.value?.focus())
@@ -38,6 +46,7 @@ function chooseExample(question) {
 async function sendMessage() {
   const submittedContent = draft.value
   const result = await aiStore.sendMessage(submittedContent)
+  if (result.cancelled) return
 
   if (result.ok) {
     draft.value = ''
@@ -53,6 +62,8 @@ async function sendMessage() {
 async function retryMessage(messageId) {
   const message = aiStore.messages.find((item) => item.id === messageId)
   const result = await aiStore.retryMessage(messageId)
+  if (result.cancelled) return
+
   if (result.ok) {
     draft.value = ''
   } else if (message) {

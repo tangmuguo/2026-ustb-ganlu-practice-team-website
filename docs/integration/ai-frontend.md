@@ -85,8 +85,9 @@ Content-Type: application/json
 
 ## 会话和隐私
 
-- Pinia Store 最多保存当前会话最近 20 条用户/助手消息。
-- 必要消息仅写入当前标签页的 `sessionStorage`，键名为 `ganlu-ai-session-v1`。
+- Pinia Store 最多保存当前会话最近 20 条用户/助手消息；历史按完整问答轮次裁剪，不会以孤立的助手回复开头。
+- 必要消息仅写入当前标签页的 `sessionStorage`，键名为 `ganlu-ai-session-v1`，并记录所属登录身份。
+- 登录身份变化或退出登录时立即中止未完成请求，同时清空消息、输入草稿、错误状态和会话存储，避免共享电脑换号时泄露上一账号的上下文。
 - 没有为 AI Store 启用 Pinia `persist` 插件，不写入 `localStorage`。
 - 新对话会二次确认并清除上述会话数据；关闭标签页后浏览器自动清除。
 - 助手内容使用 Vue 文本插值和 `white-space: pre-wrap` 显示，没有使用 `v-html`。
@@ -121,7 +122,10 @@ Content-Type: application/json
 | AI-FE-08 | 检查 375px、768px 和 1440px 截图 | 输入区不遮挡末条消息，长回复可滚动且不撑破页面 | 通过；见上方三张验收截图 |
 | AI-FE-09 | 检查浏览器存储 | sessionStorage 保存当前会话；localStorage 无 AI 会话和密钥 | 通过；AI localStorage 键为 0，敏感值检查为 false |
 | AI-FE-10 | 执行完整路由接入后的 `npm run build` | AI 页面被懒加载并成功生成独立 chunk | 通过；生成约 13 kB 的 AI 页面 JS chunk |
+| AI-FE-11 | 同一标签页从账号 A 切换至账号 B | 立即清除账号 A 的消息；账号 B 请求不携带账号 A 上下文 | 通过；存储已清除，账号 B 首个请求仅 1 条且不含账号 A 内容 |
+| AI-FE-12 | 请求仍在思考时确认清空 | 中止完成后消息、输入框、错误提示和 sessionStorage 均保持为空 | 通过；四项状态均为空，旧问题未异步恢复 |
+| AI-FE-13 | 完成 10 轮后发送第 11 个问题 | 请求不超过 20 条、从 user 开始、历史问答成对，最后一条为本轮 user | 通过；请求为 19 条且角色严格交替，回答后存储为 20 条完整消息 |
 
-验证环境：Windows 11、Node.js 24.18.0、npm 11.16.0、Microsoft Edge 无头模式。本地 Mock 不消耗真实 AI 额度。由于项目基线中的 `@videojs-player/vue@1.0.0` 与 `video.js@8` 存在 peer dependency 冲突，npm 11 安装时使用了 `npm ci --legacy-peer-deps --cache .npm`，未修改 `package.json` 或锁文件。
+验证环境：Windows 11、Node.js 24.18.0、npm 11.16.0、Microsoft Edge 无头模式。2026-08-01 按 PR #9 审核意见完成账号隔离、请求中清空和第 11 轮上下文专项回归。本地 Mock 不消耗真实 AI 额度。由于项目基线中的 `@videojs-player/vue@1.0.0` 与 `video.js@8` 存在 peer dependency 冲突，npm 11 安装时使用了 `npm ci --legacy-peer-deps --cache .npm`，未修改 `package.json` 或锁文件。
 
 真实接口联调前需要：后端 AI 分支合入可运行环境、有效登录测试账号，以及由后端环境变量配置的 DeepSeek Key。Key 不得提供给前端成员或写入本仓库。

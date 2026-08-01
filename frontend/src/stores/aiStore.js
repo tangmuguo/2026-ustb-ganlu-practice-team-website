@@ -1,6 +1,7 @@
 import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { AiRequestError, sendAiChat } from '@/apis/aiAPI'
+import { userinfoStore } from '@/stores/userStore'
 
 export const AI_MAX_CONTEXT_MESSAGES = 20
 export const AI_MAX_INPUT_LENGTH = 2000
@@ -16,14 +17,66 @@ function createMessageId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-function readSessionMessages() {
-  if (typeof sessionStorage === 'undefined') return []
+function removeSessionMessages() {
+  if (typeof sessionStorage === 'undefined') return
 
   try {
-    const saved = JSON.parse(sessionStorage.getItem(SESSION_KEY) ?? '[]')
-    if (!Array.isArray(saved)) return []
+    sessionStorage.removeItem(SESSION_KEY)
+  } catch {
+    // 浏览器禁用会话存储时，清理内存状态仍然有效。
+  }
+}
 
-    return saved
+function resolveUserIdentity(userStore) {
+  if (!userStore.isLoggedIn) return null
+
+  const currentUser = userStore.currentUser
+  if (currentUser?.id != null) return `id:${currentUser.id}`
+  if (currentUser?.username) return `username:${currentUser.username}`
+  return null
+}
+
+/**
+ * 只保留完整的 user/assistant 问答轮次，以及最后一条尚待回答的 user 消息。
+ * 当存在待回答消息时，最多保留 9 轮历史，为本轮助手回答预留第 20 个槽位。
+ */
+function trimConversation(sourceMessages, maxMessages = AI_MAX_CONTEXT_MESSAGES) {
+  const completedRounds = []
+  let pendingUser = null
+
+  for (const message of sourceMessages) {
+    if (!message || !VALID_ROLES.has(message.role)) continue
+
+    if (message.role === 'user') {
+      pendingUser = message
+    } else if (pendingUser) {
+      completedRounds.push([pendingUser, message])
+      pendingUser = null
+    }
+  }
+
+  const trailingMessages = pendingUser ? [pendingUser] : []
+  const roundLimit = Math.floor((maxMessages - trailingMessages.length) / 2)
+  const recentRounds = roundLimit > 0 ? completedRounds.slice(-roundLimit) : []
+  return [...recentRounds.flat(), ...trailingMessages]
+}
+
+function readSessionMessages(identity) {
+  if (typeof sessionStorage === 'undefined') return []
+
+  if (!identity) {
+    removeSessionMessages()
+    return []
+  }
+
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(SESSION_KEY) ?? 'null')
+    if (saved?.owner !== identity || !Array.isArray(saved?.messages)) {
+      removeSessionMessages()
+      return []
+    }
+
+    const restoredMessages = saved.messages
       .filter(
         (message) =>
           message &&
@@ -31,34 +84,38 @@ function readSessionMessages() {
           typeof message.content === 'string' &&
           message.content.length > 0,
       )
-      .slice(-AI_MAX_CONTEXT_MESSAGES)
       .map((message) => ({
         id: typeof message.id === 'string' ? message.id : createMessageId(),
         role: message.role,
         content: message.content.slice(0, 50000),
         status: VALID_STORED_STATUSES.has(message.status) ? message.status : 'sent',
       }))
+    return trimConversation(restoredMessages)
   } catch {
+    removeSessionMessages()
     return []
   }
 }
 
-function writeSessionMessages(messages) {
+function writeSessionMessages(messages, identity) {
   if (typeof sessionStorage === 'undefined') return
 
   try {
-    if (!messages.length) {
-      sessionStorage.removeItem(SESSION_KEY)
+    if (!identity || !messages.length) {
+      removeSessionMessages()
       return
     }
 
-    const necessaryMessages = messages.slice(-AI_MAX_CONTEXT_MESSAGES).map((message) => ({
+    const necessaryMessages = trimConversation(messages).map((message) => ({
       id: message.id,
       role: message.role,
       content: message.content.slice(0, 50000),
       status: message.status === 'sending' ? 'stopped' : message.status,
     }))
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(necessaryMessages))
+    sessionStorage.setItem(
+      SESSION_KEY,
+      JSON.stringify({ owner: identity, messages: necessaryMessages }),
+    )
   } catch {
     // sessionStorage 可能被浏览器策略或容量限制禁用；会话仍保留在当前 Pinia 内存中。
   }
@@ -70,7 +127,9 @@ function fallbackError(error) {
 }
 
 export const useAiStore = defineStore('AiAssistant', () => {
-  const messages = ref(readSessionMessages())
+  const userStore = userinfoStore()
+  const activeIdentity = ref(resolveUserIdentity(userStore))
+  const messages = ref(readSessionMessages(activeIdentity.value))
   const isLoading = ref(false)
   const error = ref(null)
   const retryableMessageId = ref(
@@ -83,15 +142,23 @@ export const useAiStore = defineStore('AiAssistant', () => {
 
   const hasMessages = computed(() => messages.value.length > 0)
   const contextMessages = computed(() =>
-    messages.value
-      .slice(-AI_MAX_CONTEXT_MESSAGES)
-      .map(({ role, content }) => ({ role, content })),
+    trimConversation(messages.value).map(({ role, content }) => ({ role, content })),
   )
 
   watch(
     messages,
-    (currentMessages) => writeSessionMessages(currentMessages),
+    (currentMessages) => writeSessionMessages(currentMessages, activeIdentity.value),
     { deep: true },
+  )
+
+  watch(
+    () => resolveUserIdentity(userStore),
+    (nextIdentity) => {
+      if (nextIdentity === activeIdentity.value) return
+      activeIdentity.value = nextIdentity
+      clearConversation()
+    },
+    { flush: 'sync' },
   )
 
   function discardPreviousFailure() {
@@ -118,14 +185,16 @@ export const useAiStore = defineStore('AiAssistant', () => {
       const userMessage = messages.value.find((message) => message.id === userMessageId)
       if (userMessage) userMessage.status = 'sent'
 
-      messages.value.push({
-        id: createMessageId(),
-        role: 'assistant',
-        content: result.answer,
-        status: 'sent',
-        requestId: result.requestId,
-      })
-      messages.value = messages.value.slice(-AI_MAX_CONTEXT_MESSAGES)
+      messages.value = trimConversation([
+        ...messages.value,
+        {
+          id: createMessageId(),
+          role: 'assistant',
+          content: result.answer,
+          status: 'sent',
+          requestId: result.requestId,
+        },
+      ])
       error.value = null
       retryableMessageId.value = null
       return { ok: true }
@@ -190,8 +259,7 @@ export const useAiStore = defineStore('AiAssistant', () => {
       content,
       status: 'sending',
     }
-    messages.value.push(userMessage)
-    messages.value = messages.value.slice(-AI_MAX_CONTEXT_MESSAGES)
+    messages.value = trimConversation([...messages.value, userMessage])
     return requestAnswer(userMessage.id)
   }
 
@@ -229,13 +297,7 @@ export const useAiStore = defineStore('AiAssistant', () => {
     messages.value = []
     error.value = null
     retryableMessageId.value = null
-    if (typeof sessionStorage !== 'undefined') {
-      try {
-        sessionStorage.removeItem(SESSION_KEY)
-      } catch {
-        // 浏览器禁用会话存储时，清理内存状态仍然有效。
-      }
-    }
+    removeSessionMessages()
   }
 
   return {
