@@ -209,3 +209,31 @@ function buildImageFormData (file, extra) {
   if (extra.type != null) formData.append("type", extra.type);
   return formData;
 }
+
+// =====================================================================
+// 团队核心公开接口（来自王嘉阳 PR#5 TeamAction）— 返回真实 TeamEntity
+// =====================================================================
+
+/**
+ * 获取已发布团队的年份列表
+ */
+export function getPublishedYears () {
+  return instance({
+    url: AllPATH.teamsYearsPath,
+    method: 'GET'
+  })
+}
+
+/**
+ * 按年份获取已发布团队列表（返回真实 TeamEntity，team.id 为团队主键）
+ * @param {String} year 年份
+ * @param {Number} page 页码（默认 1）
+ * @param {Number} size 每页数量（默认 12）
+ */
+export function getPublishedTeamsByYear (year, page = 1, size = 12) {
+  return instance({
+    url: AllPATH.teamsByYearPath,
+    method: 'GET',
+    params: { year, page, size }
+  })
+}

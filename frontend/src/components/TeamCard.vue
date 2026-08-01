@@ -16,12 +16,12 @@ defineEmits(['click'])
         <div class="team-short-name"></div>
     </div> -->
     <div class="team-card" @click="$emit('click')">
-        <div class="team-name">{{ team.teamname }}</div>
+        <div class="team-name">{{ team.teamname || team.name }}</div>
         <div class="team-content">
-            <img :src="`${apiBaseUrl}${team.imageUrl}`" :alt="team.name" class="team-image" />
-            <!-- <div class="team-description">{{ team.description }}</div> -->
+            <img v-if="team.imageUrl || team.coverUrl" :src="`${apiBaseUrl}${team.imageUrl || team.coverUrl}`" :alt="team.name || team.teamname" class="team-image" />
+            <div class="team-description">{{ team.description }}</div>
         </div>
-    </div>    
+    </div>
 </template>
 
 <style scoped>

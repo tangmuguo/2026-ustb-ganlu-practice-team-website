@@ -1,13 +1,8 @@
 -- =====================================================================
 -- Patch 11: 团队风采内容管理 — team_media 表 + 旧表加列 + 数据回填
--- 依赖: ganlu.sql（team_page_images / team_page_word 表已存在）
--- 执行顺序: ganlu.sql → 本文件
---
--- PR #5 合并兼容说明：
---   当前（PR #5 未合并）: team_page.userId 列存在，迁移通过 page.userId 回填 team_id
---   PR #5 合并后（Patch 10）: team_page.userId 已被 team_page.team_id 替代，
---   需将本文中的 page.userId → page.team_id，userid → team_id
---   涉及行：第 67、77、83 行（共 4 处引用）
+-- 依赖: ganlu.sql + Patch 10（Patch 10 已把 team_page.userId 迁移为 team_page.team_id）
+-- 执行顺序: ganlu.sql → 10_team_core.sql → 本文件
+-- 本 patch 全程幂等（CREATE TABLE IF NOT EXISTS + INFORMATION_SCHEMA 列/索引存在性判断）
 -- =====================================================================
 
 SET NAMES utf8mb4;
@@ -143,32 +138,25 @@ SET @sql := IF(@idx_exists = 0,
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ---------------------------------------------------------------------
--- 4. 数据回填（主回填 + 兜底）
+-- 4. 数据回填 — 通过 pageId 关联 team_page.team_id
+--    Patch 10 已把 team_page.userId 迁移为真实 team_page.team_id（team.id），
+--    因此这里直接使用 page.team_id，确保内容表 team_id 与 team.id 语义一致。
+--    不再通过内容表自身的旧 userId/userid 兜底回填（那存放的是 user.id，
+--    会造成同一列 team_id 存在两种 ID 语义）；无法映射的记录由第 5 节输出。
 -- ---------------------------------------------------------------------
--- team_page_images: 主回填 — 通过 pageId 关联 team_page.userId
 UPDATE team_page_images img
   JOIN team_page page ON img.pageId = page.id
-SET img.team_id = page.userId
-WHERE img.pageId IS NOT NULL;
+SET img.team_id = page.team_id
+WHERE img.pageId IS NOT NULL AND page.team_id IS NOT NULL;
 
--- team_page_images: 兜底回填 — pageId 为 NULL 但旧 userId 有值
-UPDATE team_page_images
-SET team_id = userId
-WHERE team_id IS NULL AND userId IS NOT NULL;
-
--- team_page_word: 主回填（注意小写 userid）
 UPDATE team_page_word wrd
   JOIN team_page page ON wrd.pageId = page.id
-SET wrd.team_id = page.userId
-WHERE wrd.pageId IS NOT NULL;
-
--- team_page_word: 兜底回填（注意小写 userid）
-UPDATE team_page_word
-SET team_id = userid
-WHERE team_id IS NULL AND userid IS NOT NULL;
+SET wrd.team_id = page.team_id
+WHERE wrd.pageId IS NOT NULL AND page.team_id IS NOT NULL;
 
 -- ---------------------------------------------------------------------
--- 5. 最终检查 — 仍无法映射的记录（userId 和 pageId 都为 NULL）
+-- 5. 最终检查 — 仍无法映射的记录（pageId 为 NULL 或 team_page 未映射）
+--    输出待人工处理清单，迁移不会因此中止。
 -- ---------------------------------------------------------------------
 SELECT 'team_page_images_orphan' AS scope, COUNT(*) AS cnt
 FROM team_page_images WHERE team_id IS NULL

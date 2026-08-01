@@ -55,7 +55,7 @@ class TeamContentActionTests {
     private void mockTeamUser(int userId, int teamId) {
         TeamEntity team = new TeamEntity();
         team.setId(teamId);
-        when(teamMapper.findPublishedTeamIdsByOwnerUserId(userId)).thenReturn(team);
+        when(teamMapper.findOwnedTeamByOwnerUserId(userId)).thenReturn(team);
     }
 
     @SuppressWarnings("unchecked")
@@ -76,7 +76,7 @@ class TeamContentActionTests {
     @Test
     void getMyTeamContent_userWithoutTeam_returns400() {
         UserEntity user = user(5, 1);
-        when(teamMapper.findPublishedTeamIdsByOwnerUserId(5)).thenReturn(null);
+        when(teamMapper.findOwnedTeamByOwnerUserId(5)).thenReturn(null);
 
         ResponseEntity<?> resp = action.getMyTeamContent(req(user));
         assertEquals(400, resp.getStatusCodeValue());
@@ -138,8 +138,8 @@ class TeamContentActionTests {
     void getPublicTeamContent_onlyPublished() {
         TeamEntity team = new TeamEntity();
         team.setId(5);
-        team.setStatus("PUBLISHED");
-        when(teamMapper.getTeamById(5)).thenReturn(Collections.singletonList(team));
+        team.setStatus(TeamEntity.Status.PUBLISHED);
+        when(teamMapper.findById(5)).thenReturn(team);
         when(imageService.findByTeamIdAndStatus(5, "PUBLISHED")).thenReturn(Collections.emptyList());
         when(wordService.findByTeamIdAndStatus(5, "PUBLISHED")).thenReturn(Collections.emptyList());
         when(mediaService.findByStatus(5, "PUBLISHED")).thenReturn(Collections.emptyList());
@@ -155,8 +155,8 @@ class TeamContentActionTests {
         // 归档团队 → 公开页返回空结果，不调用子内容查询
         TeamEntity team = new TeamEntity();
         team.setId(5);
-        team.setStatus("ARCHIVED");
-        when(teamMapper.getTeamById(5)).thenReturn(Collections.singletonList(team));
+        team.setStatus(TeamEntity.Status.ARCHIVED);
+        when(teamMapper.findById(5)).thenReturn(team);
 
         ResponseEntity<?> resp = action.getPublicTeamContent(5);
         assertEquals(200, resp.getStatusCodeValue());
@@ -168,7 +168,7 @@ class TeamContentActionTests {
     @SuppressWarnings("unchecked")
     @Test
     void getPublicTeamContent_teamNotFound_returnsEmpty() {
-        when(teamMapper.getTeamById(999)).thenReturn(Collections.emptyList());
+        when(teamMapper.findById(999)).thenReturn(null);
 
         ResponseEntity<?> resp = action.getPublicTeamContent(999);
         assertEquals(200, resp.getStatusCodeValue());
@@ -244,7 +244,7 @@ class TeamContentActionTests {
     @Test
     void uploadWord_userWithoutTeam_returns400() {
         UserEntity user = user(5, 1);
-        when(teamMapper.findPublishedTeamIdsByOwnerUserId(5)).thenReturn(null);
+        when(teamMapper.findOwnedTeamByOwnerUserId(5)).thenReturn(null);
 
         ResponseEntity<?> resp = action.uploadLog("标题", "内容", null, req(user));
         assertEquals(400, resp.getStatusCodeValue());
@@ -313,7 +313,7 @@ class TeamContentActionTests {
 
         ResponseEntity<?> resp = action.download(10);
         assertEquals(404, resp.getStatusCodeValue());
-        verify(teamMapper, never()).getTeamById(anyInt());
+        verify(teamMapper, never()).findById(anyInt());
     }
 
     // =====================================================================

@@ -202,10 +202,9 @@ public class TeamContentAction {
     @PublicEndpoint
     @GetMapping("/team-content/public/{teamId}")
     public ResponseEntity<?> getPublicTeamContent(@PathVariable int teamId) {
-        // 校验团队存在且状态为 PUBLISHED
-        List<TeamEntity> teams = teamMapper.getTeamById(teamId);
-        TeamEntity team = (teams != null && !teams.isEmpty()) ? teams.get(0) : null;
-        if (team == null || !"PUBLISHED".equals(team.getStatus())) {
+        // 校验团队存在且状态为 PUBLISHED（公开端只暴露已发布团队）
+        TeamEntity team = teamMapper.findById(teamId);
+        if (team == null || team.getStatus() != TeamEntity.Status.PUBLISHED) {
             // 团队不存在或已归档/未发布，返回空结果（不暴露团队是否存在）
             Map<String, Object> content = ImmutableMap.of(
                     "images", java.util.Collections.emptyList(),
@@ -237,9 +236,8 @@ public class TeamContentAction {
             return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "资源不存在"));
         }
         // 校验所属团队存在且状态为 PUBLISHED
-        List<TeamEntity> teams = teamMapper.getTeamById(m.getTeamId());
-        TeamEntity team = (teams != null && !teams.isEmpty()) ? teams.get(0) : null;
-        if (team == null || !"PUBLISHED".equals(team.getStatus())) {
+        TeamEntity team = teamMapper.findById(m.getTeamId());
+        if (team == null || team.getStatus() != TeamEntity.Status.PUBLISHED) {
             return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "资源不存在"));
         }
         // 级联检查：如果 media 关联了父内容，父内容也必须 PUBLISHED 且属于同一 team
@@ -462,12 +460,13 @@ public class TeamContentAction {
     /**
      * 从 Token 推导当前用户的 teamId。
      * 通过 team.owner_user_id 字段查找当前用户负责的小队。
-     * 所有 teamId 推导集中在此处。
+     * 团队端权限规则：只要团队未归档即可（允许 DRAFT 状态的负责人准备内容），
+     * 与公开端 "PUBLISHED 才可见" 的规则区分开。
      *
      * @return teamId，若用户未绑定小队则返回 null
      */
     private Integer resolveTeamId(UserEntity user) {
-        TeamEntity team = teamMapper.findPublishedTeamIdsByOwnerUserId(user.getId());
+        TeamEntity team = teamMapper.findOwnedTeamByOwnerUserId(user.getId());
         return team != null ? team.getId() : null;
     }
 

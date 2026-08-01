@@ -43,6 +43,10 @@ const AllPATH = {
   adminTeamContentRejectPath: (type, id) => `admin/team-content/${type}/${id}/reject`,
   adminTeamContentArchivePath: (type, id) => `admin/team-content/${type}/${id}/archive`,
 
+  //团队核心公开接口（来自王嘉阳 PR#5 TeamAction）
+  teamsYearsPath: "teams/years",
+  teamsByYearPath: "teams",
+
   //轮播图
   bannerListPath:"banner/list",
   bannerAddPath:"banner/add",
