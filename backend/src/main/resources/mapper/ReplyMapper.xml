@@ -38,7 +38,7 @@
     </insert>
 
     <!-- 获取留言的所有回复【旧单条查询，禁止在分页列表使用】 -->
-    <select id="selectByMessageIdList" parameterType="int" resultMap="replymap">
+    <select id="selectByMessageId" parameterType="int" resultMap="replymap">
         SELECT
             r.id,
             r.message_id,
@@ -61,28 +61,7 @@
             r.create_time ASC,
             r.id ASC
     </select>
-
-    <!-- 根据ID获取回复【旧】 -->
-    <select id="selectReplyById" parameterType="int" resultMap="replymap">
-        SELECT
-            r.id,
-            r.message_id,
-            r.user_id,
-            r.content,
-            r.create_time,
-            r.update_time,
-            r.status,
-            u.username,
-            u.teamname
-        FROM
-            reply r
-        LEFT JOIN user u ON r.user_id = u.id
-        WHERE
-            r.id = #{id}
-          AND
-            r.status = 1
-    </select>
-
+    
     <!-- 逻辑删除回复【旧】 -->
     <update id="deleteReply" parameterType="int">
         UPDATE
