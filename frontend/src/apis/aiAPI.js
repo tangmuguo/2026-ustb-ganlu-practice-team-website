@@ -1,6 +1,9 @@
 import axios from 'axios'
 import instance from '@/utils/http'
 
+export const AI_MAX_MESSAGE_LENGTH = 2000
+export const AI_MAX_CONTEXT_LENGTH = 32000
+
 const STATUS_MESSAGES = {
   400: '输入内容不符合要求，请检查后重试',
   401: '登录状态已失效，请重新登录',
@@ -8,6 +11,34 @@ const STATUS_MESSAGES = {
   502: 'AI 服务暂时不可用',
   503: 'AI 服务暂时不可用',
   504: 'AI 服务暂时不可用',
+}
+
+function prepareRequestMessages(messages) {
+  if (!Array.isArray(messages) || !messages.length) {
+    throw new AiRequestError('请输入问题内容', { status: 400, kind: 'input' })
+  }
+
+  const requestMessages = messages.map(({ role, content }) => ({ role, content }))
+  const hasInvalidMessage = requestMessages.some(
+    ({ role, content }) =>
+      !['user', 'assistant'].includes(role) ||
+      typeof content !== 'string' ||
+      content.length === 0 ||
+      content.length > AI_MAX_MESSAGE_LENGTH,
+  )
+  const contextLength = requestMessages.reduce(
+    (total, { content }) => total + (typeof content === 'string' ? content.length : 0),
+    0,
+  )
+
+  if (hasInvalidMessage || contextLength > AI_MAX_CONTEXT_LENGTH) {
+    throw new AiRequestError('对话上下文超出接口限制，请新建对话后重试', {
+      status: 400,
+      kind: 'input',
+    })
+  }
+
+  return requestMessages
 }
 
 export class AiRequestError extends Error {
@@ -57,7 +88,7 @@ function normalizeRequestError(error) {
  * 调用本站后端 AI 代理。请求体只保留接口合同允许的 role 和 content。
  */
 export async function sendAiChat(messages, { signal } = {}) {
-  const requestMessages = messages.map(({ role, content }) => ({ role, content }))
+  const requestMessages = prepareRequestMessages(messages)
 
   try {
     const response = await instance({

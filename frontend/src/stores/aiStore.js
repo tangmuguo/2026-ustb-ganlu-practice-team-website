@@ -1,10 +1,15 @@
 import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
-import { AiRequestError, sendAiChat } from '@/apis/aiAPI'
+import {
+  AI_MAX_CONTEXT_LENGTH,
+  AI_MAX_MESSAGE_LENGTH,
+  AiRequestError,
+  sendAiChat,
+} from '@/apis/aiAPI'
 import { userinfoStore } from '@/stores/userStore'
 
 export const AI_MAX_CONTEXT_MESSAGES = 20
-export const AI_MAX_INPUT_LENGTH = 2000
+export const AI_MAX_INPUT_LENGTH = AI_MAX_MESSAGE_LENGTH
 
 const SESSION_KEY = 'ganlu-ai-session-v1'
 const VALID_ROLES = new Set(['user', 'assistant'])
@@ -61,6 +66,31 @@ function trimConversation(sourceMessages, maxMessages = AI_MAX_CONTEXT_MESSAGES)
   return [...recentRounds.flat(), ...trailingMessages]
 }
 
+/**
+ * 构造后端接口上下文：页面保留完整回答，但请求中单条最多 2000 字、总计最多 32000 字。
+ * 超出总量时只从开头删除完整的 user/assistant 问答轮次，始终保留末尾本轮 user。
+ */
+export function buildContextMessages(sourceMessages) {
+  const requestMessages = trimConversation(sourceMessages).map(({ role, content }) => ({
+    role,
+    content: content.slice(0, AI_MAX_MESSAGE_LENGTH),
+  }))
+  let contextLength = requestMessages.reduce(
+    (total, message) => total + message.content.length,
+    0,
+  )
+
+  while (contextLength > AI_MAX_CONTEXT_LENGTH && requestMessages.length > 1) {
+    const [oldestUser, oldestAssistant] = requestMessages
+    if (oldestUser?.role !== 'user' || oldestAssistant?.role !== 'assistant') break
+
+    contextLength -= oldestUser.content.length + oldestAssistant.content.length
+    requestMessages.splice(0, 2)
+  }
+
+  return requestMessages
+}
+
 function readSessionMessages(identity) {
   if (typeof sessionStorage === 'undefined') return []
 
@@ -87,7 +117,7 @@ function readSessionMessages(identity) {
       .map((message) => ({
         id: typeof message.id === 'string' ? message.id : createMessageId(),
         role: message.role,
-        content: message.content.slice(0, 50000),
+        content: message.content,
         status: VALID_STORED_STATUSES.has(message.status) ? message.status : 'sent',
       }))
     return trimConversation(restoredMessages)
@@ -109,7 +139,7 @@ function writeSessionMessages(messages, identity) {
     const necessaryMessages = trimConversation(messages).map((message) => ({
       id: message.id,
       role: message.role,
-      content: message.content.slice(0, 50000),
+      content: message.content,
       status: message.status === 'sending' ? 'stopped' : message.status,
     }))
     sessionStorage.setItem(
@@ -141,9 +171,7 @@ export const useAiStore = defineStore('AiAssistant', () => {
   let requestVersion = 0
 
   const hasMessages = computed(() => messages.value.length > 0)
-  const contextMessages = computed(() =>
-    trimConversation(messages.value).map(({ role, content }) => ({ role, content })),
-  )
+  const contextMessages = computed(() => buildContextMessages(messages.value))
 
   watch(
     messages,
