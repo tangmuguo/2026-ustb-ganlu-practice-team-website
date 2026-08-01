@@ -2,6 +2,7 @@ package com.vihu.ganlu.security;
 
 import com.vihu.ganlu.actions.BannerAction;
 import com.vihu.ganlu.actions.CourseDetailAction;
+import com.vihu.ganlu.actions.CourseCategoryAction;
 import com.vihu.ganlu.actions.FengCaiAction;
 import com.vihu.ganlu.actions.MessageAction;
 import com.vihu.ganlu.actions.NewsAction;
@@ -27,6 +28,7 @@ class SecurityAnnotationCoverageTests {
             BannerAction.class,
             NewsAction.class,
             CourseDetailAction.class,
+            CourseCategoryAction.class,
             FengCaiAction.class,
             MessageAction.class
     );

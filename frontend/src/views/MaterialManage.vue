@@ -1,120 +1,216 @@
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useRouter } from 'vue-router'
-import { findCourseList, deleteMaterial } from "@/apis/materialsAPI"
-import { access } from '@/utils/access'
+import MaterialFilters from '@/components/material/MaterialFilters.vue'
+import MaterialUploadDialog from '@/components/material/MaterialUploadDialog.vue'
+import {
+  addMaterialCategory,
+  deleteMaterial,
+  getManagedMaterialCategories,
+  getMaterialCategories,
+  resolveMaterialAssetUrl,
+  searchMaterials,
+  updateMaterialCategory
+} from '@/apis/materialsAPI'
+import { userinfoStore } from '@/stores/userStore'
 
-const router = useRouter()
+const userStore = userinfoStore()
 const loading = ref(false)
+const uploadVisible = ref(false)
+const categoryVisible = ref(false)
 const materials = ref([])
+const activeCategories = ref([])
+const managedCategories = ref([])
+const newCategoryName = ref('')
+const filters = ref({ keyword: '', courseType: null, courseId: null, year: null })
+const pagination = reactive({ page: 1, pageSize: 10, total: 0 })
+const isAdministrator = computed(() => userStore.currentUser?.level === 0)
 
-// 分页参数
-const pagination = reactive({
-  currentPage: 1,
-  pageSize: 10,
-  total: 0
-})
+const loadCategories = async () => {
+  const activeResponse = await getMaterialCategories()
+  activeCategories.value = activeResponse.data.content || []
+  if (isAdministrator.value) {
+    const managedResponse = await getManagedMaterialCategories()
+    managedCategories.value = managedResponse.data.content || []
+  }
+}
 
-// 获取课件列表
-const fetchMaterials = async () => {
+const loadMaterials = async () => {
+  loading.value = true
   try {
-    loading.value = true
-    const res = await findCourseList({
-      page: pagination.currentPage,
-      size: pagination.pageSize
+    const response = await searchMaterials({
+      ...filters.value,
+      page: pagination.page,
+      pageSize: pagination.pageSize
     })
-    console.log(res.data.content)
-    materials.value = res.data.content.list
-    pagination.total = res.data.content.total
+    materials.value = response.data.content?.list || []
+    pagination.total = response.data.content?.total || 0
   } catch (error) {
-    ElMessage.error('获取课件列表失败')
+    ElMessage.error(error.response?.data?.message || '课件列表加载失败')
   } finally {
     loading.value = false
   }
 }
 
-// 编辑课件
-const handleEdit = (id) => {
-  router.push({ name: 'MaterialEdit', params: { id } })
+const applyFilters = (next) => {
+  filters.value = next
+  pagination.page = 1
+  loadMaterials()
 }
 
-// 删除课件
-const handleDelete = async (id) => {
+const removeMaterial = async (row) => {
   try {
-    await ElMessageBox.confirm('确定要删除该课件吗？', '提示', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-    
-    await deleteMaterial(id)
-    ElMessage.success('删除成功')
-    fetchMaterials()
+    await ElMessageBox.confirm(
+      `删除“${row.title}”后将同时清理封面、预览和原文件，是否继续？`,
+      '删除课件',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+    await deleteMaterial(row.id)
+    ElMessage.success('课件已删除')
+    if (materials.value.length === 1 && pagination.page > 1) pagination.page -= 1
+    await loadMaterials()
   } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error('删除失败')
-    }
+    if (error !== 'cancel') ElMessage.error(error.response?.data?.message || '删除失败')
   }
 }
 
-// 分页变化
-const handleCurrentChange = (val) => {
-  pagination.currentPage = val
-  fetchMaterials()
+const addCategory = async () => {
+  const name = newCategoryName.value.trim()
+  if (!name) return ElMessage.warning('请输入科目名称')
+  try {
+    await addMaterialCategory(name)
+    newCategoryName.value = ''
+    ElMessage.success('科目新增成功')
+    await loadCategories()
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || '科目新增失败')
+  }
 }
 
-onMounted(() => {
-  access([0, 1]) // 管理员和团队账号可管理课件
-  fetchMaterials()
+const renameCategory = async (category) => {
+  try {
+    const { value } = await ElMessageBox.prompt('请输入新的科目名称', '修改科目', {
+      inputValue: category.courseName,
+      inputPattern: /^.{1,20}$/,
+      inputErrorMessage: '科目名称长度应为 1～20 字'
+    })
+    await updateMaterialCategory(category.id, { courseName: value.trim(), status: category.status })
+    ElMessage.success('科目名称已更新')
+    await loadCategories()
+  } catch (error) {
+    if (error !== 'cancel') ElMessage.error(error.response?.data?.message || '科目更新失败')
+  }
+}
+
+const changeCategoryStatus = async (category, nextStatus) => {
+  const previousStatus = nextStatus === 1 ? 0 : 1
+  try {
+    await updateMaterialCategory(category.id, { courseName: category.courseName, status: nextStatus })
+    ElMessage.success(nextStatus === 1 ? '科目已启用' : '科目已停用')
+    await loadCategories()
+  } catch (error) {
+    category.status = previousStatus
+    ElMessage.error(error.response?.data?.message || '科目状态更新失败')
+  }
+}
+
+const subjectName = (row) => row.courseType === 1 ? row.courseName : row.customSubject
+const formatSize = (size) => size >= 1024 * 1024
+  ? `${(size / 1024 / 1024).toFixed(1)} MB`
+  : `${Math.ceil((size || 0) / 1024)} KB`
+
+onMounted(async () => {
+  if (![0, 1].includes(userStore.currentUser?.level)) return
+  try {
+    await Promise.all([loadCategories(), loadMaterials()])
+  } catch (error) {
+    ElMessage.error('课件管理数据加载失败')
+  }
 })
 </script>
 
 <template>
-  <main class="flex-grow container mx-auto px-4 py-8">
-    <div class="max-w-6xl mx-auto">
-      <div class="mb-8 flex justify-between items-center">
-        <h1 class="text-2xl font-bold text-gray-800">课件管理</h1>
-        <el-button type="primary" @click="router.push({ name: 'MaterialUpload' })">
-          上传新课件
-        </el-button>
+  <main class="manage-page">
+    <header class="page-header">
+      <div><h1>课件管理</h1><p>管理员和团队账号可管理全部课件；通识科目仅由管理员维护。</p></div>
+      <div class="header-actions">
+        <el-button v-if="isAdministrator" @click="categoryVisible = true">管理科目</el-button>
+        <el-button type="primary" @click="uploadVisible = true">上传课件</el-button>
       </div>
-      
-      <div class="bg-white rounded-xl shadow-lg p-6">
-        <el-table :data="materials" v-loading="loading" style="width: 100%">
-          <el-table-column prop="id" label="ID" width="80" />
-          <el-table-column prop="title" label="标题" />
-          <el-table-column prop="courseType" label="类型" width="120">
-            <template #default="{ row }">
-              {{ row.courseType === 1 ? '通识课程' : '特色课程' }}
-            </template>
-          </el-table-column>
-          <el-table-column prop="courseName" label="所属课程" />
-          <el-table-column prop="createTime" label="创建时间" width="180">
-            <template #default="{ row }">
-              {{ new Date(row.createTime).toLocaleString() }}
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="180" fixed="right">
-            <template #default="{ row }">              
-              <el-button size="small" type="danger" @click="handleDelete(row.id)">
-                删除
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-        
-        <div class="mt-4 flex justify-end">
-          <el-pagination
-            v-model:current-page="pagination.currentPage"
-            v-model:page-size="pagination.pageSize"
-            :page-sizes="[10, 20, 50, 100]"
-            layout="total, sizes, prev, pager, next, jumper"
-            :total="pagination.total"
-            @current-change="handleCurrentChange"
-          />
-        </div>
+    </header>
+
+    <MaterialFilters v-model="filters" :categories="activeCategories" @search="applyFilters" @reset="applyFilters" />
+
+    <el-table v-loading="loading" :data="materials" class="table">
+      <el-table-column label="封面" width="90">
+        <template #default="{ row }"><el-image :src="resolveMaterialAssetUrl(row.thumbnailUrl)" fit="cover" class="cover" /></template>
+      </el-table-column>
+      <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip />
+      <el-table-column label="类型/科目" min-width="150">
+        <template #default="{ row }">{{ row.courseType === 1 ? '通识' : '特色' }} · {{ subjectName(row) }}</template>
+      </el-table-column>
+      <el-table-column prop="year" label="年份" width="90" />
+      <el-table-column prop="uploaderName" label="上传者" min-width="130" show-overflow-tooltip />
+      <el-table-column label="文件" min-width="120">
+        <template #default="{ row }">{{ (row.fileExtension || '').toUpperCase() }} · {{ formatSize(row.fileSize) }}</template>
+      </el-table-column>
+      <el-table-column label="预览" width="100">
+        <template #default="{ row }">
+          <el-tag :type="row.previewStatus === 'READY' ? 'success' : 'warning'">
+            {{ row.previewStatus === 'READY' ? '可预览' : '转换失败' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="90" fixed="right">
+        <template #default="{ row }"><el-button type="danger" link @click="removeMaterial(row)">删除</el-button></template>
+      </el-table-column>
+    </el-table>
+
+    <el-pagination
+      v-if="pagination.total"
+      v-model:current-page="pagination.page"
+      v-model:page-size="pagination.pageSize"
+      class="pagination"
+      :page-sizes="[10, 20, 50]"
+      layout="total, sizes, prev, pager, next, jumper"
+      :total="pagination.total"
+      @current-change="loadMaterials"
+      @size-change="() => { pagination.page = 1; loadMaterials() }"
+    />
+
+    <MaterialUploadDialog v-model="uploadVisible" :categories="activeCategories" @uploaded="loadMaterials" />
+
+    <el-dialog v-if="isAdministrator" v-model="categoryVisible" title="通识科目管理" width="min(640px, 94vw)">
+      <div class="category-add">
+        <el-input v-model="newCategoryName" maxlength="20" placeholder="新科目名称" @keyup.enter="addCategory" />
+        <el-button type="primary" @click="addCategory">新增</el-button>
       </div>
-    </div>
+      <el-alert title="启用科目最多 12 个；停用不会删除已有课件。" type="info" :closable="false" />
+      <el-table :data="managedCategories" class="category-table">
+        <el-table-column prop="courseName" label="科目" />
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">
+            <el-switch v-model="row.status" :active-value="1" :inactive-value="0" @change="changeCategoryStatus(row, $event)" />
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="90">
+          <template #default="{ row }"><el-button link type="primary" @click="renameCategory(row)">改名</el-button></template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
   </main>
 </template>
+
+<style scoped>
+.manage-page { max-width: 1280px; margin: 0 auto; padding: 32px 20px 56px; }
+.page-header { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+.page-header h1 { margin: 0 0 8px; font-size: 32px; }
+.page-header p { margin: 0; color: #606266; }
+.header-actions, .category-add { display: flex; gap: 10px; }
+.table { margin-top: 24px; }
+.cover { width: 58px; height: 44px; border-radius: 4px; }
+.pagination { justify-content: flex-end; margin-top: 22px; }
+.category-add { margin-bottom: 14px; }
+.category-table { margin-top: 14px; }
+@media (max-width: 640px) { .page-header { align-items: stretch; flex-direction: column; } }
+</style>

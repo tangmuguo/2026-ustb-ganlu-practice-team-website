@@ -1,357 +1,262 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
+import { Document, UploadFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import SparkMD5 from 'spark-md5' // 新增：用于生成文件标识
-import { uploadChunk, mergeChunks, checkFileExist } from "@/apis/materialsAPI"
+import SparkMD5 from 'spark-md5'
+import { checkFileExist, mergeChunks, uploadChunk } from '@/apis/materialsAPI'
 
 const props = defineProps({
-  accept: {
+  accept: { type: String, required: true },
+  purpose: {
     type: String,
-    required: true
+    required: true,
+    validator: (value) => ['COVER', 'MATERIAL'].includes(value)
   },
-  tipText: {
-    type: String,
-    default: '请上传符合格式的文件'
-  },
-  previewIcon: {
-    type: String,
-    default: 'el-icon-document'
-  },
-  uploadText: {
-    type: String,
-    default: '确认上传'
-  },
-  maxSizeMB: {
-    type: Number,
-    default: 10
-  }
+  tipText: { type: String, default: '请上传符合格式的文件' },
+  uploadText: { type: String, default: '上传文件' },
+  maxSizeMb: { type: Number, default: 10 }
 })
 
-const emit = defineEmits(['upload', 'update:modelValue','progress'])
-
-const uploadRef = ref(null)
+const emit = defineEmits(['upload', 'progress', 'error', 'update:modelValue'])
+const uploadRef = ref()
+const currentFile = ref()
 const previewUrl = ref('')
-const currentFile = ref(null)
+const fileIdentifier = ref('')
+const uploadProgress = ref(0)
+const isHashing = ref(false)
 const isUploading = ref(false)
-const uploadProgress = ref(0) // 新增：上传进度
-const fileIdentifier = ref('') // 新增：文件唯一标识
+const uploadComplete = ref(false)
 
-// 生成文件标识（基于文件内容哈希）
-const calculateFileHash = (file) => {
-  return new Promise((resolve) => {
-    const chunkSize = 2 * 1024 * 1024 // 2MB采样
-    const chunks = Math.ceil(file.size / chunkSize)
-    const spark = new SparkMD5.ArrayBuffer()
-    const fileReader = new FileReader()
-    let currentChunk = 0
-
-    fileReader.onload = (e) => {
-      spark.append(e.target.result)
-      currentChunk++
-      if (currentChunk < chunks) {
-        loadNext()
-      } else {
-        resolve(spark.end())
-      }
-    }
-
-    const loadNext = () => {
-      const start = currentChunk * chunkSize
-      const end = Math.min(start + chunkSize, file.size)
-      fileReader.readAsArrayBuffer(file.slice(start, end))
-    }
-
-    loadNext()
-  })
-}
-
-const isImage = computed(() => props.accept.includes('image'))
-const displayName = computed(() => {
-  if (!currentFile.value) return ''
-  return currentFile.value.name.length > 20 
-    ? `${currentFile.value.name.substring(0, 15)}...${currentFile.value.name.split('.').pop()}`
-    : currentFile.value.name
-})
+const isImage = computed(() => props.purpose === 'COVER')
+const busy = computed(() => isHashing.value || isUploading.value)
+const displayName = computed(() => currentFile.value?.name || '')
 const fileSize = computed(() => {
   if (!currentFile.value) return ''
-  const size = currentFile.value.size / 1024
-  return size > 1024 
-    ? `${(size / 1024).toFixed(1)} MB` 
-    : `${Math.round(size)} KB`
+  const megabytes = currentFile.value.size / 1024 / 1024
+  return megabytes >= 1 ? `${megabytes.toFixed(1)} MB` : `${Math.ceil(currentFile.value.size / 1024)} KB`
 })
 
-const beforeUpload = (file) => {
-  // 文件类型验证
-  const extension = file.name.split('.').pop().toLowerCase()
-  const acceptedTypes = props.accept.split(',')
-    .map(item => item.replace('.', '').trim())
-    .filter(Boolean)
-  
-  const isValidType = isImage.value
-    ? file.type.startsWith('image/')
-    : acceptedTypes.includes(extension)
+const acceptedExtensions = computed(() => props.accept
+  .split(',')
+  .map((value) => value.trim().toLowerCase().replace(/^\./, ''))
+  .filter(Boolean))
 
-  if (!isValidType) {
-    ElMessage.error(`仅支持 ${props.accept} 格式的文件`)
+const validateFile = (file) => {
+  const extension = file.name.split('.').pop()?.toLowerCase() || ''
+  if (!acceptedExtensions.value.includes(extension)) {
+    ElMessage.error(`仅支持 ${props.accept} 格式`)
     return false
   }
-
-  // 文件大小验证
-  if (file.size > props.maxSizeMB * 1024 * 1024) {
-    ElMessage.error(`文件大小不能超过 ${props.maxSizeMB}MB`)
+  if (file.size <= 0 || file.size > props.maxSizeMb * 1024 * 1024) {
+    ElMessage.error(`文件大小不能超过 ${props.maxSizeMb}MB`)
     return false
   }
-
   return true
 }
 
-const handleChange =async (file) => {
-  if (!file || !file.raw) return
-  
-  // 计算文件哈希标识
-  fileIdentifier.value = await calculateFileHash(file.raw)
+const calculateFileHash = (file) => new Promise((resolve, reject) => {
+  const hashChunkSize = 2 * 1024 * 1024
+  const total = Math.ceil(file.size / hashChunkSize)
+  const spark = new SparkMD5.ArrayBuffer()
+  const reader = new FileReader()
+  let index = 0
 
-  // 清除旧预览
-  if (previewUrl.value && previewUrl.value.startsWith('blob:')) {
-    URL.revokeObjectURL(previewUrl.value)
+  reader.onload = (event) => {
+    spark.append(event.target.result)
+    index += 1
+    if (index < total) {
+      readNext()
+    } else {
+      resolve(spark.end())
+    }
   }
-
-  // 生成预览
-  if (isImage.value) {
-    previewUrl.value = URL.createObjectURL(file.raw)
-  } else {
-    previewUrl.value = file.name
+  reader.onerror = () => reject(new Error('读取文件失败'))
+  const readNext = () => {
+    const start = index * hashChunkSize
+    reader.readAsArrayBuffer(file.slice(start, Math.min(start + hashChunkSize, file.size)))
   }
-  
-  currentFile.value = file.raw
-}
+  readNext()
+})
 
-const handleExceed = () => {
-  ElMessage.warning(`只能上传一个文件，请先移除当前文件`)
-}
-
-const emitUpload =async () => {
-  if (!currentFile.value || isUploading.value) return
-
-  isUploading.value = true
-  const CHUNK_SIZE = 5 * 1024 * 1024 // 5MB分片
-  const totalChunks = Math.ceil(currentFile.value.size / CHUNK_SIZE)
+const handleChange = async (uploadFile) => {
+  const file = uploadFile?.raw
+  if (!file || !validateFile(file)) {
+    uploadRef.value?.clearFiles()
+    return
+  }
+  clearPreview()
+  currentFile.value = file
+  previewUrl.value = isImage.value ? URL.createObjectURL(file) : file.name
+  isHashing.value = true
+  uploadComplete.value = false
   uploadProgress.value = 0
-
   try {
-    // 检查文件是否已存在
-    const { data: checkData } = await checkFileExist(fileIdentifier.value)
-    if (checkData.exist) {
-      emit('upload', checkData.path)
-      ElMessage.success('文件已存在，秒传成功')
-      return
-    }
-
-    // 上传所有分片
-    for (let i = 0; i < totalChunks; i++) {
-      const chunk = currentFile.value.slice(
-        i * CHUNK_SIZE,
-        Math.min((i + 1) * CHUNK_SIZE, currentFile.value.size)
-      )
-
-      const formData = new FormData()
-      formData.append('file', chunk)
-      formData.append('chunkNumber', i + 1)
-      formData.append('totalChunks', totalChunks)
-      formData.append('identifier', fileIdentifier.value)
-      formData.append('filename', currentFile.value.name)
-
-      await uploadChunkWithRetry(formData, i, totalChunks)
-    }
-
-    // 合并分片
-    const { data } = await mergeChunks({
-      filename: currentFile.value.name,
-      identifier: fileIdentifier.value,
-      totalChunks: totalChunks
-    })
-
-    emit('upload', data.path)
-    ElMessage.success('上传成功')
+    fileIdentifier.value = await calculateFileHash(file)
   } catch (error) {
-    ElMessage.error(`上传失败: ${error.message}`)
+    ElMessage.error(error.message)
+    clearFile()
   } finally {
-    isUploading.value = false
+    isHashing.value = false
   }
-
-  //emit('upload', currentFile.value)
 }
 
-// 分片上传（带重试机制）
-const uploadChunkWithRetry = async (formData, currentChunk, totalChunks, retry = 3) => {
+const uploadChunkWithRetry = async (formData, progressHandler, retries = 3) => {
   try {
-    await uploadChunk(formData, (progressEvent) => {
-      const chunkProgress = Math.round(
-        (progressEvent.loaded / progressEvent.total) * 100
-      )
-      // 计算整体进度
-      uploadProgress.value = Math.round(
-        (currentChunk * 100 + chunkProgress) / totalChunks
-      )
-      emit('progress', uploadProgress.value)
-    })
+    return await uploadChunk(formData, progressHandler)
   } catch (error) {
-    if (retry > 0) {
-      return uploadChunkWithRetry(formData, currentChunk, totalChunks, retry - 1)
-    }
+    if (retries > 0) return uploadChunkWithRetry(formData, progressHandler, retries - 1)
     throw error
   }
 }
 
-const clearFile = () => {
-  if (previewUrl.value && previewUrl.value.startsWith('blob:')) {
-    URL.revokeObjectURL(previewUrl.value)
-  }
-  previewUrl.value = ''
-  currentFile.value = null
+const startUpload = async () => {
+  if (!currentFile.value || !fileIdentifier.value || busy.value || uploadComplete.value) return
+  const file = currentFile.value
+  const chunkSize = 5 * 1024 * 1024
+  const totalChunks = Math.ceil(file.size / chunkSize)
+  isUploading.value = true
   uploadProgress.value = 0
-  uploadRef.value?.clearFiles()
+
+  try {
+    const stateResponse = await checkFileExist(fileIdentifier.value, props.purpose)
+    const state = stateResponse.data.content
+    if (state.complete && state.file) {
+      finishUpload(state.file)
+      return
+    }
+
+    const uploaded = new Set(state.uploadedChunks || [])
+    let completed = uploaded.size
+    for (let index = 0; index < totalChunks; index += 1) {
+      const chunkNumber = index + 1
+      if (uploaded.has(chunkNumber)) continue
+
+      const formData = new FormData()
+      formData.append('file', file.slice(index * chunkSize, Math.min((index + 1) * chunkSize, file.size)))
+      formData.append('chunkNumber', String(chunkNumber))
+      formData.append('totalChunks', String(totalChunks))
+      formData.append('identifier', fileIdentifier.value)
+      formData.append('filename', file.name)
+      formData.append('expectedSize', String(file.size))
+      formData.append('purpose', props.purpose)
+
+      await uploadChunkWithRetry(formData, (event) => {
+        const currentPart = event.total ? event.loaded / event.total : 0
+        const percentage = Math.min(99, Math.round(((completed + currentPart) / totalChunks) * 100))
+        uploadProgress.value = percentage
+        emit('progress', percentage)
+      })
+      completed += 1
+    }
+
+    const mergeResponse = await mergeChunks({
+      filename: file.name,
+      identifier: fileIdentifier.value,
+      totalChunks,
+      expectedSize: file.size,
+      purpose: props.purpose
+    })
+    finishUpload(mergeResponse.data.content)
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || '上传失败'
+    ElMessage.error(message)
+    emit('error', error)
+  } finally {
+    isUploading.value = false
+  }
 }
 
-defineExpose({
-  clearFile,
-  getFile: () => currentFile.value
-})
+const finishUpload = (fileInfo) => {
+  uploadComplete.value = true
+  uploadProgress.value = 100
+  emit('progress', 100)
+  emit('upload', fileInfo)
+  emit('update:modelValue', fileInfo)
+  ElMessage.success('文件上传完成')
+}
+
+const clearPreview = () => {
+  if (previewUrl.value.startsWith('blob:')) URL.revokeObjectURL(previewUrl.value)
+  previewUrl.value = ''
+}
+
+const clearFile = () => {
+  clearPreview()
+  currentFile.value = undefined
+  fileIdentifier.value = ''
+  uploadProgress.value = 0
+  uploadComplete.value = false
+  uploadRef.value?.clearFiles()
+  emit('update:modelValue', null)
+}
+
+const handleExceed = () => ElMessage.warning('一次只能选择一个文件，请先清除当前文件')
+
+onBeforeUnmount(clearPreview)
+defineExpose({ clearFile })
 </script>
 
 <template>
-  <div class="upload-widget-container">
+  <div class="upload-widget">
     <el-upload
       ref="uploadRef"
-      class="uploader"
+      drag
       :auto-upload="false"
       :show-file-list="false"
-      drag
       :limit="1"
       :accept="accept"
+      :disabled="busy"
       :on-change="handleChange"
-      :before-upload="beforeUpload"
       :on-exceed="handleExceed"
     >
-      <!-- 预览插槽 -->
-      <slot name="preview" :previewUrl="previewUrl">
-        <div v-if="previewUrl" class="preview-area">
-          <i v-if="!isImage" :class="previewIcon" style="font-size: 48px; color: #409EFF;"></i>
-          <img v-else :src="previewUrl" class="image-preview">
-          <div class="file-info">
-            <span class="file-name">{{ displayName }}</span>
-            <span class="file-size">{{ fileSize }}</span>
-          </div>
-        </div>
-        <div v-else class="uploader-default">
-          <i class="el-icon-upload" style="font-size: 48px; color: #8c939d;"></i>
-          <div class="el-upload__text">将文件拖到此处，或<em>点击选择</em></div>
-          <div class="el-upload__tip">{{ tipText }}</div>
-        </div>
-      </slot>
+      <div v-if="previewUrl" class="preview">
+        <img v-if="isImage" :src="previewUrl" alt="封面预览" class="cover-preview">
+        <el-icon v-else :size="48" color="#409eff"><Document /></el-icon>
+        <strong>{{ displayName }}</strong>
+        <span>{{ fileSize }}</span>
+      </div>
+      <div v-else class="empty-upload">
+        <el-icon :size="48" color="#8c939d"><UploadFilled /></el-icon>
+        <div>拖放文件到这里，或点击选择</div>
+        <small>{{ tipText }}</small>
+      </div>
     </el-upload>
 
-    <!-- 新增进度显示 -->
-    <el-progress 
-      v-if="uploadProgress > 0"
+    <el-progress
+      v-if="busy || uploadProgress > 0"
+      class="progress"
       :percentage="uploadProgress"
-      :stroke-width="15"
-      :status="uploadProgress === 100 ? 'success' : ''"
+      :status="uploadComplete ? 'success' : undefined"
     />
-    <!-- 操作按钮 -->
-    <div class="action-buttons">
+    <p v-if="isHashing" class="status-text">正在计算文件校验值…</p>
+
+    <div class="actions">
       <el-button
         type="primary"
-        size="small"
-        :disabled="!previewUrl || isUploading"
-        @click="emitUpload"
-        :loading="isUploading"
+        :loading="busy"
+        :disabled="!currentFile || isHashing || uploadComplete"
+        @click="startUpload"
       >
-        {{ uploadProgress === 100 ? '上传完成' : uploadText }}        
+        {{ uploadComplete ? '上传完成' : uploadText }}
       </el-button>
-      <el-button
-        v-if="previewUrl"
-        size="small"
-        :disabled="isUploading"
-        @click="clearFile"
-      >
-        清除
-      </el-button>
+      <el-button v-if="currentFile" :disabled="busy" @click="clearFile">清除</el-button>
     </div>
   </div>
 </template>
 
 <style scoped>
-.upload-widget-container {
-  width: 100%;
-  margin-bottom: 20px;
-}
-
-.uploader {
-  border: 1px dashed #d9d9d9;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: border-color 0.3s;
-}
-
-.uploader:hover {
-  border-color: #409EFF;
-}
-
-.preview-area {
-  padding: 20px;
-  text-align: center;
-  position: relative;
-}
-
-.image-preview {
-  max-height: 200px;
-  max-width: 100%;
-  display: block;
-  margin: 0 auto;
-}
-
-.file-info {
-  margin-top: 10px;
+.upload-widget { width: 100%; }
+.preview, .empty-upload {
+  min-height: 140px;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
-
-.file-name {
-  font-size: 14px;
-  color: #606266;
-  word-break: break-all;
-}
-
-.file-size {
-  font-size: 12px;
-  color: #909399;
-}
-
-.uploader-default {
-  padding: 40px 0;
-  text-align: center;
-}
-
-.el-upload__text {
-  color: #606266;
-  font-size: 14px;
-  margin: 8px 0;
-}
-
-.el-upload__text em {
-  color: #409EFF;
-  font-style: normal;
-}
-
-.el-upload__tip {
-  color: #909399;
-  font-size: 12px;
-}
-
-.action-buttons {
-  margin-top: 10px;
-  display: flex;
-  gap: 10px;
-}
+.preview span, .empty-upload small, .status-text { color: #909399; }
+.cover-preview { max-width: 100%; max-height: 150px; object-fit: contain; }
+.progress { margin-top: 12px; }
+.status-text { margin: 6px 0 0; font-size: 13px; }
+.actions { display: flex; gap: 10px; margin-top: 12px; }
 </style>
