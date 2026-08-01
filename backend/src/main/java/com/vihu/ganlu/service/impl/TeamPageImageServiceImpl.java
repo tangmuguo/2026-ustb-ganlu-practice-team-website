@@ -90,8 +90,11 @@ public class TeamPageImageServiceImpl implements TeamPageImageService {
     public boolean updateStatus(int id, String status, String rejectReason) {
         TeamPageImageEntity e = teamPageImageMapper.findById(id);
         int n = teamPageImageMapper.updateImageStatus(id, status, rejectReason);
-        if (n > 0 && e != null && e.getTeamId() != null) {
-            teamMediaMapper.updateStatusByRelated("IMAGE", id, status, e.getTeamId()); // 级联同步 media 状态
+        // 父内容被驳回/归档时，级联隐藏关联附件；父内容发布时不自动提升附件，
+        // 附件需保持自身的独立审核结果，避免已驳回/已归档附件被复活。
+        if (n > 0 && e != null && e.getTeamId() != null
+                && ("REJECTED".equals(status) || "ARCHIVED".equals(status))) {
+            teamMediaMapper.updateStatusByRelated("IMAGE", id, status, e.getTeamId());
         }
         return n > 0;
     }

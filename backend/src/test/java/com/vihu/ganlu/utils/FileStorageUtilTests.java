@@ -124,4 +124,50 @@ class FileStorageUtilTests {
         boolean result = util.deleteFile("non/existent.txt");
         assertFalse(result);
     }
+
+    @Test
+    void loadFile_pathTraversal_rejected() {
+        // 试图通过 ../ 逃出 uploadRoot，应被 loadFile 拒绝
+        assertThrows(FileStorageUtil.StorageException.class,
+                () -> util.loadFile("../../etc/passwd"));
+    }
+
+    @Test
+    void storeFile_pathTraversalInOriginalName_sanitized() throws IOException {
+        // 原始文件名包含 ../ ，storeFile 应忽略原始文件名，只用 UUID + 验证扩展名
+        byte[] content = "data".getBytes();
+        MockMultipartFile file = new MockMultipartFile("file",
+                "../../../../outside.txt", "text/plain", content);
+
+        String relativePath = util.storeFile(file, "docs");
+        Path stored = util.loadFile(relativePath); // 不抛异常即说明在 uploadRoot 内
+        assertTrue(Files.exists(stored));
+        // 存储名不应包含原始的越界片段
+        assertFalse(relativePath.contains(".."));
+        assertFalse(relativePath.contains("outside"));
+    }
+
+    @Test
+    void validate_plaintextRenamedAsDocx_rejected() {
+        // 纯文本内容改名为 .docx，应被 ZIP 魔数校验拒绝
+        byte[] plaintext = "this is just plain text, not a real docx".getBytes();
+        MockMultipartFile file = new MockMultipartFile("file", "fake.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document", plaintext);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE));
+        assertTrue(ex.getMessage().contains("魔数"));
+    }
+
+    @Test
+    void validate_validZipAsDocx_passes() {
+        // 真正的 ZIP（docx/pptx 本质）以 PK\x03\x04 开头，应通过
+        byte[] zipHeader = new byte[]{0x50, 0x4B, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00};
+        MockMultipartFile file = new MockMultipartFile("file", "archive.zip",
+                "application/zip", zipHeader);
+
+        FileStorageUtil.ValidatedFile vf = util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE);
+        assertEquals(FileStorageUtil.FileCategory.DOCUMENT, vf.getCategory());
+    }
 }

@@ -3,7 +3,6 @@ package com.vihu.ganlu.utils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -31,6 +30,11 @@ public class FileStorageUtil {
     private static final byte[] MAGIC_WEBP_WEBP = "WEBP".getBytes();
     private static final byte[] MAGIC_MP4_FTYP = "ftyp".getBytes();
     private static final byte[] MAGIC_PDF = "%PDF".getBytes();
+    // OOXML（docx/pptx/zip）本质是 ZIP 容器，魔数为 PK\x03\x04
+    private static final byte[] MAGIC_ZIP = new byte[]{0x50, 0x4B, 0x03, 0x04};
+    // 老式 DOC/PPT 为 OLE Compound File，魔数为 D0 CF 11 E0 A1 B1 1A E1
+    private static final byte[] MAGIC_OLE = new byte[]{(byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0,
+            (byte) 0xA1, (byte) 0xB1, 0x1A, (byte) 0xE1};
 
     // ---- 大小限制 ----
     public static final long MAX_IMAGE_SIZE = 10 * 1024 * 1024;      // 10MB
@@ -73,28 +77,43 @@ public class FileStorageUtil {
 
     public String storeFile(MultipartFile file, String subDir) {
         try {
-            Path targetDir = uploadRoot.resolve(subDir);
+            // 子目录也需做边界校验，防止 subDir 中的 ../ 逃出 uploadRoot
+            Path targetDir = uploadRoot.resolve(subDir).toAbsolutePath().normalize();
+            if (!targetDir.startsWith(uploadRoot)) {
+                throw new StorageException("非法的存储子目录: " + subDir);
+            }
             Files.createDirectories(targetDir);
 
-            String filename = StringUtils.cleanPath(
-                    UUID.randomUUID() + "_" + file.getOriginalFilename());
+            // 物理文件名完全由服务端生成（UUID + 验证后的扩展名），
+            // 原始文件名仅作为元数据保存到数据库，避免路径穿越和同名覆盖。
+            String ext = extractExtension(file.getOriginalFilename());
+            String safeFilename = UUID.randomUUID().toString()
+                    + (ext.isEmpty() ? "" : "." + ext);
 
-            Path targetPath = targetDir.resolve(filename);
+            Path targetPath = targetDir.resolve(safeFilename).toAbsolutePath().normalize();
+            if (!targetPath.startsWith(uploadRoot)) {
+                throw new StorageException("非法的存储路径: " + targetPath);
+            }
             file.transferTo(targetPath);
 
-            return Paths.get(subDir, filename).toString();
+            return uploadRoot.relativize(targetPath).toString();
         } catch (IOException e) {
             throw new StorageException("存储文件失败: " + file.getOriginalFilename(), e);
         }
     }
 
     /**
-     * 由相对路径relativePath与uploadRoot的根路径 组合成完整的绝对路径，多用于读取或者下载文件
-     * @param relativePath
-     * @return
+     * 由相对路径relativePath与uploadRoot的根路径 组合成完整的绝对路径，多用于读取或者下载文件。
+     * 校验结果路径必须仍在 uploadRoot 之下，防止路径穿越。
+     * @param relativePath 存储时返回的相对路径
+     * @return 规范化后的绝对路径
      */
     public Path loadFile(String relativePath) {
-        return uploadRoot.resolve(relativePath).normalize();
+        Path filePath = uploadRoot.resolve(relativePath).toAbsolutePath().normalize();
+        if (!filePath.startsWith(uploadRoot)) {
+            throw new StorageException("尝试访问上传目录之外的文件: " + relativePath);
+        }
+        return filePath;
     }
 
     /**
@@ -284,9 +303,15 @@ public class FileStorageUtil {
                 if ("pdf".equals(ext)) {
                     return startsWith(header, MAGIC_PDF);
                 }
-                // doc/docx/ppt/pptx/zip 均为 OOXML/OLE 格式，魔数较复杂，
-                // 这里仅做扩展名校验（后续可补充）
-                return true;
+                // docx/pptx/zip 均为 ZIP 容器（OOXML），校验 PK 头
+                if ("docx".equals(ext) || "pptx".equals(ext) || "zip".equals(ext)) {
+                    return startsWith(header, MAGIC_ZIP);
+                }
+                // 老式 doc/ppt 为 OLE Compound File，校验 OLE 头
+                if ("doc".equals(ext) || "ppt".equals(ext)) {
+                    return startsWith(header, MAGIC_OLE);
+                }
+                return false;
             default:
                 return false;
         }

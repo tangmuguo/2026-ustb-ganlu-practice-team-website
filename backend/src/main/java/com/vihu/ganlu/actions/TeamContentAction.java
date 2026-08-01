@@ -129,7 +129,11 @@ public class TeamContentAction {
             return badRequest("当前用户未绑定小队");
         }
 
-        // 校验父内容归属：附件只能关联到当前团队的内容
+        // 校验父内容归属：附件只能关联到当前团队的内容。
+        // relatedType 与 relatedId 必须同时为空或同时非空，避免产生半关联记录。
+        if ((relatedType == null) != (relatedId == null)) {
+            return badRequest("relatedType 与 relatedId 必须同时提供或同时省略");
+        }
         if (relatedType != null && relatedId != null) {
             if (!"IMAGE".equals(relatedType) && !"WORD".equals(relatedType)) {
                 return badRequest("无效的关联类型: " + relatedType);
@@ -228,13 +232,15 @@ public class TeamContentAction {
         if (m == null || !"PUBLISHED".equals(m.getStatus())) {
             return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "资源不存在"));
         }
+        // media 必须归属某个团队；team_id 为空视为非法记录，直接 404
+        if (m.getTeamId() == null) {
+            return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "资源不存在"));
+        }
         // 校验所属团队存在且状态为 PUBLISHED
-        if (m.getTeamId() != null) {
-            List<TeamEntity> teams = teamMapper.getTeamById(m.getTeamId());
-            TeamEntity team = (teams != null && !teams.isEmpty()) ? teams.get(0) : null;
-            if (team == null || !"PUBLISHED".equals(team.getStatus())) {
-                return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "资源不存在"));
-            }
+        List<TeamEntity> teams = teamMapper.getTeamById(m.getTeamId());
+        TeamEntity team = (teams != null && !teams.isEmpty()) ? teams.get(0) : null;
+        if (team == null || !"PUBLISHED".equals(team.getStatus())) {
+            return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "资源不存在"));
         }
         // 级联检查：如果 media 关联了父内容，父内容也必须 PUBLISHED 且属于同一 team
         if (m.getRelatedType() != null && m.getRelatedId() != null) {

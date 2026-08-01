@@ -25,16 +25,7 @@ const AllPATH = {
   getMaterialDetailPath:"courseDetail/getDetail",
   getAllCourseTypePath:"courseDetail/allCourse",
 
-  //风采（旧接口 — 已废弃）
-  uploadTeamImagePath:"fengcai/uploadImage",
-  addTeamImagePath:"fengcai/addImage",
-  addTeamWordPath:"fengcai/addWord",
-  findAllWordsPath:"fengcai/words",
-  findAllImagesPath:"fengcai/images",
-  deleteImagePath:"fengcai/deleteImage",
-  deleteWordPath:"fengcai/deleteWord",
-
-  //团队风采内容管理（新接口）
+  //团队风采内容管理（已下线旧 fengcai 接口，统一使用 team-content 系列）
   teamContentMinePath:"team-content/mine",
   teamContentMembersPath:"team-content/members",
   teamContentPhotosPath:"team-content/photos",

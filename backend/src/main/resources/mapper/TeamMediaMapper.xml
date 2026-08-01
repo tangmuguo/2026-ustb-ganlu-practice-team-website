@@ -38,7 +38,7 @@
     </select>
 
     <select id="findByTeamId" parameterType="Integer" resultMap="teammediamap">
-        select * from team_media where team_id = #{teamId}
+        select * from team_media where team_id = #{teamId} and status &lt;&gt; 'ARCHIVED'
     </select>
 
     <select id="findByStatus" resultMap="teammediamap">

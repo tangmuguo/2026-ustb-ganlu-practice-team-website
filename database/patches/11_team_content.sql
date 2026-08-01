@@ -39,29 +39,108 @@ CREATE TABLE IF NOT EXISTS `team_media` (
 
 -- ---------------------------------------------------------------------
 -- 2. ALTER TABLE team_page_images — 新增 team_id / status / reject_reason / log_date
+--    使用 INFORMATION_SCHEMA 条件判断，保证脚本可安全重入
 -- ---------------------------------------------------------------------
-ALTER TABLE `team_page_images`
-  ADD COLUMN `team_id` int(0) NULL DEFAULT NULL COMMENT '所属团队ID' AFTER `id`,
-  ADD COLUMN `status` enum('PENDING','PUBLISHED','REJECTED','ARCHIVED') NULL DEFAULT 'PENDING' COMMENT '审核状态' AFTER `team_id`,
-  ADD COLUMN `reject_reason` varchar(512) NULL DEFAULT NULL COMMENT '驳回原因' AFTER `status`,
-  ADD COLUMN `log_date` date NULL DEFAULT NULL COMMENT '拍摄日期(用户可选)' AFTER `reject_reason`;
 
-ALTER TABLE `team_page_images`
-  ADD INDEX `idx_team_id`(`team_id`),
-  ADD INDEX `idx_status`(`status`);
+-- 2.1 team_id 列
+SET @col_exists := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'team_page_images' AND COLUMN_NAME = 'team_id');
+SET @sql := IF(@col_exists = 0,
+  'ALTER TABLE `team_page_images` ADD COLUMN `team_id` int(0) NULL DEFAULT NULL COMMENT ''所属团队ID'' AFTER `id`',
+  'SELECT ''team_page_images.team_id 已存在，跳过'' AS msg');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 2.2 status 列
+SET @col_exists := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'team_page_images' AND COLUMN_NAME = 'status');
+SET @sql := IF(@col_exists = 0,
+  'ALTER TABLE `team_page_images` ADD COLUMN `status` enum(''PENDING'',''PUBLISHED'',''REJECTED'',''ARCHIVED'') NULL DEFAULT ''PENDING'' COMMENT ''审核状态'' AFTER `team_id`',
+  'SELECT ''team_page_images.status 已存在，跳过'' AS msg');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 2.3 reject_reason 列
+SET @col_exists := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'team_page_images' AND COLUMN_NAME = 'reject_reason');
+SET @sql := IF(@col_exists = 0,
+  'ALTER TABLE `team_page_images` ADD COLUMN `reject_reason` varchar(512) NULL DEFAULT NULL COMMENT ''驳回原因'' AFTER `status`',
+  'SELECT ''team_page_images.reject_reason 已存在，跳过'' AS msg');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 2.4 log_date 列
+SET @col_exists := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'team_page_images' AND COLUMN_NAME = 'log_date');
+SET @sql := IF(@col_exists = 0,
+  'ALTER TABLE `team_page_images` ADD COLUMN `log_date` date NULL DEFAULT NULL COMMENT ''拍摄日期(用户可选)'' AFTER `reject_reason`',
+  'SELECT ''team_page_images.log_date 已存在，跳过'' AS msg');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 2.5 索引 idx_team_id
+SET @idx_exists := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'team_page_images' AND INDEX_NAME = 'idx_team_id');
+SET @sql := IF(@idx_exists = 0,
+  'ALTER TABLE `team_page_images` ADD INDEX `idx_team_id`(`team_id`)',
+  'SELECT ''team_page_images.idx_team_id 已存在，跳过'' AS msg');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 2.6 索引 idx_status
+SET @idx_exists := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'team_page_images' AND INDEX_NAME = 'idx_status');
+SET @sql := IF(@idx_exists = 0,
+  'ALTER TABLE `team_page_images` ADD INDEX `idx_status`(`status`)',
+  'SELECT ''team_page_images.idx_status 已存在，跳过'' AS msg');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ---------------------------------------------------------------------
 -- 3. ALTER TABLE team_page_word — 同上（注意旧列名小写 userid）
 -- ---------------------------------------------------------------------
-ALTER TABLE `team_page_word`
-  ADD COLUMN `team_id` int(0) NULL DEFAULT NULL COMMENT '所属团队ID' AFTER `id`,
-  ADD COLUMN `status` enum('PENDING','PUBLISHED','REJECTED','ARCHIVED') NULL DEFAULT 'PENDING' COMMENT '审核状态' AFTER `team_id`,
-  ADD COLUMN `reject_reason` varchar(512) NULL DEFAULT NULL COMMENT '驳回原因' AFTER `status`,
-  ADD COLUMN `log_date` date NULL DEFAULT NULL COMMENT '日志日期/获奖日期(用户可选)' AFTER `reject_reason`;
 
-ALTER TABLE `team_page_word`
-  ADD INDEX `idx_team_id`(`team_id`),
-  ADD INDEX `idx_status`(`status`);
+-- 3.1 team_id 列
+SET @col_exists := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'team_page_word' AND COLUMN_NAME = 'team_id');
+SET @sql := IF(@col_exists = 0,
+  'ALTER TABLE `team_page_word` ADD COLUMN `team_id` int(0) NULL DEFAULT NULL COMMENT ''所属团队ID'' AFTER `id`',
+  'SELECT ''team_page_word.team_id 已存在，跳过'' AS msg');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 3.2 status 列
+SET @col_exists := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'team_page_word' AND COLUMN_NAME = 'status');
+SET @sql := IF(@col_exists = 0,
+  'ALTER TABLE `team_page_word` ADD COLUMN `status` enum(''PENDING'',''PUBLISHED'',''REJECTED'',''ARCHIVED'') NULL DEFAULT ''PENDING'' COMMENT ''审核状态'' AFTER `team_id`',
+  'SELECT ''team_page_word.status 已存在，跳过'' AS msg');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 3.3 reject_reason 列
+SET @col_exists := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'team_page_word' AND COLUMN_NAME = 'reject_reason');
+SET @sql := IF(@col_exists = 0,
+  'ALTER TABLE `team_page_word` ADD COLUMN `reject_reason` varchar(512) NULL DEFAULT NULL COMMENT ''驳回原因'' AFTER `status`',
+  'SELECT ''team_page_word.reject_reason 已存在，跳过'' AS msg');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 3.4 log_date 列
+SET @col_exists := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'team_page_word' AND COLUMN_NAME = 'log_date');
+SET @sql := IF(@col_exists = 0,
+  'ALTER TABLE `team_page_word` ADD COLUMN `log_date` date NULL DEFAULT NULL COMMENT ''日志日期/获奖日期(用户可选)'' AFTER `reject_reason`',
+  'SELECT ''team_page_word.log_date 已存在，跳过'' AS msg');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 3.5 索引 idx_team_id
+SET @idx_exists := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'team_page_word' AND INDEX_NAME = 'idx_team_id');
+SET @sql := IF(@idx_exists = 0,
+  'ALTER TABLE `team_page_word` ADD INDEX `idx_team_id`(`team_id`)',
+  'SELECT ''team_page_word.idx_team_id 已存在，跳过'' AS msg');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 3.6 索引 idx_status
+SET @idx_exists := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'team_page_word' AND INDEX_NAME = 'idx_status');
+SET @sql := IF(@idx_exists = 0,
+  'ALTER TABLE `team_page_word` ADD INDEX `idx_status`(`status`)',
+  'SELECT ''team_page_word.idx_status 已存在，跳过'' AS msg');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ---------------------------------------------------------------------
 -- 4. 数据回填（主回填 + 兜底）
@@ -98,9 +177,10 @@ SELECT 'team_page_word_orphan', COUNT(*)
 FROM team_page_word WHERE team_id IS NULL;
 
 -- ---------------------------------------------------------------------
--- 6. 历史内容回填 PUBLISHED — 已有 pageId 关联的记录视为已发布内容
+-- 6. 历史内容回填 PUBLISHED — 所有成功映射 team_id 的记录视为已发布内容
+--    （主回填 + 兜底回填后的全部记录，避免兜底数据因 pageId 为空被隐藏）
 -- ---------------------------------------------------------------------
-UPDATE team_page_images SET status = 'PUBLISHED' WHERE team_id IS NOT NULL AND pageId IS NOT NULL;
-UPDATE team_page_word SET status = 'PUBLISHED' WHERE team_id IS NOT NULL AND pageId IS NOT NULL;
+UPDATE team_page_images SET status = 'PUBLISHED' WHERE team_id IS NOT NULL AND status = 'PENDING';
+UPDATE team_page_word SET status = 'PUBLISHED' WHERE team_id IS NOT NULL AND status = 'PENDING';
 
 SET FOREIGN_KEY_CHECKS = 1;

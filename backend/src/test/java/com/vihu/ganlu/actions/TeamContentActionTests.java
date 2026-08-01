@@ -286,6 +286,36 @@ class TeamContentActionTests {
         assertEquals(400, resp.getStatusCodeValue());
     }
 
+    @SuppressWarnings("unchecked")
+    @Test
+    void uploadMedia_onlyRelatedTypeProvided_returns400() {
+        // relatedType 与 relatedId 只传一个，应拒绝（避免半关联记录）
+        UserEntity user = user(5, 1);
+        mockTeamUser(5, 10);
+        MockMultipartFile file = new MockMultipartFile("file", "test.mp4",
+                "video/mp4", new byte[]{0, 0, 0, 0, 'f', 't', 'y', 'p'});
+        when(fileStorageUtil.extractExtension("test.mp4")).thenReturn("mp4");
+        when(fileStorageUtil.isAllowedVideo(file)).thenReturn(null);
+
+        ResponseEntity<?> resp = action.uploadMedia(file, "IMAGE", null, req(user));
+        assertEquals(400, resp.getStatusCodeValue());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void download_mediaWithoutTeamId_returns404() {
+        // team_id 为空的 media 视为非法记录，直接 404（不跳过团队校验）
+        TeamMediaEntity m = new TeamMediaEntity();
+        m.setId(10);
+        m.setStatus("PUBLISHED");
+        m.setTeamId(null); // 无团队归属
+        when(mediaService.findById(10)).thenReturn(m);
+
+        ResponseEntity<?> resp = action.download(10);
+        assertEquals(404, resp.getStatusCodeValue());
+        verify(teamMapper, never()).getTeamById(anyInt());
+    }
+
     // =====================================================================
     // 辅助方法
     // =====================================================================
