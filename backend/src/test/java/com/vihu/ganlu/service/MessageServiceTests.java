@@ -1,10 +1,14 @@
 package com.vihu.ganlu.service;
 
 import com.vihu.ganlu.entitys.MessageEntity;
+import com.vihu.ganlu.entitys.ReplyEntity;
 import com.vihu.ganlu.entitys.UserEntity;
 import com.vihu.ganlu.exception.BadRequestException;
 import com.vihu.ganlu.exception.ForbiddenException;
 import com.vihu.ganlu.exception.NotFoundException;
+import com.vihu.ganlu.mappers.MessageMapper;
+import com.vihu.ganlu.mappers.ReplyMapper;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -13,6 +17,7 @@ import org.junit.jupiter.api.DisplayName;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Date;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -26,6 +31,12 @@ class MessageServiceTests {
 
     @Autowired
     private MessageService messageService;
+
+    @Autowired
+    private MessageMapper messageMapper;
+
+    @Autowired
+    private ReplyMapper replyMapper;
 
     /**
      * 工具方法：构造测试用户
@@ -80,10 +91,10 @@ class MessageServiceTests {
     @Test
     @DisplayName("新增回复-成功")
     void testAddReply_success() {
-        // 对应任务单：登录用户均可回复
-        messageService.addMessage("测试留言", 1001);
-        // 取第一条留言id（实际项目建议查询刚插入的id，这里简化演示）
-        assertDoesNotThrow(() -> messageService.addReply(1, "测试回复内容", 1002));
+        // 先通过业务方法新增一条留言，拿到真实自增ID
+        Integer messageId = messageService.addMessage("测试留言", 1001);
+        // 用真实ID新增回复，断言不抛出异常
+        assertDoesNotThrow(() -> messageService.addReply(messageId, "测试回复内容", 2001));
     }
 
     @Test
@@ -91,20 +102,26 @@ class MessageServiceTests {
     void testAddReply_deletedMessage_shouldFail() {
         // 对应任务单：已删除留言不能回复，返回404
         UserEntity admin = buildUser(1, 1001);
-        messageService.addMessage("即将删除的留言", 1002);
-        messageService.deleteMessage(1, admin);
+        // 先新增留言，拿到真实ID
+        Integer messageId = messageService.addMessage("即将删除的留言", 1002);
+        // 用真实ID删除留言
+        messageService.deleteMessage(messageId, admin);
 
+        // 用已删除的留言ID新增回复，预期抛异常
         assertThrows(NotFoundException.class,
-                () -> messageService.addReply(1, "回复内容", 1002));
+                () -> messageService.addReply(messageId, "回复内容", 1002));
     }
+
 
     @Test
     @DisplayName("新增回复-失败：内容超长（301字）")
     void testAddReply_tooLong_shouldFail() {
+        // 先造一条正常留言
+        Integer messageId = messageService.addMessage("测试留言", 1001);
         // 对应任务单：回复1~300字
         String longContent = buildLongString(301);
         assertThrows(BadRequestException.class,
-                () -> messageService.addReply(1, longContent, 1002));
+                () -> messageService.addReply(messageId, longContent, 1002));
     }
 
     // ========== 删除权限测试 ==========
@@ -114,10 +131,10 @@ class MessageServiceTests {
     void testDeleteMessage_level2_shouldForbidden() {
         // 对应任务单：level=2 删除返回403
         UserEntity level2User = buildUser(2, 1002);
-        messageService.addMessage("待删除留言", 1001);
+        Integer messageId = messageService.addMessage("待删除留言", 1001);
 
         assertThrows(ForbiddenException.class,
-                () -> messageService.deleteMessage(1, level2User));
+                () -> messageService.deleteMessage(messageId, level2User));
     }
 
     @Test
@@ -125,9 +142,9 @@ class MessageServiceTests {
     void testDeleteMessage_level1_shouldSuccess() {
         // 对应任务单：level 0/1 可删除
         UserEntity level1User = buildUser(1, 1001);
-        messageService.addMessage("待删留言", 1002);
+        Integer messageId = messageService.addMessage("待删留言", 1002);
 
-        assertDoesNotThrow(() -> messageService.deleteMessage(1, level1User));
+        assertDoesNotThrow(() -> messageService.deleteMessage(messageId, level1User));
     }
 
     @Test
@@ -135,11 +152,19 @@ class MessageServiceTests {
     void testDeleteReply_level2_shouldForbidden() {
         // 对应任务单：level=2 不能删除回复
         UserEntity level2User = buildUser(2, 1002);
-        messageService.addMessage("测试留言", 1001);
-        messageService.addReply(1, "测试回复", 1002);
+        // 1. 先造一条留言
+        Integer messageId = messageService.addMessage("测试留言", 1001);
+        // 2. 造一条回复（通过Mapper插入，拿到回复自增ID）
+        ReplyEntity reply = new ReplyEntity();
+        reply.setMessageId(messageId);
+        reply.setUserId(1002);
+        reply.setContent("测试回复");
+        reply.setStatus(1);
+        reply.setCreateTime(new Date());
+        replyMapper.insert(reply);
 
         assertThrows(ForbiddenException.class,
-                () -> messageService.deleteReply(1, level2User));
+                () -> messageService.deleteReply(reply.getId(), level2User));
     }
 
     // ========== 分页测试 ==========
@@ -171,13 +196,14 @@ class MessageServiceTests {
     void testLogicDelete_notVisibleInList() {
         // 对应任务单：逻辑删除，公开列表不再显示
         UserEntity admin = buildUser(1, 1001);
-        messageService.addMessage("测试留言1", 1002);
+        Integer msg1Id = messageService.addMessage("测试留言1", 1002);
         messageService.addMessage("测试留言2", 1002);
 
         Map<String, Object> before = messageService.getMessages(1, 10);
         int beforeTotal = (int) before.get("total");
 
-        messageService.deleteMessage(1, admin);
+        // 删除第一条留言
+        messageService.deleteMessage(msg1Id, admin);
 
         Map<String, Object> after = messageService.getMessages(1, 10);
         int afterTotal = (int) after.get("total");
