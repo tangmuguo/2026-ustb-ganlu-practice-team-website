@@ -179,7 +179,6 @@ class MessageActionTests {
         // 2. 从返回结果里取留言ID（先按你原来的路径试，不对再改）
         Integer messageId = objectMapper.readTree(responseStr)
                 .path("content")
-                .path("id")
                 .asInt();
 
         System.out.println("解析到的留言ID：" + messageId);
