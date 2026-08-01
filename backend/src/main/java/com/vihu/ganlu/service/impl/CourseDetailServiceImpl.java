@@ -20,53 +20,44 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.BufferedOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.time.Year;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import java.util.Properties;
-import java.util.UUID;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import java.util.UUID;
 
 @Slf4j
 @Service
 public class CourseDetailServiceImpl implements CourseDetailService {
     private static final Pattern FILE_IDENTIFIER = Pattern.compile("^[a-fA-F0-9]{32}$");
-    private static final String CHUNK_ROOT = "temp_chunks";
-    private static final String STAGING_ROOT = "staging/materials";
     private static final String ORIGINAL_ROOT = "protected/materials";
     private static final String COVER_ROOT = "images/materials";
-    private static final String PREVIEW_ROOT = "materials/previews";
+    private static final String PREVIEW_ROOT = "protected/material-previews";
 
     private final CourseDetailMapper courseDetailMapper;
     private final CourseService courseService;
     private final FileStorageUtil fileStorageUtil;
     private final MaterialFileValidator fileValidator;
     private final OfficePreviewService officePreviewService;
+    private final MaterialUploadStorageService uploadStorageService;
 
     public CourseDetailServiceImpl(
             CourseDetailMapper courseDetailMapper,
             CourseService courseService,
             FileStorageUtil fileStorageUtil,
             MaterialFileValidator fileValidator,
-            OfficePreviewService officePreviewService) {
+            OfficePreviewService officePreviewService,
+            MaterialUploadStorageService uploadStorageService) {
         this.courseDetailMapper = courseDetailMapper;
         this.courseService = courseService;
         this.fileStorageUtil = fileStorageUtil;
         this.fileValidator = fileValidator;
         this.officePreviewService = officePreviewService;
+        this.uploadStorageService = uploadStorageService;
     }
 
     @Override
@@ -91,19 +82,24 @@ public class CourseDetailServiceImpl implements CourseDetailService {
     @Transactional
     public CourseDetailEntity createMaterial(MaterialCreateRequest request, UserEntity uploader) throws IOException {
         validateCreateRequest(request, uploader);
-        StagedFile cover = loadStagedFile(uploader.getId(), "COVER", request.getCoverToken());
-        StagedFile materialFile = loadStagedFile(uploader.getId(), "MATERIAL", request.getFileToken());
+        MaterialUploadStorageService.StagedFile cover = uploadStorageService.loadStagedFile(
+                uploader.getId(), "COVER", request.getCoverToken());
+        MaterialUploadStorageService.StagedFile materialFile = uploadStorageService.loadStagedFile(
+                uploader.getId(), "MATERIAL", request.getFileToken());
 
         String coverPath = null;
         String originalPath = null;
         String previewPath = null;
         try {
-            coverPath = fileStorageUtil.moveInto(cover.path, COVER_ROOT, cover.info.getExtension());
-            originalPath = fileStorageUtil.moveInto(materialFile.path, ORIGINAL_ROOT, materialFile.info.getExtension());
+            coverPath = fileStorageUtil.moveInto(
+                    cover.getPath(), COVER_ROOT, cover.getInfo().getExtension());
+            originalPath = fileStorageUtil.moveInto(
+                    materialFile.getPath(), ORIGINAL_ROOT, materialFile.getInfo().getExtension());
             Path storedOriginal = fileStorageUtil.loadFile(originalPath);
 
             String previewStatus = "READY";
-            if ("ppt".equals(materialFile.info.getExtension()) || "pptx".equals(materialFile.info.getExtension())) {
+            if ("ppt".equals(materialFile.getInfo().getExtension())
+                    || "pptx".equals(materialFile.getInfo().getExtension())) {
                 Path previewTarget = fileStorageUtil.createDirectory(PREVIEW_ROOT)
                         .resolve(UUID.randomUUID().toString() + ".pdf");
                 try {
@@ -112,11 +108,11 @@ public class CourseDetailServiceImpl implements CourseDetailService {
                 } catch (IOException | RuntimeException conversionError) {
                     previewStatus = "FAILED";
                     log.warn("课件 {} 的预览转换失败: {}",
-                            materialFile.info.getOriginalName(), conversionError.getMessage());
+                            materialFile.getInfo().getOriginalName(), conversionError.getMessage());
                 }
             } else {
                 previewPath = fileStorageUtil.copyInto(
-                        storedOriginal, PREVIEW_ROOT, materialFile.info.getExtension());
+                        storedOriginal, PREVIEW_ROOT, materialFile.getInfo().getExtension());
             }
 
             CourseDetailEntity entity = new CourseDetailEntity();
@@ -130,24 +126,26 @@ public class CourseDetailServiceImpl implements CourseDetailService {
             entity.setThumbnailUrl(coverPath);
             entity.setOriginalFilePath(originalPath);
             entity.setPreviewFilePath(previewPath);
-            entity.setOriginalFilename(materialFile.info.getOriginalName());
-            entity.setFileSize(materialFile.info.getSize());
-            entity.setFileExtension(materialFile.info.getExtension());
-            entity.setMimeType(materialFile.info.getMimeType());
+            entity.setOriginalFilename(materialFile.getInfo().getOriginalName());
+            entity.setFileSize(materialFile.getInfo().getSize());
+            entity.setFileExtension(materialFile.getInfo().getExtension());
+            entity.setMimeType(materialFile.getInfo().getMimeType());
             entity.setPreviewStatus(previewStatus);
             entity.setStatus(1);
 
             if (courseDetailMapper.insertCourseDetail(entity) != 1) {
                 throw new IllegalStateException("保存课件记录失败");
             }
-            Files.deleteIfExists(cover.metadata);
-            Files.deleteIfExists(materialFile.metadata);
+            uploadStorageService.consumeStagedFile(cover);
+            uploadStorageService.consumeStagedFile(materialFile);
             decoratePublicFields(entity);
             return entity;
         } catch (RuntimeException | IOException e) {
             safeDelete(coverPath);
             safeDelete(originalPath);
             safeDelete(previewPath);
+            discardMovedStagedMetadata(cover);
+            discardMovedStagedMetadata(materialFile);
             throw e;
         }
     }
@@ -172,87 +170,30 @@ public class CourseDetailServiceImpl implements CourseDetailService {
     public String saveChunk(MultipartFile chunk, int chunkNumber, int totalChunks, String identifier,
                             String filename, long expectedSize, String purpose, int userId) throws IOException {
         validateUploadParameters(chunkNumber, totalChunks, identifier, filename, expectedSize, purpose);
-        if (chunk == null || chunk.isEmpty() || chunk.getSize() > MaterialFileValidator.MAX_CHUNK_SIZE) {
-            throw new IllegalArgumentException("分片大小不合法");
-        }
-        Path directory = chunkDirectory(userId, purpose, identifier);
-        Path target = directory.resolve(chunkNumber + ".part").normalize();
-        try (InputStream input = chunk.getInputStream()) {
-            Files.copy(input, target, StandardCopyOption.REPLACE_EXISTING);
-        }
-        return String.valueOf(chunkNumber);
+        return uploadStorageService.saveChunk(
+                chunk, chunkNumber, totalChunks, identifier, filename, expectedSize, purpose, userId);
     }
 
     @Override
     public UploadedFileInfo mergeChunks(String filename, String identifier, int totalChunks,
                                         long expectedSize, String purpose, int userId) throws IOException {
         validateUploadParameters(1, totalChunks, identifier, filename, expectedSize, purpose);
-        String normalizedPurpose = fileValidator.normalizePurpose(purpose);
-        UploadedFileInfo existing = findStagedFileByChecksum(userId, normalizedPurpose, identifier);
-        if (existing != null) {
-            return existing;
-        }
-
-        Path directory = chunkDirectory(userId, normalizedPurpose, identifier);
-        Path merged = directory.resolve(identifier + ".merge").normalize();
-        try (OutputStream output = new BufferedOutputStream(Files.newOutputStream(merged))) {
-            for (int chunkNumber = 1; chunkNumber <= totalChunks; chunkNumber++) {
-                Path part = directory.resolve(chunkNumber + ".part");
-                if (!Files.isRegularFile(part)) {
-                    throw new IllegalStateException("缺少第 " + chunkNumber + " 个分片");
-                }
-                Files.copy(part, output);
-            }
-        }
-
-        UploadedFileInfo info;
-        try {
-            info = fileValidator.validate(merged, filename, normalizedPurpose, expectedSize);
-            if (!identifier.equalsIgnoreCase(info.getChecksum())) {
-                throw new IllegalArgumentException("文件 MD5 校验失败");
-            }
-        } catch (RuntimeException | IOException e) {
-            Files.deleteIfExists(merged);
-            fileStorageUtil.deleteTree(directory);
-            throw e;
-        }
-
-        String token = UUID.randomUUID().toString();
-        info.setToken(token);
-        Path stagingDirectory = fileStorageUtil.createDirectory(stagingDirectory(userId, normalizedPurpose));
-        Path stagedFile = stagingDirectory.resolve(token + "." + info.getExtension()).normalize();
-        Files.move(merged, stagedFile, StandardCopyOption.REPLACE_EXISTING);
-        saveMetadata(stagingDirectory.resolve(token + ".properties"), info);
-        fileStorageUtil.deleteTree(directory);
-        return info;
+        return uploadStorageService.mergeChunks(
+                filename, identifier, totalChunks, expectedSize, purpose, userId);
     }
 
     @Override
     public Map<String, Object> checkFileExist(String fileMd5, String purpose, int userId) throws IOException {
         requireIdentifier(fileMd5);
-        String normalizedPurpose = fileValidator.normalizePurpose(purpose);
-        Map<String, Object> result = new HashMap<>();
-        UploadedFileInfo staged = findStagedFileByChecksum(userId, normalizedPurpose, fileMd5);
-        if (staged != null) {
-            result.put("complete", true);
-            result.put("file", staged);
-            result.put("uploadedChunks", Collections.emptyList());
-            return result;
-        }
+        return uploadStorageService.checkFileExist(fileMd5, purpose, userId);
+    }
 
-        Path directory = fileStorageUtil.createDirectory(chunkDirectoryName(userId, normalizedPurpose, fileMd5));
-        List<Integer> uploadedChunks = new ArrayList<>();
-        try (Stream<Path> paths = Files.list(directory)) {
-            uploadedChunks = paths
-                    .filter(path -> path.getFileName().toString().matches("\\d+\\.part"))
-                    .map(path -> path.getFileName().toString().replace(".part", ""))
-                    .map(Integer::valueOf)
-                    .sorted()
-                    .collect(Collectors.toList());
+    @Override
+    public void cancelUpload(String identifier, String purpose, String token, int userId) throws IOException {
+        if (identifier != null && !identifier.trim().isEmpty()) {
+            requireIdentifier(identifier);
         }
-        result.put("complete", false);
-        result.put("uploadedChunks", uploadedChunks);
-        return result;
+        uploadStorageService.cancelUpload(userId, purpose, identifier, token);
     }
 
     @Override
@@ -264,6 +205,22 @@ public class CourseDetailServiceImpl implements CourseDetailService {
         Path path = fileStorageUtil.loadFile(existing.getOriginalFilePath());
         if (!Files.isRegularFile(path)) {
             throw new NoSuchElementException("课件原文件不存在");
+        }
+        return path;
+    }
+
+    @Override
+    public Path getPreviewPath(int id) {
+        CourseDetailEntity existing = courseDetailMapper.getCourseById(id);
+        if (existing == null) {
+            throw new NoSuchElementException("课件不存在");
+        }
+        if (!"READY".equals(existing.getPreviewStatus())) {
+            throw new NoSuchElementException("课件预览暂不可用");
+        }
+        Path path = fileStorageUtil.loadFile(existing.getPreviewFilePath());
+        if (!Files.isRegularFile(path)) {
+            throw new NoSuchElementException("课件预览文件不存在");
         }
         return path;
     }
@@ -351,90 +308,9 @@ public class CourseDetailServiceImpl implements CourseDetailService {
         }
     }
 
-    private Path chunkDirectory(int userId, String purpose, String identifier) {
-        return fileStorageUtil.createDirectory(chunkDirectoryName(userId, purpose, identifier));
-    }
-
-    private String chunkDirectoryName(int userId, String purpose, String identifier) {
-        return CHUNK_ROOT + "/" + userId + "/" + fileValidator.normalizePurpose(purpose).toLowerCase()
-                + "/" + identifier.toLowerCase();
-    }
-
-    private String stagingDirectory(int userId, String purpose) {
-        return STAGING_ROOT + "/" + userId + "/" + purpose.toLowerCase();
-    }
-
-    private StagedFile loadStagedFile(int userId, String purpose, String token) throws IOException {
-        requireToken(token);
-        Path directory = fileStorageUtil.createDirectory(stagingDirectory(userId, purpose));
-        Path metadata = directory.resolve(token + ".properties");
-        if (!Files.isRegularFile(metadata)) {
-            throw new IllegalArgumentException("上传文件凭证不存在或已过期");
-        }
-        UploadedFileInfo info = readMetadata(metadata);
-        if (!purpose.equals(info.getPurpose())) {
-            throw new IllegalArgumentException("上传文件用途不匹配");
-        }
-        Path file = directory.resolve(token + "." + info.getExtension()).normalize();
-        UploadedFileInfo verified = fileValidator.validate(file, info.getOriginalName(), purpose, info.getSize());
-        if (!verified.getChecksum().equalsIgnoreCase(info.getChecksum())) {
-            throw new IllegalArgumentException("暂存文件校验失败");
-        }
-        return new StagedFile(file, metadata, info);
-    }
-
-    private UploadedFileInfo findStagedFileByChecksum(int userId, String purpose, String checksum) throws IOException {
-        Path directory = fileStorageUtil.createDirectory(stagingDirectory(userId, purpose));
-        try (Stream<Path> paths = Files.list(directory)) {
-            List<Path> metadataFiles = paths
-                    .filter(path -> path.getFileName().toString().endsWith(".properties"))
-                    .collect(Collectors.toList());
-            for (Path metadata : metadataFiles) {
-                UploadedFileInfo info = readMetadata(metadata);
-                if (checksum.equalsIgnoreCase(info.getChecksum()) && purpose.equals(info.getPurpose())) {
-                    Path file = directory.resolve(info.getToken() + "." + info.getExtension());
-                    if (Files.isRegularFile(file)) {
-                        return info;
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    private void saveMetadata(Path metadata, UploadedFileInfo info) throws IOException {
-        Properties properties = new Properties();
-        properties.setProperty("token", info.getToken());
-        properties.setProperty("originalName", info.getOriginalName());
-        properties.setProperty("extension", info.getExtension());
-        properties.setProperty("mimeType", info.getMimeType());
-        properties.setProperty("checksum", info.getChecksum());
-        properties.setProperty("size", String.valueOf(info.getSize()));
-        properties.setProperty("purpose", info.getPurpose());
-        try (OutputStream output = Files.newOutputStream(metadata)) {
-            properties.store(output, "Ganlu material staged upload");
-        }
-    }
-
-    private UploadedFileInfo readMetadata(Path metadata) throws IOException {
-        Properties properties = new Properties();
-        try (InputStream input = Files.newInputStream(metadata)) {
-            properties.load(input);
-        }
-        UploadedFileInfo info = new UploadedFileInfo();
-        info.setToken(properties.getProperty("token"));
-        info.setOriginalName(properties.getProperty("originalName"));
-        info.setExtension(properties.getProperty("extension"));
-        info.setMimeType(properties.getProperty("mimeType"));
-        info.setChecksum(properties.getProperty("checksum"));
-        info.setSize(Long.parseLong(properties.getProperty("size", "0")));
-        info.setPurpose(properties.getProperty("purpose"));
-        return info;
-    }
-
     private void decoratePublicFields(CourseDetailEntity material) {
         material.setPreviewUrl(StringUtils.hasText(material.getPreviewFilePath())
-                ? "/" + material.getPreviewFilePath().replace('\\', '/')
+                ? "/courseDetail/materials/" + material.getId() + "/preview"
                 : null);
         material.setDownloadUrl("/courseDetail/materials/" + material.getId() + "/download");
         if (!StringUtils.hasText(material.getUploaderName())) {
@@ -463,6 +339,17 @@ public class CourseDetailServiceImpl implements CourseDetailService {
         }
     }
 
+    private void discardMovedStagedMetadata(MaterialUploadStorageService.StagedFile staged) {
+        if (staged == null || Files.isRegularFile(staged.getPath())) {
+            return;
+        }
+        try {
+            uploadStorageService.consumeStagedFile(staged);
+        } catch (IOException cleanupError) {
+            log.warn("清理已移动暂存文件的元数据失败: {}", cleanupError.getMessage());
+        }
+    }
+
     private void requireIdentifier(String identifier) {
         if (identifier == null || !FILE_IDENTIFIER.matcher(identifier).matches()) {
             throw new IllegalArgumentException("文件标识不合法");
@@ -474,18 +361,6 @@ public class CourseDetailServiceImpl implements CourseDetailService {
             UUID.fromString(token);
         } catch (RuntimeException e) {
             throw new IllegalArgumentException("上传文件凭证不合法");
-        }
-    }
-
-    private static class StagedFile {
-        private final Path path;
-        private final Path metadata;
-        private final UploadedFileInfo info;
-
-        private StagedFile(Path path, Path metadata, UploadedFileInfo info) {
-            this.path = path;
-            this.metadata = metadata;
-            this.info = info;
         }
     }
 }

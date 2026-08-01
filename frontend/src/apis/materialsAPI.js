@@ -76,6 +76,22 @@ export const mergeChunks = ({ filename, identifier, totalChunks, expectedSize, p
   })
 }
 
+export const cancelMaterialUpload = ({ identifier, purpose, token }) => instance({
+  url: 'courseDetail/uploadSession',
+  method: 'DELETE',
+  params: {
+    identifier: identifier || undefined,
+    purpose,
+    token: token || undefined
+  }
+})
+
+export const getMaterialPreview = (id) => instance({
+  url: `courseDetail/materials/${id}/preview`,
+  method: 'GET',
+  responseType: 'blob'
+})
+
 export const downloadMaterial = (id, onProgress) => instance({
   url: `courseDetail/materials/${id}/download`,
   method: 'GET',

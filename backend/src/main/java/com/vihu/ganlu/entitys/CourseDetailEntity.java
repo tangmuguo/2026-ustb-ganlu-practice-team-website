@@ -18,6 +18,7 @@ public class CourseDetailEntity {
     private Integer year;
     @JsonIgnore
     private String originalFilePath;
+    @JsonIgnore
     private String previewFilePath;
     private String originalFilename;
     @JsonIgnore

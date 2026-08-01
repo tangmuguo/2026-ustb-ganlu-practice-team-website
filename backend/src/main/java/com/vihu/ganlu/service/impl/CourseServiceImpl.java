@@ -3,7 +3,9 @@ package com.vihu.ganlu.service.impl;
 import com.vihu.ganlu.entitys.CourseEntity;
 import com.vihu.ganlu.mappers.CourseMapper;
 import com.vihu.ganlu.service.CourseService;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -36,7 +38,7 @@ public class CourseServiceImpl implements CourseService {
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.SERIALIZABLE)
     public CourseEntity addCourse(String courseName) {
         String normalizedName = normalizeName(courseName);
         if (courseMapper.countByName(normalizedName, null) > 0) {
@@ -48,12 +50,16 @@ public class CourseServiceImpl implements CourseService {
         CourseEntity course = new CourseEntity();
         course.setCourseName(normalizedName);
         course.setStatus(1);
-        courseMapper.insertCourse(course);
+        try {
+            courseMapper.insertCourse(course);
+        } catch (DuplicateKeyException duplicate) {
+            throw new IllegalStateException("科目名称已存在", duplicate);
+        }
         return course;
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.SERIALIZABLE)
     public CourseEntity updateCourse(int id, String courseName, Integer status) {
         CourseEntity existing = courseMapper.getCourseById(id);
         if (existing == null) {
@@ -75,7 +81,11 @@ public class CourseServiceImpl implements CourseService {
         }
         existing.setCourseName(normalizedName);
         existing.setStatus(normalizedStatus);
-        courseMapper.updateCourse(existing);
+        try {
+            courseMapper.updateCourse(existing);
+        } catch (DuplicateKeyException duplicate) {
+            throw new IllegalStateException("科目名称已存在", duplicate);
+        }
         return existing;
     }
 

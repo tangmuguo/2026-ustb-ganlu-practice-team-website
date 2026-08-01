@@ -22,6 +22,7 @@ const materials = ref([])
 const activeCategories = ref([])
 const managedCategories = ref([])
 const newCategoryName = ref('')
+const categorySubmitting = ref(false)
 const filters = ref({ keyword: '', courseType: null, courseId: null, year: null })
 const pagination = reactive({ page: 1, pageSize: 10, total: 0 })
 const isAdministrator = computed(() => userStore.currentUser?.level === 0)
@@ -75,8 +76,10 @@ const removeMaterial = async (row) => {
 }
 
 const addCategory = async () => {
+  if (categorySubmitting.value) return
   const name = newCategoryName.value.trim()
   if (!name) return ElMessage.warning('请输入科目名称')
+  categorySubmitting.value = true
   try {
     await addMaterialCategory(name)
     newCategoryName.value = ''
@@ -84,26 +87,34 @@ const addCategory = async () => {
     await loadCategories()
   } catch (error) {
     ElMessage.error(error.response?.data?.message || '科目新增失败')
+  } finally {
+    categorySubmitting.value = false
   }
 }
 
 const renameCategory = async (category) => {
+  if (categorySubmitting.value) return
   try {
     const { value } = await ElMessageBox.prompt('请输入新的科目名称', '修改科目', {
       inputValue: category.courseName,
       inputPattern: /^.{1,20}$/,
       inputErrorMessage: '科目名称长度应为 1～20 字'
     })
+    categorySubmitting.value = true
     await updateMaterialCategory(category.id, { courseName: value.trim(), status: category.status })
     ElMessage.success('科目名称已更新')
     await loadCategories()
   } catch (error) {
     if (error !== 'cancel') ElMessage.error(error.response?.data?.message || '科目更新失败')
+  } finally {
+    categorySubmitting.value = false
   }
 }
 
 const changeCategoryStatus = async (category, nextStatus) => {
+  if (categorySubmitting.value) return
   const previousStatus = nextStatus === 1 ? 0 : 1
+  categorySubmitting.value = true
   try {
     await updateMaterialCategory(category.id, { courseName: category.courseName, status: nextStatus })
     ElMessage.success(nextStatus === 1 ? '科目已启用' : '科目已停用')
@@ -111,6 +122,8 @@ const changeCategoryStatus = async (category, nextStatus) => {
   } catch (error) {
     category.status = previousStatus
     ElMessage.error(error.response?.data?.message || '科目状态更新失败')
+  } finally {
+    categorySubmitting.value = false
   }
 }
 
@@ -182,19 +195,19 @@ onMounted(async () => {
 
     <el-dialog v-if="isAdministrator" v-model="categoryVisible" title="通识科目管理" width="min(640px, 94vw)">
       <div class="category-add">
-        <el-input v-model="newCategoryName" maxlength="20" placeholder="新科目名称" @keyup.enter="addCategory" />
-        <el-button type="primary" @click="addCategory">新增</el-button>
+        <el-input v-model="newCategoryName" :disabled="categorySubmitting" maxlength="20" placeholder="新科目名称" @keyup.enter="addCategory" />
+        <el-button type="primary" :loading="categorySubmitting" @click="addCategory">新增</el-button>
       </div>
       <el-alert title="启用科目最多 12 个；停用不会删除已有课件。" type="info" :closable="false" />
       <el-table :data="managedCategories" class="category-table">
         <el-table-column prop="courseName" label="科目" />
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
-            <el-switch v-model="row.status" :active-value="1" :inactive-value="0" @change="changeCategoryStatus(row, $event)" />
+            <el-switch v-model="row.status" :disabled="categorySubmitting" :active-value="1" :inactive-value="0" @change="changeCategoryStatus(row, $event)" />
           </template>
         </el-table-column>
         <el-table-column label="操作" width="90">
-          <template #default="{ row }"><el-button link type="primary" @click="renameCategory(row)">改名</el-button></template>
+          <template #default="{ row }"><el-button link type="primary" :disabled="categorySubmitting" @click="renameCategory(row)">改名</el-button></template>
         </el-table-column>
       </el-table>
     </el-dialog>

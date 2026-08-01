@@ -29,5 +29,9 @@ public interface CourseDetailService {
 
     Map<String, Object> checkFileExist(String fileMd5, String purpose, int userId) throws IOException;
 
+    void cancelUpload(String identifier, String purpose, String token, int userId) throws IOException;
+
     Path getDownloadPath(int id);
+
+    Path getPreviewPath(int id);
 }

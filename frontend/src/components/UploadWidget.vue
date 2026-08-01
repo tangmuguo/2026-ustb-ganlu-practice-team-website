@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import { Document, UploadFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import SparkMD5 from 'spark-md5'
-import { checkFileExist, mergeChunks, uploadChunk } from '@/apis/materialsAPI'
+import { cancelMaterialUpload, checkFileExist, mergeChunks, uploadChunk } from '@/apis/materialsAPI'
 
 const props = defineProps({
   accept: { type: String, required: true },
@@ -26,6 +26,7 @@ const uploadProgress = ref(0)
 const isHashing = ref(false)
 const isUploading = ref(false)
 const uploadComplete = ref(false)
+const stagedFile = ref()
 
 const isImage = computed(() => props.purpose === 'COVER')
 const busy = computed(() => isHashing.value || isUploading.value)
@@ -167,6 +168,7 @@ const startUpload = async () => {
 }
 
 const finishUpload = (fileInfo) => {
+  stagedFile.value = fileInfo
   uploadComplete.value = true
   uploadProgress.value = 100
   emit('progress', 100)
@@ -180,19 +182,32 @@ const clearPreview = () => {
   previewUrl.value = ''
 }
 
-const clearFile = () => {
+const clearFile = async () => {
+  const identifier = fileIdentifier.value
+  const token = stagedFile.value?.token
   clearPreview()
   currentFile.value = undefined
   fileIdentifier.value = ''
+  stagedFile.value = undefined
   uploadProgress.value = 0
   uploadComplete.value = false
   uploadRef.value?.clearFiles()
+  emit('upload', null)
   emit('update:modelValue', null)
+  if (identifier || token) {
+    try {
+      await cancelMaterialUpload({ identifier, purpose: props.purpose, token })
+    } catch (error) {
+      // TTL cleanup remains the server-side fallback if the browser is closed or offline.
+    }
+  }
 }
 
 const handleExceed = () => ElMessage.warning('一次只能选择一个文件，请先清除当前文件')
 
-onBeforeUnmount(clearPreview)
+onBeforeUnmount(() => {
+  clearFile()
+})
 defineExpose({ clearFile })
 </script>
 

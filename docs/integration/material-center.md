@@ -10,8 +10,8 @@
 1. 保留现有路由：公开页 `/showm`、详情 `/mdetail/:id`；`/uppt` 和 `/mmanage` 仅允许 `roles: [0, 1]`。
 2. 顶部用户菜单中，`level=0/1` 均显示“课件上传、课件管理”；学生不显示。
 3. 将 `frontend/src/utils/http.js` 的 `baseURL` 统一改为 `import.meta.env.VITE_API_BASE_URL`，不要保留生产 IP 硬编码。
-4. 保留 `/images/** -> ${file.upload-dir}/images/`，并把课件静态映射收窄为 `/materials/previews/** -> ${file.upload-dir}/materials/previews/`。不要继续公开整个 `materials/` 目录；原文件存放在 `${file.upload-dir}/protected/materials/`，禁止增加公开映射。
-5. 把 `backend/src/main/resources/application-material.properties.example` 中两个 `material.libreoffice.*` 配置键合并到环境配置模板。
+4. 只保留封面映射 `/images/** -> ${file.upload-dir}/images/`，删除 `/materials/**` 静态映射。原文件和预览分别存放在 `${file.upload-dir}/protected/materials/`、`${file.upload-dir}/protected/material-previews/`，均只能通过鉴权接口读取，禁止增加公开映射。
+5. 把 `backend/src/main/resources/application-material.properties.example` 中 `material.libreoffice.*`、`material.upload.*` 和 multipart 配置键合并到环境配置模板。
 6. 在基线 `ganlu.sql` 导入后执行 `database/patches/30_material_center.sql`；全模块联调通过后再把表结构合并回根 SQL，不要用旧 SQL 覆盖补丁。
 7. 生产服务器安装 LibreOffice，并通过环境变量 `LIBREOFFICE_EXECUTABLE` 指向 `soffice`；确认 Tomcat/Java 服务账号对上传目录有读写权限。
 
@@ -36,8 +36,10 @@
 | POST | `/courseDetail/checkFileExist` | `0/1` | 查询当前账号已经上传的分片 |
 | POST | `/courseDetail/uploadChunk` | `0/1` | 上传 5MB 分片 |
 | POST | `/courseDetail/mergeChunks` | `0/1` | 合并并校验 MD5、大小、扩展名、文件头 |
+| DELETE | `/courseDetail/uploadSession` | `0/1` | 取消分片或暂存上传，参数为 `purpose/identifier/token` |
 | POST | `/courseDetail/materials` | `0/1` | 使用两个暂存 Token 创建课件记录 |
 | DELETE | `/courseDetail/materials/{id}` | `0/1` | 逻辑删除记录并清理原文件、预览和封面 |
+| GET | `/courseDetail/materials/{id}/preview` | `0/1/2` | 登录后读取 PDF/图片/PPT 转换预览 |
 | GET | `/courseDetail/materials/{id}/download` | `0/1/2` | 登录后下载原文件 |
 | GET | `/courseCategory/list` | 公开 | 启用的通识科目 |
 | GET | `/courseCategory/manage` | `0` | 包含停用项的科目管理列表 |
@@ -67,15 +69,15 @@
 ```text
 ${file.upload-dir}/
 ├─ images/materials/       # 公开封面
-├─ materials/previews/     # 公开 PDF/图片预览
 ├─ protected/materials/    # 原文件，只能通过鉴权下载接口读取
-├─ temp_chunks/<userId>/   # 上传分片
-├─ staging/materials/      # 合并完成、等待提交表单的暂存文件
+├─ protected/material-previews/ # 预览文件，只能通过鉴权预览接口读取
+├─ temp_chunks/<userId>/   # 带会话清单、配额和 TTL 的上传分片
+├─ staging/materials/      # 带校验索引和 TTL 的待提交暂存文件
 └─ office-work/            # LibreOffice 唯一临时工作目录
 ```
 
-- 游客只能读取元数据、封面和预览。
-- `level=0/1/2` 登录后可下载原文件。
+- 游客只能读取课件元数据和封面，不能取得预览或原文件字节。
+- `level=0/1/2` 登录后可预览并下载原文件。
 - `level=0/1` 可上传、删除、管理任意课件。
 - 只有 `level=0` 可维护通识科目。
 - 删除使用数据库逻辑删除；磁盘文件不存在时记录警告但不让接口崩溃。
@@ -127,7 +129,7 @@ cd ..\backend
 1. 安装 LibreOffice，并确认 `soffice --headless --version` 可由 Java 服务账号执行。
 2. 设置 `LIBREOFFICE_EXECUTABLE=/usr/bin/soffice`（以服务器实际路径为准）。
 3. 为 `${UPLOAD_DIR}` 创建上述子目录，目录所有者应是 Tomcat/Java 服务账号，最小权限建议目录 `750`、文件 `640`。
-4. 不要通过 Nginx 或 Spring 静态映射公开 `protected/`、`staging/`、`temp_chunks/`、`office-work/`。
+4. 不要通过 Nginx 或 Spring 静态映射公开 `protected/`、`staging/`、`temp_chunks/`、`office-work/`；课件预览统一走 Bearer Token 鉴权接口。
 5. 发布前备份数据库和整个上传目录；部署后分别测试 PDF、PPTX、PNG 上传与下载。
 
 ## 6. 回滚
@@ -135,7 +137,7 @@ cd ..\backend
 1. 发布前备份数据库和上传目录。
 2. 应用回滚时恢复上一版 WAR/前端构建物，并停止新的课件写入。
 3. SQL 补丁只增加列和索引，不提供自动 DROP 回滚，避免破坏新数据；如必须回退表结构，由数据库管理员在完整备份后人工处理。
-4. 新增文件位于 `images/materials`、`materials/previews`、`protected/materials`，回滚前先备份，不要直接递归删除整个上传根目录。
+4. 新增文件位于 `images/materials`、`protected/material-previews`、`protected/materials`，回滚前先备份，不要直接递归删除整个上传根目录。
 
 ## 7. 手工测试记录模板
 
@@ -153,3 +155,12 @@ cd ..\backend
 | M-08 | 团队 | 上传大于 50MB 的合法文件，中断后重试 | 显示进度并续传；MD5/大小一致 | 待测 |
 | M-09 | 管理员 | 删除缺少某个磁盘文件的课件 | 记录删除成功，不发生 500 | 待测 |
 | M-10 | 运维环境 | 暂时配置错误的 soffice 路径后上传 PPTX | 原文件保留，预览状态为失败，可下载 | 待测 |
+
+## 8. PR #11 修改意见验证记录（2026-08-01）
+
+- 后端 `mvnw.cmd test`：32 项通过，0 失败、0 错误。其中包含真实 MVC 拦截器的游客 401、学生 403、团队/管理员允许访问测试。
+- 文件真实性：DOC/CFB 改名 `.ppt`、普通 ZIP 改名 `.pptx` 均被拒绝；包含 PowerPoint 专用流的 CFB 和完整 PresentationML 结构可通过。
+- 上传临时存储：已覆盖超量分片拒绝、会话参数不可变、断点状态恢复、主动取消无残留、过期分片清理。
+- 前端 `npm run build`：通过；保留基线已有的大体积 chunk 与 Browserslist 数据提示。
+- MySQL 8.4 隔离实例：基线 SQL 加补丁连续执行两次成功；`course_detail` 为 22 列；`uk_course_name` 为唯一索引；重复插入“语文”返回 MySQL 1062。
+- 上表手工验收仍在共享路由、认证和配置合并后执行，避免用未集成环境冒充最终验收结果。

@@ -29,7 +29,7 @@ SET @ddl = IF((SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEM
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @ddl = IF((SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'course_detail' AND COLUMN_NAME = 'preview_file_path') = 0,
-    'ALTER TABLE course_detail ADD COLUMN preview_file_path VARCHAR(500) NULL COMMENT ''公开预览文件相对路径'' AFTER original_file_path', 'SELECT 1');
+    'ALTER TABLE course_detail ADD COLUMN preview_file_path VARCHAR(500) NULL COMMENT ''受保护预览文件相对路径'' AFTER original_file_path', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @ddl = IF((SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'course_detail' AND COLUMN_NAME = 'original_filename') = 0,
@@ -81,6 +81,26 @@ FROM (
 WHERE NOT EXISTS (
     SELECT 1 FROM course existing WHERE existing.course_name = seed.course_name
 );
+
+-- 保留历史引用，不物理删除重复科目；将重复项停用并重命名后建立数据库唯一约束。
+UPDATE course duplicate_course
+JOIN (
+    SELECT course_name, MIN(id) AS keep_id
+    FROM course
+    WHERE course_name IS NOT NULL
+    GROUP BY course_name
+    HAVING COUNT(*) > 1
+) duplicate_names
+    ON duplicate_course.course_name = duplicate_names.course_name
+   AND duplicate_course.id <> duplicate_names.keep_id
+SET duplicate_course.course_name = CONCAT(
+        LEFT(duplicate_course.course_name, 220), '-重复-', duplicate_course.id
+    ),
+    duplicate_course.status = 0;
+
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'course' AND INDEX_NAME = 'uk_course_name') = 0,
+    'CREATE UNIQUE INDEX uk_course_name ON course(course_name)', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @ddl = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'course_detail' AND INDEX_NAME = 'idx_material_public_filter') = 0,
     'CREATE INDEX idx_material_public_filter ON course_detail(status, year, courseType, course_id)', 'SELECT 1');

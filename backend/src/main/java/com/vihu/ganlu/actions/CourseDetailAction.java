@@ -126,6 +126,53 @@ public class CourseDetailAction {
         return ResponseEntity.ok(responseBody(200, "查询成功", state));
     }
 
+    @RequireRoles({0, 1})
+    @DeleteMapping("/uploadSession")
+    public ResponseEntity<?> cancelUpload(
+            @RequestParam(value = "identifier", required = false) String identifier,
+            @RequestParam("purpose") String purpose,
+            @RequestParam(value = "token", required = false) String token,
+            HttpServletRequest request) throws IOException {
+        int userId = currentUser(request).getId();
+        courseDetailService.cancelUpload(identifier, purpose, token, userId);
+        return ResponseEntity.ok(responseBody(200, "上传临时文件已清理", null));
+    }
+
+    @RequireRoles({0, 1, 2})
+    @GetMapping("/materials/{id}/preview")
+    public ResponseEntity<Resource> preview(@PathVariable("id") int id) throws IOException {
+        Path path = courseDetailService.getPreviewPath(id);
+        Resource resource = new UrlResource(path.toUri());
+        String extension = FileStorageUtil.extensionOf(path.getFileName().toString());
+        MediaType mediaType;
+        switch (extension) {
+            case "pdf":
+                mediaType = MediaType.APPLICATION_PDF;
+                break;
+            case "jpg":
+            case "jpeg":
+                mediaType = MediaType.IMAGE_JPEG;
+                break;
+            case "png":
+                mediaType = MediaType.IMAGE_PNG;
+                break;
+            case "webp":
+                mediaType = MediaType.parseMediaType("image/webp");
+                break;
+            default:
+                mediaType = MediaType.APPLICATION_OCTET_STREAM;
+        }
+        ContentDisposition disposition = ContentDisposition.inline()
+                .filename("preview." + extension, StandardCharsets.UTF_8)
+                .build();
+        return ResponseEntity.ok()
+                .contentType(mediaType)
+                .contentLength(Files.size(path))
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
+                .body(resource);
+    }
+
     @RequireRoles({0, 1, 2})
     @GetMapping("/materials/{id}/download")
     public ResponseEntity<Resource> download(@PathVariable("id") int id) throws IOException {
