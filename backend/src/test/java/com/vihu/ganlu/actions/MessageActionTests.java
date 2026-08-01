@@ -155,38 +155,45 @@ class MessageActionTests {
     // ========== 删除接口权限测试 ==========
 
     @Test
-@DisplayName("删除留言：level=1 管理员成功")
-void testDeleteMessage_level1_success() throws Exception {
-    String token = buildToken(1001, 1);
+    @DisplayName("删除留言：level=1 管理员成功")
+    void testDeleteMessage_level1_success() throws Exception {
+        String token = buildToken(1001, 1);
 
-    // 1. 先调用新增接口，造一条测试留言
-    MessageCreateRequest addReq = new MessageCreateRequest();
-    addReq.setContent("测试删除用的留言");
-    String responseStr = mockMvc.perform(post("/message/add")
-                    .header("Authorization", token)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(addReq)))
-            .andExpect(status().isOk())
-            .andReturn()
-            .getResponse()
-            .getContentAsString();
+        // 1. 调用新增接口，造一条测试留言
+        MessageCreateRequest addReq = new MessageCreateRequest();
+        addReq.setContent("测试删除用的留言");
+        String responseStr = mockMvc.perform(post("/message/add")
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(addReq)))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
 
-    // 2. 从返回结果里取出刚生成的留言ID
-    Integer messageId = objectMapper.readTree(responseStr)
-            .path("content")
-            .path("id")
-            .asInt();
+        // ========== 关键：打印完整返回结果，排查结构 ==========
+        System.out.println("===== 新增接口完整返回 =====");
+        System.out.println(responseStr);
+        System.out.println("===========================");
 
-    // 3. 用这个真实ID执行删除
-    DeleteContentRequest req = new DeleteContentRequest();
-    req.setId(messageId);
+        // 2. 从返回结果里取留言ID（先按你原来的路径试，不对再改）
+        Integer messageId = objectMapper.readTree(responseStr)
+                .path("content")
+                .path("id")
+                .asInt();
 
-    mockMvc.perform(post("/message/delete")
-                    .header("Authorization", token)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(req)))
-            .andExpect(status().isOk());
-}
+        System.out.println("解析到的留言ID：" + messageId);
+
+        // 3. 执行删除
+        DeleteContentRequest req = new DeleteContentRequest();
+        req.setId(messageId);
+
+        mockMvc.perform(post("/message/delete")
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk());
+    }
 
     @Test
     @DisplayName("删除回复：level=2 学生返回403")
