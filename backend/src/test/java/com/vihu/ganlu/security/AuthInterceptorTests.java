@@ -3,6 +3,7 @@ package com.vihu.ganlu.security;
 import com.vihu.ganlu.actions.BannerAction;
 import com.vihu.ganlu.entitys.BannerEntity;
 import com.vihu.ganlu.entitys.UserEntity;
+import com.vihu.ganlu.exception.ForbiddenException;
 import com.vihu.ganlu.service.UserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -11,10 +12,7 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.method.HandlerMethod;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -57,9 +55,12 @@ class AuthInterceptorTests {
         MockHttpServletRequest request = authorizedRequest(team, "/banner/add");
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        assertFalse(interceptor.preHandle(request, response,
-                bannerHandler("addBanner", BannerEntity.class)));
-        assertEquals(403, response.getStatus());
+        // 原逻辑：断言返回 false + 响应状态 403
+        // 新逻辑：权限不足直接抛出 ForbiddenException，由全局异常处理器统一返回
+        assertThrows(ForbiddenException.class, () -> {
+            interceptor.preHandle(request, response,
+                    bannerHandler("addBanner", BannerEntity.class));
+        });
     }
 
     @Test
