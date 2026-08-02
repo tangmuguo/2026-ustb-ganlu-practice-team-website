@@ -8,10 +8,6 @@ const AllPATH = {
   addStudentPath:"user/add_student",
   deleteTeamPath:"user/delete_team",
   regPath: "user/reg",
-  hotProduct: "pro/hot",
-  signleProduct: "pro/single1",
-  addOrders: "order/add",
-
   //课件
   uploadImagePath:"courseDetail/uploadImage",
   uploadMaterialPath:"courseDetail/uploadFile",
@@ -55,7 +51,11 @@ const AllPATH = {
   newsDeletePath:"news/delete",
   newsGetPath:"news/get",
   newsListPath:"news/list",
-  newsLimitPath:"news/limit"
+  newsLimitPath:"news/limit",
+
+  // 志愿者报名
+  volunteerApplicationPath:"volunteer-applications",
+  volunteerApplicationManagePath:"admin/volunteer-applications"
 }
 
 export default AllPATH;

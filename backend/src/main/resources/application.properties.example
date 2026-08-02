@@ -1,25 +1,12 @@
+# 仅作环境变量索引；实际安全默认值见同目录 application.properties。
+spring.profiles.active=${SPRING_PROFILES_ACTIVE:dev}
+security.jwt.expiration-seconds=${GANLU_JWT_EXPIRATION_SECONDS:28800}
 
-spring.profiles.active=dev
+ai.enabled=${AI_ENABLED:false}
+ai.base-url=${DEEPSEEK_BASE_URL:https://api.deepseek.com}
+ai.api-key=${DEEPSEEK_API_KEY:}
+ai.model=${DEEPSEEK_MODEL:deepseek-v4-flash}
 
-spring.application.name=ganlu
-spring.datasource.url=${GANLU_DB_URL}
-spring.datasource.username=${GANLU_DB_USERNAME}
-spring.datasource.password=${GANLU_DB_PASSWORD}
-spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
-mybatis.mapper-locations=mapper/*.xml
-
-
-spring.thymeleaf.enabled=false
-spring.thymeleaf.cache=false
-spring.freemarker.enabled=true
-spring.freemarker.cache=false
-spring.freemarker.suffix=.ftl
-spring.freemarker.template-loader-path=/WEB-INF/jsp/
-spring.freemarker.request-context-attribute=request
-
-spring.web.resources.static-locations=/WEB-INF/
-
-spring.servlet.multipart.max-request-size=10MB
-spring.servlet.multipart.max-file-size=200MB
-
-security.jwt.expiration-seconds=28800
+ganlu.bootstrap-admin.username=${GANLU_BOOTSTRAP_ADMIN_USERNAME:}
+ganlu.bootstrap-admin.password=${GANLU_BOOTSTRAP_ADMIN_PASSWORD:}
+ganlu.bootstrap-admin.phone=${GANLU_BOOTSTRAP_ADMIN_PHONE:}

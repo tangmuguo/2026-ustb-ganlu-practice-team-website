@@ -1,10 +1,10 @@
 /*
  Navicat Premium Data Transfer
 
- Source Server         : 甘露
+ Source Server         : sanitized-export
  Source Server Type    : MySQL
  Source Server Version : 80043
- Source Host           : 47.95.209.65:3306
+ Source Host           : removed
  Source Schema         : ganlu
 
  Target Server Type    : MySQL
@@ -76,7 +76,8 @@ CREATE TABLE `message`  (
   `update_time` datetime(0) NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP(0) COMMENT '更新时间',
   `status` tinyint(1) NOT NULL DEFAULT 1 COMMENT '状态：1-正常，0-已删除',
   PRIMARY KEY (`id`) USING BTREE,
-  INDEX `idx_user_id`(`user_id`) USING BTREE
+  INDEX `idx_user_id`(`user_id`) USING BTREE,
+  INDEX `idx_message_status_time`(`status`, `create_time`, `id`) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 5 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
@@ -107,7 +108,8 @@ CREATE TABLE `reply`  (
   `status` tinyint(1) NOT NULL DEFAULT 1 COMMENT '状态：1-正常，0-已删除',
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_message_id`(`message_id`) USING BTREE,
-  INDEX `idx_user_id`(`user_id`) USING BTREE
+  INDEX `idx_user_id`(`user_id`) USING BTREE,
+  INDEX `idx_reply_message_status_time`(`message_id`, `status`, `create_time`, `id`) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 4 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
@@ -188,8 +190,8 @@ CREATE TABLE `team_page_word`  (
 DROP TABLE IF EXISTS `user`;
 CREATE TABLE `user`  (
   `id` int(0) NOT NULL AUTO_INCREMENT,
-  `username` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL,
-  `password` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL,
+  `username` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  `password` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
   `imageUrl` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '封面图片',
   `teamname` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '团队名称',
   `helplocation` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '支教地',
@@ -197,9 +199,34 @@ CREATE TABLE `user`  (
   `realname` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '真名',
   `belongschool` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '所属小学',
   `grade` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '年级',
-  `phone` varchar(15) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '手机号',
+  `phone` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '手机号',
   `level` int(0) NULL DEFAULT NULL COMMENT '权限等级 0管理员 1团队 2小学生',
-  PRIMARY KEY (`id`) USING BTREE
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_user_username` (`username`),
+  UNIQUE KEY `uk_user_phone` (`phone`)
 ) ENGINE = InnoDB AUTO_INCREMENT = 25 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Table structure for volunteer_application
+-- ----------------------------
+DROP TABLE IF EXISTS `volunteer_application`;
+CREATE TABLE `volunteer_application` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `name` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  `phone` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  `organization` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  `grade_or_major` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL,
+  `preferred_region` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL,
+  `skills` varchar(300) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL,
+  `introduction` varchar(1000) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  `privacy_agreed` tinyint(1) NOT NULL DEFAULT 0,
+  `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'PENDING',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_volunteer_application_status_created` (`status`, `created_at`),
+  KEY `idx_volunteer_application_phone_status` (`phone`, `status`),
+  CONSTRAINT `chk_volunteer_application_status` CHECK (`status` IN ('PENDING','CONTACTED','ACCEPTED','REJECTED'))
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 SET FOREIGN_KEY_CHECKS = 1;

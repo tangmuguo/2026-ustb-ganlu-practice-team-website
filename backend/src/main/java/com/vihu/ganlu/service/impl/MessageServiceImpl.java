@@ -6,110 +6,113 @@ import com.vihu.ganlu.entitys.UserEntity;
 import com.vihu.ganlu.mappers.MessageMapper;
 import com.vihu.ganlu.mappers.ReplyMapper;
 import com.vihu.ganlu.mappers.UserMapper;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import javax.annotation.Resource;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 @Service
 public class MessageServiceImpl {
-    @Autowired
-    private MessageMapper messageMapper;
-    @Autowired
-    private ReplyMapper replyMapper;
-    @Resource
-    private UserMapper userMapper;
+    private final MessageMapper messageMapper;
+    private final ReplyMapper replyMapper;
+    private final UserMapper userMapper;
 
-    // 添加留言
-    public int addMessage(MessageEntity message, Integer userId) {
-        UserEntity user = userMapper.findUserById(userId);
-        if (!canPublish(user)) {
-            return 0;
-        }
-        message.setUserId(userId);
-        message.setStatus(true);
-        int i = messageMapper.insertMessage(message);
-        return i;
+    public MessageServiceImpl(MessageMapper messageMapper, ReplyMapper replyMapper, UserMapper userMapper) {
+        this.messageMapper = messageMapper;
+        this.replyMapper = replyMapper;
+        this.userMapper = userMapper;
     }
 
-    // 获取留言列表（分页）
+    public MessageEntity addMessage(String content, Integer userId) {
+        requireContent(content, 1, 500, "留言");
+        UserEntity user = userMapper.findUserById(userId);
+        if (!canPublish(user)) throw new IllegalArgumentException("当前账号不能发布留言");
+        MessageEntity message = new MessageEntity();
+        message.setUserId(userId);
+        message.setContent(content.trim());
+        message.setStatus(true);
+        messageMapper.insertMessage(message);
+        return message;
+    }
+
     public Map<String, Object> getMessages(int page, int pageSize) {
+        if (page < 1 || pageSize < 1 || pageSize > 50) throw new IllegalArgumentException("分页参数不正确");
         int offset = (page - 1) * pageSize;
         List<MessageEntity> messages = messageMapper.selectMessages(offset, pageSize);
-        // 获取每条留言的回复
-        for (MessageEntity message : messages) {
-            List<ReplyEntity> replies = replyMapper.selectRepliesByMessageId(message.getId());
-            message.setReplies(replies);
-            // 设置用户信息
-            UserEntity user = userMapper.findUserById(message.getUserId());
-            if (user != null) {
-                message.setUsername(user.getUsername());
-                message.setTeamname(user.getTeamname());
-            }
-            // 设置回复的用户信息
-            if (replies != null) {
-                for (ReplyEntity reply : replies) {
-                    UserEntity replyUser = userMapper.findUserById(reply.getUserId());
-                    if (replyUser != null) {
-                        reply.setUsername(replyUser.getUsername());
-                        reply.setTeamname(replyUser.getTeamname());
-                    }
-                }
+        List<Integer> messageIds = new ArrayList<>();
+        for (MessageEntity message : messages) messageIds.add(message.getId());
+
+        Map<Integer, List<ReplyEntity>> repliesByMessage = new HashMap<>();
+        if (!messageIds.isEmpty()) {
+            for (ReplyEntity reply : replyMapper.selectRepliesByMessageIds(messageIds)) {
+                repliesByMessage.computeIfAbsent(reply.getMessageId(), ignored -> new ArrayList<>()).add(reply);
             }
         }
-        int total = messageMapper.countMessages();
+        for (MessageEntity message : messages) {
+            message.setReplies(repliesByMessage.getOrDefault(message.getId(), new ArrayList<>()));
+        }
+
         Map<String, Object> data = new HashMap<>();
         data.put("messages", messages);
-        data.put("total", total);
+        data.put("total", messageMapper.countMessages());
+        data.put("page", page);
+        data.put("pageSize", pageSize);
         return data;
     }
 
-    // 删除留言（管理员）
-    public int deleteMessage(Integer messageId, Integer userId) {
-        UserEntity user = userMapper.findUserById(userId);
-        if (!canDelete(user)) {
-            return 0;
-        }
-        int  i = messageMapper.deleteMessage(messageId);
-        return i;
+    @Transactional
+    public boolean deleteMessage(Integer messageId, Integer userId) {
+        requireDeletePermission(userId);
+        if (messageId == null) throw new IllegalArgumentException("留言编号不能为空");
+        replyMapper.deleteRepliesByMessageId(messageId);
+        return messageMapper.deleteMessage(messageId) > 0;
     }
 
-    // 添加回复
-    public int addReply(ReplyEntity reply, Integer userId) {
+    public ReplyEntity addReply(Integer messageId, String content, Integer userId) {
+        requireContent(content, 1, 300, "回复");
         UserEntity user = userMapper.findUserById(userId);
-        if (!canPublish(user)) {
-            return 0;
+        if (!canPublish(user)) throw new IllegalArgumentException("当前账号不能发布回复");
+        MessageEntity message = messageMapper.selectMessageById(messageId);
+        if (message == null || !Boolean.TRUE.equals(message.getStatus())) {
+            throw new IllegalArgumentException("留言不存在或已删除");
         }
-        MessageEntity message = messageMapper.selectMessageById(reply.getMessageId());
-        if (message == null || !message.getStatus()) {
-            return 0;
-        }
+        ReplyEntity reply = new ReplyEntity();
+        reply.setMessageId(messageId);
         reply.setUserId(userId);
+        reply.setContent(content.trim());
         reply.setStatus(true);
-        int i = replyMapper.insertReply(reply);
-        return i;
+        replyMapper.insertReply(reply);
+        return reply;
     }
 
-    // 删除回复（管理员）
-    public int deleteReply(Integer replyId, Integer userId) {
+    public boolean deleteReply(Integer replyId, Integer userId) {
+        requireDeletePermission(userId);
+        if (replyId == null) throw new IllegalArgumentException("回复编号不能为空");
+        return replyMapper.deleteReply(replyId) > 0;
+    }
+
+    private void requireDeletePermission(Integer userId) {
         UserEntity user = userMapper.findUserById(userId);
-        if (!canDelete(user)) {
-            return 0;
+        if (!canDelete(user)) throw new IllegalArgumentException("当前账号不能删除留言或回复");
+    }
+
+    private void requireContent(String value, int min, int max, String label) {
+        if (value == null) throw new IllegalArgumentException(label + "内容不能为空");
+        String trimmed = value.trim();
+        int length = trimmed.codePointCount(0, trimmed.length());
+        if (length < min || length > max) {
+            throw new IllegalArgumentException(label + "内容长度应为" + min + "到" + max + "个字符");
         }
-        return replyMapper.deleteReply(replyId);
     }
 
     private boolean canPublish(UserEntity user) {
-        return user != null && user.getLevel() != null
-                && user.getLevel() >= 0 && user.getLevel() <= 2;
+        return user != null && user.getLevel() != null && user.getLevel() >= 0 && user.getLevel() <= 2;
     }
 
     private boolean canDelete(UserEntity user) {
-        return user != null && user.getLevel() != null
-                && (user.getLevel() == 0 || user.getLevel() == 1);
+        return user != null && user.getLevel() != null && (user.getLevel() == 0 || user.getLevel() == 1);
     }
-
 }

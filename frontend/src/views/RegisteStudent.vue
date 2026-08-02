@@ -1,117 +1,63 @@
 <script setup>
-import { ref } from 'vue'
-import {AddStudent} from '@/apis/userAPI'
+import { reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
-const useRoute=useRouter()
-const formRef=ref(null)
-const form = ref({
-  username: '',
-  realname:'',
-  password: '',
-  repassword:'',
+import { RegisterStudent } from '@/apis/userAPI'
+
+const router = useRouter()
+const formRef = ref()
+const loading = ref(false)
+const form = reactive({
+  username: '', realname: '', belongschool: '', grade: '', phone: '', password: '', confirmPassword: '',
 })
 
-async function onSubmit(){
-  formRef.value.validate(async (res)=>{
-    if(res){
-      if(form.password !== form.repassword){
-        ElMessage.success("请保持密码一致")
-        return 
-      }
-      const d=await AddStudent(form.value)
-      if(d.data.code===200){
-        ElMessage.success("注册成功")
-        useRoute.push('/login')
-      }else{
-        ElMessage.success("注册失败")
-      }
-    }
-  })  
+const rules = {
+  username: [{ required: true, message: '请输入账号', trigger: 'blur' }, { min: 3, max: 30, message: '账号长度应为 3～30 个字符', trigger: 'blur' }],
+  realname: [{ required: true, message: '请输入真实姓名', trigger: 'blur' }, { min: 2, max: 30, message: '姓名长度应为 2～30 个字符', trigger: 'blur' }],
+  belongschool: [{ required: true, message: '请输入所属小学', trigger: 'blur' }, { max: 100, message: '学校名称不能超过 100 个字符', trigger: 'blur' }],
+  grade: [{ required: true, message: '请输入年级', trigger: 'blur' }, { max: 30, message: '年级不能超过 30 个字符', trigger: 'blur' }],
+  phone: [{ required: true, message: '请输入手机号', trigger: 'blur' }, { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的 11 位手机号', trigger: 'blur' }],
+  password: [{ required: true, message: '请输入密码', trigger: 'blur' }, { min: 8, max: 72, message: '密码长度应为 8～72 个字符', trigger: 'blur' }],
+  confirmPassword: [{ validator: (_rule, value, callback) => value === form.password ? callback() : callback(new Error('两次输入的密码不一致')), trigger: ['blur', 'change'] }],
 }
 
-const rules = {
-  username: [
-    { required: true, message: '请输入账号', trigger: 'blur' },
-    { min: 3, max: 20, message: '长度在 3 到 20 个字符', trigger: 'blur' }
-  ],
-  realname: [
-    { required: true, message: '请输入真名', trigger: 'blur' },
-    { min: 2, max: 20, message: '长度在 3 到 20 个字符', trigger: 'blur' }
-  ],
-  belongschool: [
-    { required: true, message: '请输入所属学校', trigger: 'blur' },
-    { min: 3, max: 20, message: '长度在 3 到 20 个字符', trigger: 'blur' }
-  ],
-  password: [
-    {
-      required: true,
-      message: '请输入密码',
-      trigger: 'blur',      
-    },
-    { min: 6, max: 20, message: '长度在 6 到 20 个字符', trigger: 'blur' }
-  ],
-  repassword: [
-    {
-      required: true,
-      message: '请输入密码',
-      trigger: 'blur',      
-    },
-    { min: 6, max: 20, message: '长度在 6 到 20 个字符', trigger: 'blur' }
-  ],
-  teamname: [
-    { required: true, message: '请输入团队名', trigger: 'blur' },
-    { min: 2, max: 30, message: '长度在 2 到 30 个字符', trigger: 'blur' }
-  ]
+async function submit() {
+  const valid = await formRef.value?.validate().catch(() => false)
+  if (!valid) return
+  loading.value = true
+  try {
+    const { data } = await RegisterStudent({ ...form })
+    if (data?.code !== 200) throw new Error(data?.message || '注册失败')
+    ElMessage.success('注册成功，请登录')
+    router.push('/login')
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || error.message || '注册失败，请稍后重试')
+  } finally { loading.value = false }
 }
 </script>
 
 <template>
-  <main class="flex-grow container mx-auto px-4 py-8">
-        <div class="max-w-md mx-auto bg-white rounded-xl shadow-lg p-8">
-            <h2 class="text-2xl font-bold mb-6 text-center">学生账户注册</h2>
-            <el-form 
-              ref="formRef"
-              :model="form" 
-              label-width="auto" 
-              label-position="top" 
-              :rules="rules"
-              style="max-width: 600px">
-              <el-form-item label="账号" prop="username">
-                <el-input v-model="form.username" placeholder="请输入账号"/>
-              </el-form-item>
-              <el-form-item label="学生真名" prop="realname">
-                <el-input v-model="form.realname" placeholder="请输入学生真名"/>
-              </el-form-item>
-              <el-form-item label="所属小学" prop="belongschool">
-                <el-input v-model="form.belongschool" placeholder="请输入所属小学"/>
-              </el-form-item>
-              <el-form-item label="年级">
-                <el-input v-model="form.grade" placeholder="请输入年级"/>
-              </el-form-item>              
-              <el-form-item label="设置密码" prop="password">
-                <el-input v-model="form.password" placeholder="请设置密码" show-password type="password"/>
-              </el-form-item>
-              <el-form-item label="确认密码" prop="repassword">
-                <el-input v-model="form.repassword" placeholder="请再次输入密码" show-password type="password"/>
-              </el-form-item>
-              <el-form-item>
-                <el-button type="primary" size="large" @click="onSubmit" style="width: 100%;">注册</el-button>
-              </el-form-item>
-              <el-form-item>
-                <div class="link-container">
-                  <el-link type="primary" style="">已有账号，立即登录</el-link>
-                </div>                
-              </el-form-item>              
-            </el-form>            
-      </div>
-  </main>
+  <div class="register-page">
+    <div class="register-card">
+      <div class="register-heading"><span>STUDENT ACCOUNT</span><h1>学生账号注册</h1><p>学生账号可浏览资源、参与留言和使用 AI 小助手。</p></div>
+      <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @submit.prevent="submit">
+        <div class="form-grid">
+          <el-form-item label="登录账号" prop="username"><el-input v-model="form.username" maxlength="30" /></el-form-item>
+          <el-form-item label="真实姓名" prop="realname"><el-input v-model="form.realname" maxlength="30" /></el-form-item>
+          <el-form-item label="所属小学" prop="belongschool"><el-input v-model="form.belongschool" maxlength="100" /></el-form-item>
+          <el-form-item label="年级" prop="grade"><el-input v-model="form.grade" maxlength="30" placeholder="例如：五年级" /></el-form-item>
+          <el-form-item label="手机号" prop="phone"><el-input v-model="form.phone" maxlength="11" inputmode="numeric" /></el-form-item>
+          <div></div>
+          <el-form-item label="密码" prop="password"><el-input v-model="form.password" type="password" show-password maxlength="72" /></el-form-item>
+          <el-form-item label="确认密码" prop="confirmPassword"><el-input v-model="form.confirmPassword" type="password" show-password maxlength="72" /></el-form-item>
+        </div>
+        <el-button class="submit-button" type="primary" native-type="submit" :loading="loading">注册</el-button>
+      </el-form>
+      <div class="login-link">已有账号？<RouterLink to="/login">返回登录</RouterLink></div>
+    </div>
+  </div>
 </template>
 
 <style scoped>
-.link-container {
-  display: flex;
-  justify-content: space-between;
-  width: 100%;
-}
+.register-page{max-width:900px;margin:0 auto;padding:56px 24px}.register-card{padding:42px;background:white;border:1px solid #e6edf0;border-radius:26px;box-shadow:0 20px 50px rgba(35,62,73,.08)}.register-heading{margin-bottom:30px}.register-heading span{color:#0f7c8f;font-size:12px;font-weight:750;letter-spacing:.14em}.register-heading h1{margin:10px 0;color:#1d3d4b;font-size:34px;font-weight:780}.register-heading p{margin:0;color:#74838c}.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 20px}.submit-button{width:100%;height:48px;background:#0f7089;border-color:#0f7089;font-weight:700}.login-link{margin-top:22px;color:#7b8991;text-align:center}.login-link a{color:#0f7089;font-weight:700}@media(max-width:650px){.register-card{padding:26px}.form-grid{grid-template-columns:1fr}.form-grid>div:empty{display:none}}
 </style>

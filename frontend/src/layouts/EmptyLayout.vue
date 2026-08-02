@@ -1,16 +1,13 @@
 <template>
-  <div class="empty">
-    <slot ></slot>  <!-- 页面内容插入点 -->
-  </div>  
+  <div class="empty-layout">
+    <slot />
+  </div>
 </template>
 
-<script setup>
-
-</script>
-
 <style scoped>
-.empty{
+.empty-layout {
+  min-height: 100vh;
   width: 100%;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);;
+  background: #f6f8fb;
 }
 </style>

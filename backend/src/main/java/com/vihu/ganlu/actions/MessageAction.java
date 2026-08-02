@@ -1,6 +1,5 @@
 package com.vihu.ganlu.actions;
 
-import com.google.common.collect.ImmutableMap;
 import com.vihu.ganlu.entitys.DeleteReplyEntity;
 import com.vihu.ganlu.entitys.MessageEntity;
 import com.vihu.ganlu.entitys.ReplyEntity;
@@ -9,10 +8,15 @@ import com.vihu.ganlu.security.AuthInterceptor;
 import com.vihu.ganlu.security.PublicEndpoint;
 import com.vihu.ganlu.security.RequireRoles;
 import com.vihu.ganlu.service.impl.MessageServiceImpl;
-import lombok.Data;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.vihu.ganlu.utils.ApiResponse;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpServletRequest;
 import java.util.Map;
@@ -20,103 +24,58 @@ import java.util.Map;
 @RestController
 @RequestMapping("/message")
 public class MessageAction {
-    @Autowired
-    private MessageServiceImpl messageService;
+    private final MessageServiceImpl messageService;
 
-    // 添加留言
+    public MessageAction(MessageServiceImpl messageService) {
+        this.messageService = messageService;
+    }
+
     @RequireRoles({0, 1, 2})
     @PostMapping("/add")
-    public ResponseEntity<?> addMessage(@RequestBody MessageEntity message, HttpServletRequest request) {
-        Integer userId = currentUser(request).getId();
-        int i = messageService.addMessage(message, userId);
-        if(i>0){
-            return ResponseEntity.ok().body(ImmutableMap.of(
-                    "success", true,
-                    "message", "添加成功"
-            ));
-        }else{
-            return ResponseEntity.badRequest().body(ImmutableMap.of(
-                    "success", false,
-                    "message", "添加失败"
-            ));
-        }
+    public ApiResponse<MessageEntity> addMessage(@RequestBody MessageEntity request, HttpServletRequest httpRequest) {
+        MessageEntity result = messageService.addMessage(request.getContent(), currentUser(httpRequest).getId());
+        return ApiResponse.success("留言发布成功", result);
     }
 
-    // 获取留言列表
     @PublicEndpoint
     @GetMapping("/list")
-    public ResponseEntity<?> getMessages(@RequestParam(defaultValue = "1") int page,
-                              @RequestParam(defaultValue = "10") int pageSize) {
-        Map<String, Object> maps = messageService.getMessages(page, pageSize);
-        System.out.println(maps);
-        return ResponseEntity.ok().body(ImmutableMap.of(
-                "success", true,
-                "message", "添加成功",
-                "content", maps
-        ));
+    public ApiResponse<Map<String, Object>> getMessages(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int pageSize) {
+        return ApiResponse.success("查询成功", messageService.getMessages(page, pageSize));
     }
 
-    // 删除留言（管理员）
     @RequireRoles({0, 1})
-    @RequestMapping("/deleteMessage")
-    public ResponseEntity<?> deleteMessage(@RequestBody DeleteReplyEntity deleteRequest,
-                                           HttpServletRequest request) {
-
-        int i = messageService.deleteMessage(deleteRequest.getId(), currentUser(request).getId());
-        if(i>0){
-            return ResponseEntity.ok().body(ImmutableMap.of(
-                    "success", true,
-                    "message", "删除成功"
-            ));
-        }else{
-            return ResponseEntity.badRequest().body(ImmutableMap.of(
-                    "success", false,
-                    "message", "删除失败"
-            ));
-        }
+    @PostMapping("/deleteMessage")
+    public ResponseEntity<ApiResponse<Void>> deleteMessage(
+            @RequestBody DeleteReplyEntity request,
+            HttpServletRequest httpRequest) {
+        boolean deleted = messageService.deleteMessage(request.getId(), currentUser(httpRequest).getId());
+        return deleted
+                ? ResponseEntity.ok(ApiResponse.success("留言已删除", null))
+                : ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error(404, "留言不存在"));
     }
 
-    // 添加回复
     @RequireRoles({0, 1, 2})
     @PostMapping("/addReply")
-    public ResponseEntity<?> addReply(@RequestBody ReplyEntity reply, HttpServletRequest request) {
-        Integer userId = currentUser(request).getId();
-        int i = messageService.addReply(reply, userId);
-        if(i>0){
-            return ResponseEntity.ok().body(ImmutableMap.of(
-                    "success", true,
-                    "message", "添加成功"
-            ));
-        }else{
-            return ResponseEntity.badRequest().body(ImmutableMap.of(
-                    "success", false,
-                    "message", "添加失败"
-            ));
-        }
+    public ApiResponse<ReplyEntity> addReply(@RequestBody ReplyEntity request, HttpServletRequest httpRequest) {
+        ReplyEntity result = messageService.addReply(
+                request.getMessageId(), request.getContent(), currentUser(httpRequest).getId());
+        return ApiResponse.success("回复发布成功", result);
     }
 
-    // 删除回复（管理员）
     @RequireRoles({0, 1})
-    @RequestMapping("/deleteReply")
-    public ResponseEntity<?> deleteReply(@RequestBody DeleteReplyEntity deleteRequest,
-                                         HttpServletRequest request) {
-        int i = messageService.deleteReply(deleteRequest.getId(), currentUser(request).getId());
-        if(i>0){
-            return ResponseEntity.ok().body(ImmutableMap.of(
-                    "success", true,
-                    "message", "删除成功"
-            ));
-        }else{
-            return ResponseEntity.badRequest().body(ImmutableMap.of(
-                    "success", false,
-                    "message", "删除失败"
-            ));
-        }
+    @PostMapping("/deleteReply")
+    public ResponseEntity<ApiResponse<Void>> deleteReply(
+            @RequestBody DeleteReplyEntity request,
+            HttpServletRequest httpRequest) {
+        boolean deleted = messageService.deleteReply(request.getId(), currentUser(httpRequest).getId());
+        return deleted
+                ? ResponseEntity.ok(ApiResponse.success("回复已删除", null))
+                : ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error(404, "回复不存在"));
     }
 
     private UserEntity currentUser(HttpServletRequest request) {
         return (UserEntity) request.getAttribute(AuthInterceptor.CURRENT_USER_ATTRIBUTE);
     }
 }
-
-

@@ -3,6 +3,7 @@ package com.vihu.ganlu.security;
 import com.vihu.ganlu.entitys.UserEntity;
 import com.vihu.ganlu.service.UserService;
 import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -21,10 +22,17 @@ public class AuthInterceptor implements HandlerInterceptor {
 
     private final TokenService tokenService;
     private final UserService userService;
+    private final AuthContext authContext;
 
-    public AuthInterceptor(TokenService tokenService, UserService userService) {
+    @Autowired
+    public AuthInterceptor(TokenService tokenService, UserService userService, AuthContext authContext) {
         this.tokenService = tokenService;
         this.userService = userService;
+        this.authContext = authContext;
+    }
+
+    public AuthInterceptor(TokenService tokenService, UserService userService) {
+        this(tokenService, userService, new AuthContext());
     }
 
     @Override
@@ -72,14 +80,21 @@ public class AuthInterceptor implements HandlerInterceptor {
         }
 
         request.setAttribute(CURRENT_USER_ATTRIBUTE, currentUser);
+        authContext.setCurrentUser(currentUser);
         return true;
+    }
+
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
+        authContext.clear();
     }
 
     private boolean reject(HttpServletResponse response, HttpStatus status, String message) throws IOException {
         response.setStatus(status.value());
         response.setCharacterEncoding("UTF-8");
         response.setContentType("application/json;charset=UTF-8");
-        response.getWriter().write("{\"code\":" + status.value() + ",\"message\":\"" + message + "\"}");
+        response.getWriter().write("{\"code\":" + status.value()
+                + ",\"message\":\"" + message + "\",\"content\":null}");
         return false;
     }
 

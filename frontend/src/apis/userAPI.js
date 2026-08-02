@@ -1,77 +1,38 @@
-import instance from "@/utils/http"
-import AllPATH from "@/utils/path"
+import instance from '@/utils/http'
+import AllPATH from '@/utils/path'
 
-export function login ({ username, password }) {
+export function login({ username, password }) {
+  return instance.post(AllPATH.loginPath, { username, password })
+}
 
-  return instance({
-    url: AllPATH.loginPath,
-    method: 'POST',
-    data: {
-      username: username,
-      password: password
-    }
+export function RegisterStudent(data) {
+  return instance.post('user/register/student', data)
+}
+
+export function GetAllTeams() {
+  return instance.post(AllPATH.teamsPath)
+}
+
+export function GetAllStudents() {
+  return instance.post(AllPATH.studentsPath)
+}
+
+export function AddTeam(data) {
+  return instance.post(AllPATH.addTeamPath, {
+    ...data,
+    confirmPassword: data.confirmPassword || data.password,
   })
 }
 
-export function GetAllTeams () {
-
-  return instance({
-    url: AllPATH.teamsPath,
-    method: 'POST',
-  })
+export function AddStudent(data) {
+  return instance.post(AllPATH.addStudentPath, data)
 }
 
-export function GetAllStudents () {
-
-  return instance({
-    url: AllPATH.studentsPath,
-    method: 'POST',
-  })
+export function UpdateTeam(data) {
+  return instance.post(AllPATH.updateTeamPath, data)
 }
 
-export function AddTeam ({ username, password ,teamname,imageUrl}) {
-
-  return instance({
-    url: AllPATH.addTeamPath,
-    method: 'POST',
-    data: {
-      username: username,
-      password: password,
-      teamname: teamname,
-      imageUrl:imageUrl
-    }
-  })
-}
-
-export function UpdateTeam({id, username, password ,teamname,imageUrl,realname}){
-return instance({
-    url: AllPATH.updateTeamPath,
-    method: 'POST',
-    data: {
-      id:id,
-      username: username,
-      password: password,
-      teamname: teamname,
-      realname:realname,
-      imageUrl:imageUrl
-    }
-  })
-}
-
-export function AddStudent (val) {
-
-  return instance({
-    url: AllPATH.addStudentPath,
-    method: 'POST',
-    data: val
-  })
-}
-
-export function DeleteTeam (id) {
-  const ids = Array.isArray(id) ? id : [id];
-  return instance({
-    url: AllPATH.deleteTeamPath,
-    method: 'POST',
-    data: ids
-  })
+export function DeleteTeam(id) {
+  const ids = Array.isArray(id) ? id : [id]
+  return instance.post(AllPATH.deleteTeamPath, ids)
 }

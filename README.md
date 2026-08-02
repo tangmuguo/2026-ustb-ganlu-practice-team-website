@@ -1,313 +1,271 @@
-# 甘露支教网站（Ganlu）
+# 甘露支教网站
 
-甘露支教网站是一套前后端分离的内容与团队管理系统，主要包含首页展示、团队风采、课件资料、新闻、轮播图、用户管理和留言回复等功能。
+这是一个前后端分离的支教团队网站，包含公共首页、团队风采、课件共享、互动留言、AI 小助手、用户管理和志愿者报名。
 
-> 本仓库来自一次项目文件交接，不是完整的版本控制仓库。现有文件包含源码、历史构建产物和部分上传文件，但缺少可用的 Git 历史、线上数据库业务数据、Nginx/Tomcat 配置及完整部署文档。
+本文优先写给第一次运行项目的人。按顺序操作即可；不要把数据库密码、JWT 密钥或 DeepSeek Key 发到群里或提交到 Git。
 
-## 技术架构
+## 当前交付状态
 
-```text
-浏览器
-  │
-  ├─ 前端：Vue 3 + Vite + Vue Router + Pinia + Element Plus + Tailwind CSS
-  │          │
-  │          └─ Axios 调用 HTTP API
-  │
-  └─ 后端：Spring Boot 2.4.4 + Spring MVC + MyBatis
-             │
-             ├─ Action/Controller：接收 HTTP 请求
-             ├─ Service：业务与角色校验
-             ├─ Mapper + XML：执行 SQL
-             ├─ MySQL 8.0：保存业务数据
-             └─ uploads：保存图片、课件、视频和临时分片
+公共架构和已收到的成员模块已经集成到分支 `zhaoyouwei/public-architecture-integration`。后端 100 项自动测试、前端正式构建和留言板 3 项测试均已通过。
+
+当前仍缺李嘉辉负责的团队风采内容管理和 `database/patches/11_team_content.sql`，所以本分支可以本地联调，但不能宣称九人任务已经全部完成，也不能直接部署生产环境。详情见 `docs/integration/最终联调记录.md`。
+
+## 你需要安装的软件
+
+在 Windows 11 上安装：
+
+1. Git for Windows；
+2. Node.js 22 LTS（至少 22.12）或 Node.js 24 LTS；
+3. 64 位 Eclipse Temurin JDK 8；
+4. MySQL Server 8.x 和 MySQL Workbench；
+5. VS Code；
+6. LibreOffice（只有课件转预览图时需要）；
+7. Chrome 或 Edge。
+
+项目自带 Maven，不需要单独安装 Maven。
+
+打开 PowerShell，逐行检查：
+
+```powershell
+git --version
+node -v
+npm.cmd -v
+java -version
 ```
 
-以留言板为例，完整调用链如下：
+`java -version` 应显示 1.8。如果提示找不到命令，先关闭并重新打开 PowerShell；仍然不行就检查安装时是否勾选了加入 `PATH`。
+
+## 第一次运行
+
+下面假设项目位于：
 
 ```text
-MessageBoard.vue
-  → apis/messageAPI.js
-  → utils/http.js
-  → MessageAction.java
-  → MessageServiceImpl.java
-  → MessageMapper / ReplyMapper / UserMapper
-  → mapper/*.xml
-  → MySQL
+E:\github\zhaoyouwei\2026-ustb-ganlu-practice-team-website
 ```
 
-## 主要技术版本
+### 第一步：创建数据库
 
-| 部分 | 技术/版本 |
-| --- | --- |
-| 前端框架 | Vue 3.5、Vue Router 4.5、Pinia 3 |
-| 前端构建 | Vite 7、npm |
-| 前端组件 | Element Plus 2.10、Tailwind CSS 3.4 |
-| 后端框架 | Spring Boot 2.4.4 |
-| Java | Java 8 |
-| 数据访问 | MyBatis 2.1.4、PageHelper 1.4.1 |
-| 数据库 | MySQL 8.0；交接 SQL 来源版本为 8.0.43 |
-| 后端构建 | Maven Wrapper 3.9.10 |
-| 部署包 | WAR；交接目录中存在历史 `ROOT.war` |
-| Servlet 容器 | Tomcat 9（外置部署方式需要进一步确认） |
+1. 打开 MySQL Workbench，用安装 MySQL 时设置的管理员账号连接本机数据库。
+2. 点击新建 Schema，名称填写 `ganlu`，字符集选 `utf8mb4`。
+3. 打开根目录 `ganlu.sql`，把默认 Schema 设为 `ganlu`，执行全部内容。
+4. 再依次打开并执行当前已有补丁：
+   - `database/patches/00_user_security.sql`
+   - `database/patches/10_team_core.sql`
+   - `database/patches/20_message_board.sql`
+   - `database/patches/30_material_center.sql`
+   - `database/patches/40_volunteer_application.sql`
+5. `11_team_content.sql` 当前缺失。本地调试可暂时跳过，但最终验收必须等该文件到位后，在新建的数据库备份副本中按完整顺序重跑。
 
-## 目录结构
+补丁的完整说明和注意事项见 `database/patches/README.md`。不要在已有正式数据库上直接试脚本。
 
-```text
-ganlu_webpage/
-├─ frontend/                     # Vue 前端
-│  ├─ src/
-│  │  ├─ apis/                   # 前端 API 封装
-│  │  ├─ components/             # 通用组件
-│  │  ├─ layouts/                # 页面布局
-│  │  ├─ router/                 # 路由配置
-│  │  ├─ stores/                 # Pinia 状态
-│  │  ├─ utils/                  # HTTP、路径、日期、权限工具
-│  │  └─ views/                  # 页面
-│  ├─ public/                    # 静态资源
-│  ├─ dist/                      # 历史生产构建产物
-│  ├─ .env.development           # 开发环境前端变量
-│  ├─ .env.production            # 历史生产环境前端变量
-│  └─ package.json
-├─ backend/                      # Spring Boot 后端
-│  ├─ src/main/java/com/vihu/ganlu/
-│  │  ├─ actions/                # HTTP 接口层
-│  │  ├─ service/                # 业务层
-│  │  ├─ mappers/                # MyBatis Mapper 接口
-│  │  ├─ entitys/                # 实体类
-│  │  ├─ configs/                # CORS、静态文件映射
-│  │  └─ utils/                  # 返回值与文件存储工具
-│  ├─ src/main/resources/
-│  │  ├─ mapper/                 # MyBatis SQL XML
-│  │  ├─ application.properties
-│  │  ├─ application-dev.properties
-│  │  └─ application-prod.properties
-│  ├─ uploads/                   # 交接的上传文件副本
-│  ├─ target/                    # 历史后端构建产物
-│  ├─ mvnw.cmd                   # Windows Maven Wrapper
-│  └─ pom.xml
-└─ ganlu.sql                     # 数据库表结构，不含业务数据
-```
-
-## 功能模块
-
-| 模块 | 前端位置 | 后端入口 | 数据表/存储 |
-| --- | --- | --- | --- |
-| 用户与团队 | `views/Login.vue`、`ManageUser.vue`、`ManageStudents.vue` | `UserAction.java` | `user`、`team` |
-| 课件资料 | `ShowMaterials.vue`、`MaterialDetail.vue`、`MaterialManage.vue` | `CourseDetailAction.java` | `course`、`course_detail`、`uploads/materials` |
-| 团队风采 | `FengCai.vue`、`FengCaiDetail.vue` | `FengCaiAction.java` | `team_page*`、`uploads/images` |
-| 留言与回复 | `MessageBoard.vue` | `MessageAction.java` | `message`、`reply` |
-| 新闻 | `ManageNews.vue` | `NewsAction.java` | `news` |
-| 轮播图 | `BannerManagement.vue` | `BannerAction.java` | `banner`、`uploads/images` |
-
-代码中的角色编号约定为：
-
-- `0`：系统管理员，可使用管理员功能，并可发布、回复、删除留言；
-- `1`：甘露团队账号，可管理学生账号和课件，可管理自己团队的风采内容，并可发布、回复、删除留言；
-- `2`：学生账号，可发布和回复留言，但不能删除留言或使用管理功能。
-
-完整权限矩阵以 `docs/任务分工/00-总览与协作约定.md` 的“统一业务口径”为准。学生账号注册为公开接口；所有后端管理接口必须根据 Bearer Token 再次校验角色，不能只依赖前端隐藏按钮。
-
-## 本地环境要求（Windows 11）
-
-推荐安装：
-
-- Node.js 24 LTS x64（含 npm）；
-- Eclipse Temurin JDK 8 x64，并正确设置 `JAVA_HOME` 和 `PATH`；
-- MySQL Community Server 8.0.x；
-- MySQL Workbench；
-- VS Code；推荐扩展：Vue - Official、Extension Pack for Java、Tailwind CSS IntelliSense；
-- Git；
-- Bruno 或 Postman，用于调试 API；
-- Apache Tomcat 9（仅在本机模拟正式 WAR 部署时需要）。
-
-项目已经包含 `backend/mvnw.cmd`，通常不需要单独安装 Maven。
-
-## 初始化本地数据库
-
-`ganlu.sql` 只包含 11 张表的结构，没有 `CREATE DATABASE`、`USE` 或业务数据。应先创建数据库，再导入 SQL。
-
-### 使用 MySQL Workbench
-
-1. 使用安装 MySQL 时设置的 `root` 密码连接本机实例；
-2. 创建 Schema，名称为 `ganlu`，字符集选择 `utf8mb4`；
-3. 打开根目录的 `ganlu.sql`；
-4. 确认默认 Schema 为 `ganlu`；
-5. 执行全部 SQL；
-6. 确认已生成 11 张表。
-
-建议创建仅供本地应用使用的数据库账号，不要让网站长期使用 `root`：
+在 Workbench 中创建一个只给本地网站使用的账号。把示例密码换成你自己的强密码：
 
 ```sql
-CREATE USER 'ganlu_local'@'localhost' IDENTIFIED BY '<请替换为本地强密码>';
+CREATE USER 'ganlu_local'@'localhost' IDENTIFIED BY '请替换为本地强密码';
 GRANT SELECT, INSERT, UPDATE, DELETE ON ganlu.* TO 'ganlu_local'@'localhost';
 FLUSH PRIVILEGES;
 ```
 
-## 启动后端
+如果提示账号已经存在，不要重复创建；确认你知道原密码，或者在 Workbench 中重设该本地账号密码。
 
-项目默认启用 `dev` Profile，连接 `127.0.0.1:3306/ganlu`，HTTP 端口默认为 `8080`。不要继续使用源码中保存的数据库密码，建议在当前 PowerShell 会话中覆盖配置：
+### 第二步：首次启动后端并创建管理员
+
+打开一个新的 PowerShell 窗口，逐行执行。三处“请替换”必须改成你自己的值；密码至少 8 位。
 
 ```powershell
-cd backend
-$env:SPRING_DATASOURCE_URL="jdbc:mysql://127.0.0.1:3306/ganlu?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC"
-$env:SPRING_DATASOURCE_USERNAME="ganlu_local"
-$env:SPRING_DATASOURCE_PASSWORD="<本地数据库密码>"
+cd E:\github\zhaoyouwei\2026-ustb-ganlu-practice-team-website\backend
+$env:GANLU_DB_URL='jdbc:mysql://127.0.0.1:3306/ganlu?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai'
+$env:GANLU_DB_USERNAME='ganlu_local'
+$env:GANLU_DB_PASSWORD='请替换为刚才创建的数据库密码'
+$env:GANLU_JWT_SECRET='仅本地使用-请替换成至少32字符的随机内容-不要提交'
+$env:GANLU_BOOTSTRAP_ADMIN_USERNAME='ganlu-admin'
+$env:GANLU_BOOTSTRAP_ADMIN_PASSWORD='请替换为管理员登录密码'
+$env:GANLU_BOOTSTRAP_ADMIN_PHONE='13800138000'
 .\mvnw.cmd spring-boot:run
 ```
 
-后端启动后可检查：
+看到“已创建首次管理员账号”以及 Spring Boot 启动成功后：
 
-```text
-http://localhost:8080/user/hello
-```
-
-开发环境上传目录由 `${user.dir}\uploads` 决定。应从 `backend` 目录启动后端，以便使用 `backend/uploads`。
-
-## 启动前端
-
-新开一个 PowerShell 窗口：
+1. 按 `Ctrl+C` 停止后端；
+2. 清除一次性管理员变量；
+3. 重新启动后端。
 
 ```powershell
-cd frontend
-npm ci
-npm run dev
+Remove-Item Env:GANLU_BOOTSTRAP_ADMIN_USERNAME
+Remove-Item Env:GANLU_BOOTSTRAP_ADMIN_PASSWORD
+Remove-Item Env:GANLU_BOOTSTRAP_ADMIN_PHONE
+.\mvnw.cmd spring-boot:run
 ```
 
-本地访问地址：
+密码会由后端使用 BCrypt 加密后写入数据库，日志不会打印密码。数据库中已经有 level=0 管理员时，初始化程序也不会创建第二个管理员。
+
+不要关闭这个 PowerShell 窗口。后端默认运行在 `http://localhost:8080`。
+
+如果需要课件预览转换，在启动后端前额外设置 LibreOffice 路径：
+
+```powershell
+$env:LIBREOFFICE_EXECUTABLE='C:\Program Files\LibreOffice\program\soffice.exe'
+```
+
+### 第三步：启动前端
+
+再打开一个新的 PowerShell 窗口：
+
+```powershell
+cd E:\github\zhaoyouwei\2026-ustb-ganlu-practice-team-website\frontend
+npm.cmd ci
+npm.cmd run dev
+```
+
+浏览器打开：
 
 ```text
 http://localhost:5173/
 ```
 
-开发模式 API 地址应为：
+这里使用 `npm.cmd` 是为了绕过部分 Windows 电脑对 `npm.ps1` 的执行策略限制。
 
-```text
-http://localhost:8080/
+## 第一次手工验收
+
+建议按下面顺序点一遍，并把截图和问题写进 `docs/integration/最终联调记录.md`：
+
+1. 游客：打开首页、关于甘露、联系我们、加入甘露、团队风采、课件和留言板；确认不存在白屏和死链接。
+2. 志愿者：在“加入甘露”提交一条报名，故意重复手机号，确认第二次会提示重复。
+3. 管理员：用刚创建的 `ganlu-admin` 登录；进入志愿报名管理并更新状态；创建一个团队账号。
+4. 团队账号：退出管理员后用团队账号登录；确认只能看到团队允许的管理入口，并创建或查看学生账号。
+5. 学生账号：访问 `/regs` 注册学生，登录后发布留言、回复留言；确认不能进入管理员页面。
+6. 权限：未登录直接访问 `/applications` 应跳到登录页；学生访问管理地址应被拒绝。
+7. 课件：用团队账号上传一份无敏感信息的样例课件，检查预览和下载。
+8. AI：只有配置有效 DeepSeek Key 后再测试；Key 只能放环境变量，不能写进源码。
+
+正式的角色编号为：
+
+| level | 角色 | 主要权限 |
+| --- | --- | --- |
+| 0 | 管理员 | 用户、团队、报名和全站管理 |
+| 1 | 团队 | 学生、课件、本团队内容和互动功能 |
+| 2 | 学生 | 课件浏览、留言和 AI 等普通功能 |
+| 未登录 | 游客 | 公共页面、公开列表和志愿报名 |
+
+前端隐藏菜单只是方便使用，真正的权限会由后端根据 Bearer Token 再检查。
+
+## 日常启动
+
+首次创建管理员后，以后只需要两个窗口。
+
+后端窗口：
+
+```powershell
+cd E:\github\zhaoyouwei\2026-ustb-ganlu-practice-team-website\backend
+$env:GANLU_DB_URL='jdbc:mysql://127.0.0.1:3306/ganlu?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai'
+$env:GANLU_DB_USERNAME='ganlu_local'
+$env:GANLU_DB_PASSWORD='你的本地数据库密码'
+$env:GANLU_JWT_SECRET='你的本地JWT随机密钥'
+.\mvnw.cmd spring-boot:run
 ```
 
-## 构建
+前端窗口：
 
-### 前端
+```powershell
+cd E:\github\zhaoyouwei\2026-ustb-ganlu-practice-team-website\frontend
+npm.cmd run dev
+```
+
+PowerShell 窗口关闭后，以上 `$env:` 临时变量会自动消失，这是正常现象。可以参考 `backend/src/main/resources/application-local.example.properties`，但不要提交含真实密码的本地配置。
+
+## 修改正式介绍和联系方式
+
+目前负责人没有提供经过确认的团队历史、服务地区、电话和邮箱。为了避免编造，这些文字统一放在：
+
+```text
+frontend/src/config/siteContent.js
+```
+
+孙木文确认正式内容后，只改这一个文件，再运行前端构建检查。不要把个人手机号随意复制到多个页面。
+
+## 运行自动检查
+
+后端：
+
+```powershell
+cd backend
+.\mvnw.cmd test
+```
+
+前端正式构建：
 
 ```powershell
 cd frontend
-npm ci
-npm run build
+npm.cmd ci
+npm.cmd run build
+node --test tests/messageAuthor.test.js tests/messageState.test.js
 ```
 
-默认输出到 `frontend/dist`。
-
-### 后端
+后端生成可部署 WAR：
 
 ```powershell
 cd backend
 .\mvnw.cmd clean package
 ```
 
-默认生成 WAR 包到 `backend/target`。交接文件中存在历史 `ROOT.war`，但当前 `pom.xml` 没有明确配置 `ROOT` 作为最终名称，因此正式发布前必须确认原开发者使用的重命名或部署命令。
+前端结果在 `frontend/dist`，后端结果在 `backend/target`。构建成功不等于允许上线。
 
-## 历史生产部署线索
+## 可选：启用 AI 小助手
 
-以下信息来自交接源码和历史构建，不应直接视为仍然有效的正式运维文档：
+先向负责人申请开发环境 Key，再在启动后端的 PowerShell 中设置：
 
-| 项目 | 历史配置 |
-| --- | --- |
-| 前端地址 | `http://47.95.209.65/` |
-| 后端 API | `http://47.95.209.65:8080/` |
-| MySQL | `47.95.209.65:3306/ganlu` |
-| 前端服务器 | Ubuntu + Nginx 1.18.0（历史实测响应头） |
-| 后端部署 | 很可能为外置 Tomcat 9 + `ROOT.war` |
-| 生产上传目录 | `/usr/share/ganlu/uploads`，可由 `UPLOAD_DIR` 覆盖 |
-| HTTPS/域名 | 源码中未发现可用域名或完整 HTTPS 配置 |
-
-推测的生产流量路径：
-
-```text
-浏览器 :80
-  → Nginx 提供 frontend/dist
-  → 前端直接请求 :8080
-  → Tomcat 中的 ROOT.war
-  → MySQL + /usr/share/ganlu/uploads
+```powershell
+$env:AI_ENABLED='true'
+$env:DEEPSEEK_API_KEY='你的开发环境Key'
+$env:DEEPSEEK_MODEL='deepseek-v4-flash'
 ```
 
-生产部署前必须确认：
-
-- 云服务器归属、实例 ID、地域和到期日期；
-- Nginx 站点配置及 Vue History 路由回退；
-- Tomcat 版本、目录、服务名、`server.xml` 和日志路径；
-- `SPRING_PROFILES_ACTIVE=prod` 的实际设置方式；
-- `ROOT.war` 的构建、发布、重启和回滚命令；
-- 数据库及上传目录的完整备份；
-- 域名、DNS、备案和 SSL 证书账号。
-
-## 端口占用说明
-
-| 服务 | 默认端口 |
-| --- | --- |
-| Vite 前端开发服务器 | `5173` |
-| Spring Boot 后端 | `8080` |
-| Tomcat 9 | `8080` |
-| MySQL | `3306` |
-| MySQL X Protocol | `33060` |
-
-Spring Boot 与 Tomcat 默认都会占用 `8080`，本地开发时只能同时启动其中一个，或者修改其中一方端口。
-
-## 安全注意事项
-
-当前交接版本存在需要优先处理的安全问题：
-
-1. 配置文件包含明文数据库凭据。README 不复述这些值；应立即轮换并改为环境变量或外部配置；
-2. 历史生产数据库使用高权限账号。应创建最小权限应用账号，并限制 `3306` 只能由受信任主机访问；
-3. 用户密码当前以明文方式查询和保存，应迁移到 BCrypt 或 Argon2，并安排密码重置；
-4. 项目引入了 JWT 依赖，但没有形成完整的服务端身份验证流程；部分权限判断依赖请求中传入的用户 ID，存在越权风险；
-5. 历史站点仅使用 HTTP。重新上线前应配置域名、HTTPS 和安全响应头；
-6. Spring Boot 2.4.4、Fastjson 1.2.54、Nginx 1.18.0 等版本较旧，应在完成备份和回归测试后安排升级；
-7. 上传目录中包含用户文件和临时分片，应校验文件类型、大小、路径和访问权限，并建立备份与清理机制。
-
-## 已知配置问题
-
-- `application.properties` 默认固定启用 `dev` Profile，生产环境必须显式覆盖；
-- `application-prod.properties` 中存在 `server.port=-1`，与当前后端 `:8080` 的历史部署不一致，需核实外置 Tomcat 配置；
-- 前端 API 地址同时存在于 `.env.*` 和 `src/utils/http.js`，容易出现环境配置不一致；
-- `MaterialDetail.vue` 中仍有硬编码的 `http://localhost:8080/...`；
-- `App.vue` 引用了 `AdminLayout`，但当前没有对应导入；
-- 前端页面标题仍为默认的 `Vite App`；
-- `ganlu.sql` 不含业务数据，本地导入后登录、新闻、留言等内容为空；
-- 当前交接目录包含 `node_modules`、`dist`、`target` 和 `uploads`，不应把这些内容直接提交到新的源码仓库。
+不要把 Key 写入 `.env`、Properties、截图、聊天记录或 Git 提交。没有 Key 时 AI 默认关闭，其他模块仍可运行。
 
 ## 常见问题
 
-### 前端能打开，但没有数据
-
-确认后端已经启动、MySQL 中存在 `ganlu` 表结构，并检查浏览器开发者工具中的 API 请求是否指向 `http://localhost:8080/`。
-
 ### 后端提示无法连接数据库
 
-确认 Windows 服务 `MySQL80` 已启动，检查数据库名、端口、用户名和当前 PowerShell 中的环境变量。
+打开 Windows“服务”，确认 MySQL 服务正在运行；再检查 Schema 是否叫 `ganlu`，以及 `GANLU_DB_USERNAME`、`GANLU_DB_PASSWORD` 是否和 Workbench 中一致。
 
-### 端口 8080 被占用
+### 端口被占用
 
-检查是否同时启动了 Tomcat 和 Spring Boot。日常源码开发使用 Spring Boot；测试 WAR 时停止 Spring Boot 后再启动 Tomcat。
+Vite 默认用 5173，Spring Boot 默认用 8080。不要同时在 8080 启动旧 Tomcat 和本项目后端。关闭占用窗口后重试。
 
-### 页面直接刷新后出现 404
+### 前端能开但没有数据
 
-Vue Router 使用 History 模式。生产 Nginx 必须将不存在的静态路径回退到 `index.html`。
+确认后端窗口仍在运行，并且 `frontend/.env.development` 指向 `http://localhost:8080/`。全新数据库本来就没有新闻、团队和课件业务数据，需要用相应账号添加。
 
-## 交接完成标准
+### 登录一直失败
 
-在认为项目已经完成接管前，至少应具备：
+确认首次启动日志出现过管理员创建提示；账号是 `GANLU_BOOTSTRAP_ADMIN_USERNAME` 的值。不要直接在数据库中手写明文密码。
 
-- 可用的 Git 仓库及完整历史；
-- 可以在新电脑上重复执行的构建步骤；
-- 数据库全量备份及经过验证的恢复步骤；
-- 上传文件全量备份；
-- 云服务器、域名、DNS 和证书控制权；
-- Nginx、Tomcat、环境变量和服务配置备份；
-- 新的生产数据库账号及已经轮换的密码；
-- 管理员账号创建/重置流程；
-- 日志、监控、告警、定期备份与回滚方案；
-- 已知问题清单和最基本的验收测试。
+### PowerShell 不允许运行 npm
 
-## 许可证
+使用文档里的 `npm.cmd`，不要改 Windows 全局安全策略。
 
-本项目采用 [MIT License](LICENSE) 开源。
+### 刷新页面出现 404
+
+本地 Vite 一般不会出现。正式 Nginx 必须把 Vue History 路由回退到 `index.html`，这属于上线配置，需由负责人审核。
+
+## 项目结构
+
+```text
+frontend/                 Vue 3 前端页面、路由和 API
+backend/                  Spring Boot 后端、权限、业务和测试
+database/patches/         数据库增量脚本和执行说明
+docs/integration/         各成员接口说明与最终联调记录
+docs/任务分工/            九人任务单和统一业务约定
+ganlu.sql                 数据库基线结构
+```
+
+主要技术为 Vue 3、Vite、Pinia、Element Plus、Spring Boot 2.4、MyBatis、MySQL 8 和 Java 8。
+
+## 提交与上线边界
+
+- 当前工作只在集成分支完成，没有自动推送、合并主分支或部署生产环境。
+- 提交 Pull Request 前，让孙木文审查公共接口、正式文字、数据库补丁和权限矩阵。
+- 上线前必须备份并验证恢复数据库与上传文件，轮换曾暴露的密码和 Key，配置 HTTPS，并准备回滚方案。
+- `npm ci` 当前报告 16 个依赖安全问题；不要直接运行可能破坏兼容性的自动修复，需安排升级分支和完整回归。
+
+项目采用 [MIT License](LICENSE)。

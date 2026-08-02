@@ -14,6 +14,8 @@
         <result column="status" property="status"/>
         <result column="username" property="username"/>
         <result column="teamname" property="teamname"/>
+        <result column="user_level" property="userLevel"/>
+        <result column="display_name" property="displayName"/>
     </resultMap>
 
     <!-- 新增留言 -->
@@ -43,7 +45,14 @@
             m.update_time,
             m.status,
             u.username,
-            u.teamname
+            u.teamname,
+            u.level AS user_level,
+            CASE
+              WHEN u.level = 1 THEN COALESCE(NULLIF(u.teamname, ''), u.username)
+              WHEN u.level = 2 THEN COALESCE(NULLIF(u.realname, ''), u.username)
+              WHEN u.level = 0 THEN COALESCE(NULLIF(u.realname, ''), '系统管理员')
+              ELSE '已注销用户'
+            END AS display_name
         FROM
             message m
                 LEFT JOIN

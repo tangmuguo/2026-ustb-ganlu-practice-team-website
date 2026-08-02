@@ -9,6 +9,7 @@ Desktop.ini
 
 # Editors and IDEs
 **/.idea/
+.vscode/
 *.iml
 *.iws
 *.ipr
@@ -47,6 +48,9 @@ hs_err_pid*
 !frontend/.env.production
 backend/src/main/resources/application*.properties
 !backend/src/main/resources/application*.properties.example
+!backend/src/main/resources/application.properties
+!backend/src/main/resources/application-dev.properties
+!backend/src/main/resources/application-prod.properties
 
 # Frontend dependencies, caches, tests and builds
 frontend/node_modules/
