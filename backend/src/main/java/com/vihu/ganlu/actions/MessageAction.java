@@ -94,22 +94,22 @@ public class MessageAction {
     }
 
     /**
-     * 删除留言
-     * 权限：仅 level 0/1 管理员
-     */
-    @PostMapping("/delete")
-    @RequireRoles({0, 1})
-    public ResponseEntity<Map<String, Object>> deleteMessage(@Valid @RequestBody DeleteContentRequest request,
-                                                             HttpServletRequest httpRequest) {
+        * 删除留言
+        * 权限：仅 level 0/1 管理员
+        */
+        
+        @PostMapping("/deleteMessage")
+        @RequireRoles({0, 1})
+        public ResponseEntity<Map<String, Object>> deleteMessage(@Valid @RequestBody DeleteContentRequest request,
+                                                         HttpServletRequest httpRequest) {
         UserEntity loginUser = currentUser(httpRequest);
-        // Service 内部校验权限和数据状态，失败抛异常
         messageService.deleteMessage(request.getId(), loginUser);
 
         return ResponseEntity.ok(ImmutableMap.of(
                 "code", 200,
                 "message", "留言删除成功"
         ));
-    }
+        }
 
     /**
      * 删除回复

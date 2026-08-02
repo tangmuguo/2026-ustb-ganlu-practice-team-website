@@ -20,7 +20,7 @@
 | /message/list | GET | 游客开放 | 分页获取公开留言列表（仅返回正常状态数据） |
 | /message/add | POST | 需登录（level 0/1/2） | 新增留言 |
 | /message/addReply | POST | 需登录（level 0/1/2） | 对指定留言新增回复 |
-| /message/delete | POST | 需登录（仅 level 0/1） | 逻辑删除指定留言 |
+| /message/deleteMessage | POST | 需登录（仅 level 0/1） | 逻辑删除指定留言 |
 | /message/deleteReply | POST | 需登录（仅 level 0/1） | 逻辑删除指定回复 |
 
 ## 3. 接口详细说明
@@ -70,7 +70,7 @@ json
 
 ### 3.4 删除留言
 
-* 路径：POST /message/delete
+* 路径：/message/deleteMessage
 * 权限：仅 level 0/1 可操作，level 2 返回 403
 * 请求体：
 

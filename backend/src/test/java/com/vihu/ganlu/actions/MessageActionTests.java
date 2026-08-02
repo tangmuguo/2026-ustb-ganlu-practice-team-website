@@ -102,7 +102,7 @@ class MessageActionTests {
         // 恶意请求体：塞入 userId=1（管理员），试图越权删除
         String maliciousBody = "{\"id\":1,\"userId\":1}";
 
-        mockMvc.perform(post("/message/delete")
+        mockMvc.perform(post("/message/deleteMessage")
                         .header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(maliciousBody))
@@ -187,7 +187,7 @@ class MessageActionTests {
         DeleteContentRequest req = new DeleteContentRequest();
         req.setId(messageId);
 
-        mockMvc.perform(post("/message/delete")
+        mockMvc.perform(post("/message/deleteMessage")
                         .header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
