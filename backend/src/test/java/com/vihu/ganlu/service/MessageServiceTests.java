@@ -12,6 +12,7 @@ import com.vihu.ganlu.mappers.ReplyMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 import org.junit.jupiter.api.DisplayName;
 
@@ -27,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @SpringBootTest
 @Transactional // 测试完成自动回滚，不污染数据库
+@ActiveProfiles("test")
 class MessageServiceTests {
 
     @Autowired
