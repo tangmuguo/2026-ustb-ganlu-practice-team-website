@@ -14,6 +14,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
+import org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -27,7 +29,14 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(MessageAction.class)
+// 关键修改：排除数据源和MyBatis自动配置，彻底不加载数据库相关Bean
+@WebMvcTest(
+        value = MessageAction.class,
+        excludeAutoConfiguration = {
+                DataSourceAutoConfiguration.class,
+                MybatisAutoConfiguration.class
+        }
+)
 @Import(TokenService.class)
 class MessageActionTests {
 
