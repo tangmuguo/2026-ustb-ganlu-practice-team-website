@@ -29,6 +29,3 @@ CREATE TABLE IF NOT EXISTS message_reply (
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-
--- 开启手动插入自增ID，保证data-test.sql能插入指定ID的用户
-SET IDENTITY_INSERT user ON;
