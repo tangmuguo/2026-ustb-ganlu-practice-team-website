@@ -14,6 +14,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.security.MessageDigest;
 import java.util.List;
 import java.util.Map;
@@ -115,6 +116,31 @@ class MaterialUploadStorageServiceTests {
         assertFalse(Files.exists(sessionMetadata.getParent()));
     }
 
+    @Test
+    void reusesValidationMetadataUntilStagedFileStateChanges() throws Exception {
+        CountingMaterialFileValidator validator = new CountingMaterialFileValidator();
+        MaterialUploadStorageService service = new MaterialUploadStorageService(
+                new FileStorageUtil(uploadRoot.toString(), "test"), validator, 1, 1, 1024, 5);
+        byte[] content = "%PDF-1.7\nmaterial".getBytes(StandardCharsets.US_ASCII);
+        String checksum = md5(content);
+        MockMultipartFile chunk = new MockMultipartFile(
+                "file", "lesson.pdf", "application/pdf", content);
+
+        service.saveChunk(chunk, 1, 1, checksum, "lesson.pdf", content.length, "MATERIAL", 11);
+        UploadedFileInfo info = service.mergeChunks(
+                "lesson.pdf", checksum, 1, content.length, "MATERIAL", 11);
+        assertEquals(1, validator.validations);
+
+        MaterialUploadStorageService.StagedFile staged = service.loadStagedFile(
+                11, "MATERIAL", info.getToken());
+        assertEquals(1, validator.validations);
+
+        Files.setLastModifiedTime(staged.getPath(),
+                FileTime.fromMillis(Files.getLastModifiedTime(staged.getPath()).toMillis() + 2000L));
+        service.loadStagedFile(11, "MATERIAL", info.getToken());
+        assertEquals(2, validator.validations);
+    }
+
     private String md5(byte[] content) throws Exception {
         byte[] digest = MessageDigest.getInstance("MD5").digest(content);
         StringBuilder checksum = new StringBuilder();
@@ -122,5 +148,16 @@ class MaterialUploadStorageServiceTests {
             checksum.append(String.format("%02x", value & 0xff));
         }
         return checksum.toString();
+    }
+
+    private static final class CountingMaterialFileValidator extends MaterialFileValidator {
+        private int validations;
+
+        @Override
+        public UploadedFileInfo validate(Path file, String originalName, String purpose, long expectedSize)
+                throws java.io.IOException {
+            validations += 1;
+            return super.validate(file, originalName, purpose, expectedSize);
+        }
     }
 }

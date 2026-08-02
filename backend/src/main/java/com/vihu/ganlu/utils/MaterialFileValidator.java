@@ -3,6 +3,9 @@ package com.vihu.ganlu.utils;
 import com.vihu.ganlu.entitys.UploadedFileInfo;
 import org.apache.poi.hslf.usermodel.HSLFSlide;
 import org.apache.poi.hslf.usermodel.HSLFSlideShow;
+import org.apache.poi.hslf.usermodel.HSLFSlideShowFactory;
+import org.apache.poi.openxml4j.opc.OPCPackage;
+import org.apache.poi.openxml4j.opc.PackageAccess;
 import org.apache.poi.xslf.usermodel.XMLSlideShow;
 import org.apache.poi.xslf.usermodel.XSLFSlide;
 import org.springframework.stereotype.Component;
@@ -115,8 +118,8 @@ public class MaterialFileValidator {
     }
 
     private boolean isReadableLegacyPowerPoint(Path file) {
-        try (InputStream input = Files.newInputStream(file);
-             HSLFSlideShow slideShow = new HSLFSlideShow(input)) {
+        try (HSLFSlideShow slideShow = new HSLFSlideShowFactory()
+                .create(file.toFile(), null, true)) {
             List<HSLFSlide> slides = slideShow.getSlides();
             if (slides.isEmpty()) {
                 return false;
@@ -132,20 +135,27 @@ public class MaterialFileValidator {
     }
 
     private boolean isReadableOpenXmlPowerPoint(Path file) {
-        try (InputStream input = Files.newInputStream(file);
-             XMLSlideShow slideShow = new XMLSlideShow(input)) {
-            List<XSLFSlide> slides = slideShow.getSlides();
-            if (slides.isEmpty()) {
-                return false;
+        OPCPackage packageFile = null;
+        try {
+            packageFile = OPCPackage.open(file.toFile(), PackageAccess.READ);
+            try (XMLSlideShow slideShow = new XMLSlideShow(packageFile)) {
+                List<XSLFSlide> slides = slideShow.getSlides();
+                if (slides.isEmpty()) {
+                    return false;
+                }
+                for (XSLFSlide slide : slides) {
+                    // This resolves slide XML, relationships and related parts rather than trusting ZIP names.
+                    slide.getShapes().size();
+                    slide.getRelations().size();
+                }
+                return true;
             }
-            for (XSLFSlide slide : slides) {
-                // This resolves slide XML, relationships and related parts rather than trusting ZIP names.
-                slide.getShapes().size();
-                slide.getRelations().size();
-            }
-            return true;
         } catch (Exception invalidPresentation) {
             return false;
+        } finally {
+            if (packageFile != null && !packageFile.isClosed()) {
+                packageFile.revert();
+            }
         }
     }
 

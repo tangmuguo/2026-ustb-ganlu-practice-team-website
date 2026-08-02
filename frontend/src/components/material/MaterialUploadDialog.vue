@@ -79,6 +79,8 @@ const submit = async () => {
   }
   submitting.value = true
   submissionCompleted.value = false
+  coverWidget.value?.beginConsumption()
+  fileWidget.value?.beginConsumption()
   try {
     const response = await createMaterial({
       title: form.title.trim(),
@@ -97,6 +99,8 @@ const submit = async () => {
     emit('uploaded', response.data.content)
     visible.value = false
   } catch (error) {
+    coverWidget.value?.releaseConsumption()
+    fileWidget.value?.releaseConsumption()
     ElMessage.error(error.response?.data?.message || '保存课件失败')
   } finally {
     submitting.value = false

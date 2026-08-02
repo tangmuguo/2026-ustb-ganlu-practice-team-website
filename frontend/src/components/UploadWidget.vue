@@ -27,6 +27,7 @@ const isHashing = ref(false)
 const isUploading = ref(false)
 const uploadComplete = ref(false)
 const stagedFile = ref()
+const consumptionProtected = ref(false)
 
 const isImage = computed(() => props.purpose === 'COVER')
 const busy = computed(() => isHashing.value || isUploading.value)
@@ -183,7 +184,7 @@ const clearPreview = () => {
 }
 
 const clearFile = async (options = {}) => {
-  const cancelRemote = options.cancelRemote !== false
+  const cancelRemote = options.cancelRemote !== false && !consumptionProtected.value
   const identifier = fileIdentifier.value
   const token = stagedFile.value?.token
   clearPreview()
@@ -206,15 +207,24 @@ const clearFile = async (options = {}) => {
 
 const handleExceed = () => ElMessage.warning('一次只能选择一个文件，请先清除当前文件')
 
+const beginConsumption = () => {
+  consumptionProtected.value = true
+}
+
+const releaseConsumption = () => {
+  consumptionProtected.value = false
+}
+
 const markConsumed = () => {
   fileIdentifier.value = ''
   stagedFile.value = undefined
+  consumptionProtected.value = false
 }
 
 onBeforeUnmount(() => {
   clearFile()
 })
-defineExpose({ clearFile, markConsumed })
+defineExpose({ clearFile, beginConsumption, releaseConsumption, markConsumed })
 </script>
 
 <template>

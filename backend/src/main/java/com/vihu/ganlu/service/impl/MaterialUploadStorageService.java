@@ -165,7 +165,8 @@ public class MaterialUploadStorageService {
                 Path stagedFile = stagingDirectory.resolve(token + "." + info.getExtension()).normalize();
                 Files.move(merged, stagedFile, StandardCopyOption.REPLACE_EXISTING);
                 Path stagedMetadata = stagingDirectory.resolve(token + ".properties");
-                writeStagedMetadata(stagedMetadata, info, now);
+                writeStagedMetadata(stagedMetadata, info, now, now,
+                        Files.getLastModifiedTime(stagedFile).toMillis());
                 writeIndex(indexPath(stagingDirectory, identifier), token);
                 fileStorageUtil.deleteTree(directory);
                 return info;
@@ -407,14 +408,24 @@ public class MaterialUploadStorageService {
             Files.deleteIfExists(indexPath(directory, stagedMetadata.info.getChecksum()));
             return null;
         }
-        UploadedFileInfo verified = fileValidator.validate(
-                file, stagedMetadata.info.getOriginalName(), purpose, stagedMetadata.info.getSize());
-        if (!verified.getChecksum().equalsIgnoreCase(stagedMetadata.info.getChecksum())) {
-            throw new IllegalArgumentException("暂存文件校验失败");
+        long currentSize = Files.size(file);
+        if (currentSize != stagedMetadata.info.getSize()) {
+            throw new IllegalArgumentException("暂存文件大小已发生变化");
         }
-        if (touch) {
+        long currentLastModified = Files.getLastModifiedTime(file).toMillis();
+        boolean fileStateChanged = currentLastModified != stagedMetadata.validatedLastModified;
+        if (fileStateChanged) {
+            UploadedFileInfo verified = fileValidator.validate(
+                    file, stagedMetadata.info.getOriginalName(), purpose, stagedMetadata.info.getSize());
+            if (!verified.getChecksum().equalsIgnoreCase(stagedMetadata.info.getChecksum())) {
+                throw new IllegalArgumentException("暂存文件校验失败");
+            }
+            stagedMetadata.validatedLastModified = currentLastModified;
+        }
+        if (touch || fileStateChanged) {
             stagedMetadata.lastActivity = now;
-            writeStagedMetadata(metadata, stagedMetadata.info, stagedMetadata.createdAt, now);
+            writeStagedMetadata(metadata, stagedMetadata.info, stagedMetadata.createdAt, now,
+                    stagedMetadata.validatedLastModified);
         }
         return new StagedFile(userId, purpose, file, metadata,
                 indexPath(directory, stagedMetadata.info.getChecksum()), stagedMetadata.info);
@@ -582,14 +593,12 @@ public class MaterialUploadStorageService {
         info.setPurpose(properties.getProperty("purpose"));
         long createdAt = Long.parseLong(properties.getProperty("createdAt", "0"));
         long lastActivity = Long.parseLong(properties.getProperty("lastActivity", String.valueOf(createdAt)));
-        return new StagedMetadata(info, createdAt, lastActivity);
+        long validatedLastModified = Long.parseLong(properties.getProperty("validatedLastModified", "0"));
+        return new StagedMetadata(info, createdAt, lastActivity, validatedLastModified);
     }
 
-    private void writeStagedMetadata(Path metadata, UploadedFileInfo info, long now) throws IOException {
-        writeStagedMetadata(metadata, info, now, now);
-    }
-
-    private void writeStagedMetadata(Path metadata, UploadedFileInfo info, long createdAt, long lastActivity)
+    private void writeStagedMetadata(Path metadata, UploadedFileInfo info, long createdAt, long lastActivity,
+                                     long validatedLastModified)
             throws IOException {
         Properties properties = new Properties();
         properties.setProperty("token", info.getToken());
@@ -601,6 +610,7 @@ public class MaterialUploadStorageService {
         properties.setProperty("purpose", info.getPurpose());
         properties.setProperty("createdAt", String.valueOf(createdAt));
         properties.setProperty("lastActivity", String.valueOf(lastActivity));
+        properties.setProperty("validatedLastModified", String.valueOf(validatedLastModified));
         storePropertiesAtomically(metadata, properties, "Ganlu material staged upload");
     }
 
@@ -734,11 +744,14 @@ public class MaterialUploadStorageService {
         private final UploadedFileInfo info;
         private final long createdAt;
         private long lastActivity;
+        private long validatedLastModified;
 
-        private StagedMetadata(UploadedFileInfo info, long createdAt, long lastActivity) {
+        private StagedMetadata(UploadedFileInfo info, long createdAt, long lastActivity,
+                               long validatedLastModified) {
             this.info = info;
             this.createdAt = createdAt;
             this.lastActivity = lastActivity;
+            this.validatedLastModified = validatedLastModified;
         }
     }
 
