@@ -16,6 +16,7 @@
     <description>Demo project for Spring Boot</description>
     <properties>
         <java.version>1.8</java.version>
+        <apache-poi.version>5.5.1</apache-poi.version>
     </properties>
     <dependencies>
         <dependency>
@@ -106,6 +107,17 @@
             <groupId>com.github.pagehelper</groupId>
             <artifactId>pagehelper-spring-boot-starter</artifactId>
             <version>1.4.1</version>
+        </dependency>
+        <!-- 课件上传：使用可靠解析器验证旧版 PPT 与 PPTX，而非仅检查可伪造的容器结构。 -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-scratchpad</artifactId>
+            <version>${apache-poi.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>${apache-poi.version}</version>
         </dependency>
     </dependencies>
 

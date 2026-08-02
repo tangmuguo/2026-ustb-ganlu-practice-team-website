@@ -1,195 +1,86 @@
 package com.vihu.ganlu.actions;
 
 import com.github.pagehelper.PageInfo;
-import com.google.common.collect.ImmutableMap;
 import com.vihu.ganlu.entitys.CourseDetailEntity;
-import com.vihu.ganlu.entitys.CourseEntity;
+import com.vihu.ganlu.entitys.MaterialCreateRequest;
+import com.vihu.ganlu.entitys.MaterialSearchQuery;
+import com.vihu.ganlu.entitys.UploadedFileInfo;
 import com.vihu.ganlu.entitys.UserEntity;
 import com.vihu.ganlu.security.AuthInterceptor;
 import com.vihu.ganlu.security.PublicEndpoint;
 import com.vihu.ganlu.security.RequireRoles;
 import com.vihu.ganlu.service.CourseDetailService;
-import com.vihu.ganlu.service.CourseService;
+import com.vihu.ganlu.utils.FileStorageUtil;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.UrlResource;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 import java.io.IOException;
-import java.util.List;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.regex.Pattern;
+import java.util.NoSuchElementException;
 
 @RestController
 @RequestMapping("/courseDetail")
 public class CourseDetailAction {
-    private static final Pattern FILE_IDENTIFIER = Pattern.compile("^[a-fA-F0-9]{32}$");
-    @Resource
-    CourseDetailService courseDetailService;
-    @Resource
-    CourseService courseService;
+    private final CourseDetailService courseDetailService;
 
-    @PublicEndpoint
-    @RequestMapping("/getDetail")
-    public  ResponseEntity<?> getMaterialDetail(int id){
-        CourseDetailEntity courseById = courseDetailService.getCourseById(id);
-        if(courseById!=null){
-            return ResponseEntity.ok().body(ImmutableMap.of(
-                    "success", true,
-                    "message", "查询成功",
-                    "content",courseById
-            ));
-        }else{
-            return ResponseEntity.badRequest().body(ImmutableMap.of(
-                    "success", false,
-                    "message", "查询失败"
-            ));
-        }
+    public CourseDetailAction(CourseDetailService courseDetailService) {
+        this.courseDetailService = courseDetailService;
     }
 
-    /**
-     * 一次性上传包括图片和文件本身
-     * @param title
-     * @param courseId
-     * @param imageFile
-     * @param courseFile
-     * @return
-     */
+    @PublicEndpoint
+    @GetMapping("/materials")
+    public ResponseEntity<?> search(@ModelAttribute MaterialSearchQuery query) {
+        PageInfo<CourseDetailEntity> page = courseDetailService.search(query);
+        return ResponseEntity.ok(responseBody(200, "查询成功", page));
+    }
+
+    @PublicEndpoint
+    @GetMapping("/materials/{id}")
+    public ResponseEntity<?> detail(@PathVariable("id") int id) {
+        CourseDetailEntity material = courseDetailService.getCourseById(id);
+        if (material == null) {
+            throw new NoSuchElementException("课件不存在");
+        }
+        return ResponseEntity.ok(responseBody(200, "查询成功", material));
+    }
+
     @RequireRoles({0, 1})
     @PostMapping("/materials")
-    public ResponseEntity<?> uploadMaterials(
-            @RequestParam("title") String title,
-            @RequestParam("courseId") Integer courseId,
-            @RequestParam("imageFile") MultipartFile imageFile,
-            @RequestParam("courseFile") MultipartFile courseFile,
-            HttpServletRequest request) {
-
-        CourseDetailEntity courseDetail = new CourseDetailEntity();
-        courseDetail.setTitle(title);
-        courseDetail.setCourseId(courseId);
-        courseDetail.setAuthor(authorName(currentUser(request)));
-
-        boolean success = courseDetailService.uploadCourseMaterial(courseDetail, imageFile, courseFile);
-
-        if (success) {
-            return ResponseEntity.ok().body(ImmutableMap.of(
-                    "success", true,
-                    "message", "上传成功"
-            ));
-        } else {
-            return ResponseEntity.badRequest().body(ImmutableMap.of(
-                    "success", false,
-                    "message", "上传失败"
-            ));
-        }
-    }
-
-    /**
-     * 已经上传好图片与文件，图片、文件字段已经是服务器中的文件名，直接保存即可
-     * @param entity
-     * @return
-     */
-    @RequireRoles({0, 1})
-    @PostMapping("/material")
-    public ResponseEntity<?> uploadMaterial(@RequestBody CourseDetailEntity entity, HttpServletRequest request) {
-
-        entity.setAuthor(authorName(currentUser(request)));
-
-        int success = courseDetailService.insertCourseDetail(entity);
-
-        if (success>0) {
-            return ResponseEntity.ok().body(ImmutableMap.of(
-                    "code", 200,
-                    "message", "上传成功"
-            ));
-        } else {
-            return ResponseEntity.badRequest().body(ImmutableMap.of(
-                    "code", 400,
-                    "message", "上传失败"
-            ));
-        }
+    public ResponseEntity<?> create(@RequestBody MaterialCreateRequest request, HttpServletRequest servletRequest)
+            throws IOException {
+        CourseDetailEntity created = courseDetailService.createMaterial(request, currentUser(servletRequest));
+        String message = "FAILED".equals(created.getPreviewStatus())
+                ? "上传成功，但 PPT 预览转换失败，可登录后下载原文件"
+                : "上传成功";
+        return ResponseEntity.status(HttpStatus.CREATED).body(responseBody(200, message, created));
     }
 
     @RequireRoles({0, 1})
-    @PostMapping("/uploadImage")
-    public ResponseEntity<?> uploadImage(
-            @RequestParam("imageFile") MultipartFile imageFile) {
-
-        String imagePath = courseDetailService.uploadImage(imageFile);
-
-        if (imagePath!=null) {
-            return ResponseEntity.ok().body(ImmutableMap.of(
-                    "code", 200,
-                    "message", "上传成功",
-                    "content",imagePath
-            ));
-        } else {
-            return ResponseEntity.badRequest().body(ImmutableMap.of(
-                    "code", 400,
-                    "message", "上传失败"
-            ));
-        }
-    }
-
-    @RequireRoles({0, 1})
-    @PostMapping("/uploadFile")
-    public ResponseEntity<?> uploadFile(
-            @RequestParam("materialFile") MultipartFile materialFile) {
-
-        String materialPath = courseDetailService.uploadCourseFile(materialFile);
-
-        if (materialPath!=null) {
-            return ResponseEntity.ok().body(ImmutableMap.of(
-                    "code", 200,
-                    "message", "上传成功",
-                    "content",materialPath
-            ));
-        } else {
-            return ResponseEntity.badRequest().body(ImmutableMap.of(
-                    "code", 400,
-                    "message", "上传失败"
-            ));
-        }
-    }
-
-    @PublicEndpoint
-    @PostMapping("/all")
-    public ResponseEntity<?> findAll(){
-        List<CourseDetailEntity> allCourse = courseDetailService.findAllCourse();
-        if(allCourse!=null){
-            return ResponseEntity.ok().body(ImmutableMap.of(
-                    "code", 200,
-                    "message", "查询成功",
-                    "content",allCourse
-            ));
-        }else{
-            return ResponseEntity.badRequest().body(ImmutableMap.of(
-                    "code", 400,
-                    "message", "查询失败"
-            ));
-        }
-    }
-
-    @PublicEndpoint
-    @RequestMapping("/list")
-    public ResponseEntity<?> findCourseList(
-            @RequestParam(defaultValue = "1") Integer page,
-            @RequestParam(defaultValue = "10") Integer size
-    ){
-        PageInfo<CourseDetailEntity> courseList = courseDetailService.getCourseList(page, size);
-        if(courseList!=null){
-            return ResponseEntity.ok().body(ImmutableMap.of(
-                    "code", 200,
-                    "message", "查询成功",
-                    "content",courseList
-            ));
-        }else{
-            return ResponseEntity.badRequest().body(ImmutableMap.of(
-                    "code", 400,
-                    "message", "查询失败"
-            ));
-        }
+    @DeleteMapping("/materials/{id}")
+    public ResponseEntity<?> delete(@PathVariable("id") int id) {
+        courseDetailService.deleteCourseById(id);
+        return ResponseEntity.ok(responseBody(200, "删除成功", null));
     }
 
     @RequireRoles({0, 1})
@@ -199,129 +90,156 @@ public class CourseDetailAction {
             @RequestParam("chunkNumber") int chunkNumber,
             @RequestParam("totalChunks") int totalChunks,
             @RequestParam("identifier") String identifier,
-            @RequestParam("filename") String filename) throws IOException {
-
-        if (!validIdentifier(identifier) || chunkNumber < 1 || totalChunks < 1
-                || chunkNumber > totalChunks || filename == null || filename.trim().isEmpty()) {
-            return invalidUploadRequest();
-        }
-
-        String path = courseDetailService.saveChunk(chunk, chunkNumber, totalChunks,identifier);
-        return ResponseEntity.ok().body(ImmutableMap.of(
-                "code", 200,
-                "message", "分片上传成功",
-                "path", path
-        ));
+            @RequestParam("filename") String filename,
+            @RequestParam("expectedSize") long expectedSize,
+            @RequestParam("purpose") String purpose,
+            HttpServletRequest request) throws IOException {
+        int userId = currentUser(request).getId();
+        String savedChunk = courseDetailService.saveChunk(
+                chunk, chunkNumber, totalChunks, identifier, filename, expectedSize, purpose, userId);
+        return ResponseEntity.ok(responseBody(200, "分片上传成功", savedChunk));
     }
 
-    /**
-     * 合并分片接口
-     */
     @RequireRoles({0, 1})
     @PostMapping("/mergeChunks")
     public ResponseEntity<?> mergeChunks(
             @RequestParam("filename") String filename,
-            @RequestParam("identifier") String identifier) throws IOException {
-
-        if (!validIdentifier(identifier) || filename == null || filename.trim().isEmpty()) {
-            return invalidUploadRequest();
-        }
-
-        String filePath = courseDetailService.mergeChunks(filename, identifier);
-        return ResponseEntity.ok().body(ImmutableMap.of(
-                "code", 200,
-                "message", "文件合并成功",
-                "path", filePath
-        ));
+            @RequestParam("identifier") String identifier,
+            @RequestParam("totalChunks") int totalChunks,
+            @RequestParam("expectedSize") long expectedSize,
+            @RequestParam("purpose") String purpose,
+            HttpServletRequest request) throws IOException {
+        int userId = currentUser(request).getId();
+        UploadedFileInfo file = courseDetailService.mergeChunks(
+                filename, identifier, totalChunks, expectedSize, purpose, userId);
+        return ResponseEntity.ok(responseBody(200, "文件合并成功", file));
     }
 
     @RequireRoles({0, 1})
     @PostMapping("/checkFileExist")
     public ResponseEntity<?> checkFileExist(
-            @RequestParam("identifier") String fileMd5) {
-
-        if (!validIdentifier(fileMd5)) {
-            return invalidUploadRequest();
-        }
-
-        Map<String, Object> result = courseDetailService.checkFileExist(fileMd5);
-
-        if (Boolean.TRUE.equals(result.get("exist"))) {
-            return ResponseEntity.ok().body(ImmutableMap.of(
-                    "code", 200,
-                    "exist", true,
-                    "path", result.get("path"),
-                    "message", "文件已存在"
-            ));
-        } else {
-            return ResponseEntity.ok().body(ImmutableMap.of(
-                    "code", 200,
-                    "exist", false,
-                    "uploadedChunks", result.getOrDefault("uploadedChunks", 0),
-                    "message", "文件不存在"
-            ));
-        }
-    }
-
-    @PublicEndpoint
-    @RequestMapping("/allCourse")
-    public ResponseEntity<?> getAllCourse(){
-        List<CourseEntity> allCourses = courseService.getAllCourses();
-        if(allCourses!=null){
-            return ResponseEntity.ok().body(ImmutableMap.of(
-                    "code", 200,
-                    "message", "查询成功",
-                    "content", allCourses
-            ));
-        }else{
-            return ResponseEntity.ok().body(ImmutableMap.of(
-                    "code", 201,
-                    "message", "查询失败"
-            ));
-        }
+            @RequestParam("identifier") String identifier,
+            @RequestParam("purpose") String purpose,
+            HttpServletRequest request) throws IOException {
+        int userId = currentUser(request).getId();
+        Map<String, Object> state = courseDetailService.checkFileExist(identifier, purpose, userId);
+        return ResponseEntity.ok(responseBody(200, "查询成功", state));
     }
 
     @RequireRoles({0, 1})
-    @RequestMapping("/deleteCourse")
-    public ResponseEntity<?> deleteCourse(int id){
+    @DeleteMapping("/uploadSession")
+    public ResponseEntity<?> cancelUpload(
+            @RequestParam(value = "identifier", required = false) String identifier,
+            @RequestParam("purpose") String purpose,
+            @RequestParam(value = "token", required = false) String token,
+            HttpServletRequest request) throws IOException {
+        int userId = currentUser(request).getId();
+        courseDetailService.cancelUpload(identifier, purpose, token, userId);
+        return ResponseEntity.ok(responseBody(200, "上传临时文件已清理", null));
+    }
 
-
-        int i = courseDetailService.deleteCourseById(id);
-        if(i>0){
-            return ResponseEntity.ok().body(ImmutableMap.of(
-                    "success", true,
-                    "message", "删除成功"
-            ));
-        }else{
-            return ResponseEntity.badRequest().body(ImmutableMap.of(
-                    "success", false,
-                    "message", "删除失败"
-            ));
+    @RequireRoles({0, 1, 2})
+    @GetMapping("/materials/{id}/preview")
+    public ResponseEntity<Resource> preview(@PathVariable("id") int id) throws IOException {
+        Path path = courseDetailService.getPreviewPath(id);
+        Resource resource = new UrlResource(path.toUri());
+        String extension = FileStorageUtil.extensionOf(path.getFileName().toString());
+        MediaType mediaType;
+        switch (extension) {
+            case "pdf":
+                mediaType = MediaType.APPLICATION_PDF;
+                break;
+            case "jpg":
+            case "jpeg":
+                mediaType = MediaType.IMAGE_JPEG;
+                break;
+            case "png":
+                mediaType = MediaType.IMAGE_PNG;
+                break;
+            case "webp":
+                mediaType = MediaType.parseMediaType("image/webp");
+                break;
+            default:
+                mediaType = MediaType.APPLICATION_OCTET_STREAM;
         }
+        ContentDisposition disposition = ContentDisposition.inline()
+                .filename("preview." + extension, StandardCharsets.UTF_8)
+                .build();
+        return ResponseEntity.ok()
+                .contentType(mediaType)
+                .contentLength(Files.size(path))
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
+                .body(resource);
+    }
+
+    @RequireRoles({0, 1, 2})
+    @GetMapping("/materials/{id}/download")
+    public ResponseEntity<Resource> download(@PathVariable("id") int id) throws IOException {
+        CourseDetailEntity material = courseDetailService.getCourseById(id);
+        if (material == null) {
+            throw new NoSuchElementException("课件不存在");
+        }
+        Path path = courseDetailService.getDownloadPath(id);
+        Resource resource = new UrlResource(path.toUri());
+        MediaType mediaType;
+        try {
+            mediaType = MediaType.parseMediaType(material.getMimeType());
+        } catch (RuntimeException e) {
+            mediaType = MediaType.APPLICATION_OCTET_STREAM;
+        }
+        String filename = material.getOriginalFilename() == null
+                ? path.getFileName().toString()
+                : material.getOriginalFilename();
+        ContentDisposition disposition = ContentDisposition.attachment()
+                .filename(filename, StandardCharsets.UTF_8)
+                .build();
+        return ResponseEntity.ok()
+                .contentType(mediaType)
+                .contentLength(Files.size(path))
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .body(resource);
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<?> handleBadRequest(IllegalArgumentException exception) {
+        return ResponseEntity.badRequest().body(responseBody(400, exception.getMessage(), null));
+    }
+
+    @ExceptionHandler(NoSuchElementException.class)
+    public ResponseEntity<?> handleNotFound(NoSuchElementException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(responseBody(404, exception.getMessage(), null));
+    }
+
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<?> handleConflict(IllegalStateException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(responseBody(409, exception.getMessage(), null));
+    }
+
+    @ExceptionHandler(IOException.class)
+    public ResponseEntity<?> handleStorageError(IOException exception) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(responseBody(500, "文件处理失败，请稍后重试", null));
+    }
+
+    @ExceptionHandler(FileStorageUtil.StorageException.class)
+    public ResponseEntity<?> handleStorageRuntimeError(FileStorageUtil.StorageException exception) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(responseBody(500, "文件存储失败，请稍后重试", null));
     }
 
     private UserEntity currentUser(HttpServletRequest request) {
         return (UserEntity) request.getAttribute(AuthInterceptor.CURRENT_USER_ATTRIBUTE);
     }
 
-    private String authorName(UserEntity user) {
-        if (user.getTeamname() != null && !user.getTeamname().trim().isEmpty()) {
-            return user.getTeamname();
-        }
-        if (user.getRealname() != null && !user.getRealname().trim().isEmpty()) {
-            return user.getRealname();
-        }
-        return user.getUsername();
-    }
-
-    private boolean validIdentifier(String identifier) {
-        return identifier != null && FILE_IDENTIFIER.matcher(identifier).matches();
-    }
-
-    private ResponseEntity<?> invalidUploadRequest() {
-        return ResponseEntity.badRequest().body(ImmutableMap.of(
-                "code", 400,
-                "message", "上传参数不合法"
-        ));
+    private Map<String, Object> responseBody(int code, String message, Object content) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", code);
+        body.put("message", message);
+        body.put("content", content);
+        return body;
     }
 }
