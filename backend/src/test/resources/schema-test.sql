@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS user (
     username VARCHAR(50),
     password VARCHAR(100),
     level INT NOT NULL DEFAULT 2,
+    status TINYINT DEFAULT 1,
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -12,7 +13,7 @@ CREATE TABLE IF NOT EXISTS message (
     id INT PRIMARY KEY AUTO_INCREMENT,
     content VARCHAR(500) NOT NULL,
     user_id INT NOT NULL,
-    status TINYINT DEFAULT 1 COMMENT '1正常 0删除',
+    status TINYINT DEFAULT 1,
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -22,6 +23,8 @@ CREATE TABLE IF NOT EXISTS message_reply (
     message_id INT NOT NULL,
     content VARCHAR(300) NOT NULL,
     user_id INT NOT NULL,
-    status TINYINT DEFAULT 1 COMMENT '1正常 0删除',
+    status TINYINT DEFAULT 1,
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 把项目里其他所有表（banner、course、file等）都补在这里，和生产库结构一致

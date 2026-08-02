@@ -1,11 +1,7 @@
--- 管理员 level=0：拥有全部权限
-INSERT INTO user (id, username, level) VALUES (1000, 'admin_root', 0);
-
--- 团队成员 level=1：可留言、回复、删除内容
-INSERT INTO user (id, username, level) VALUES (1001, 'team_member', 1);
-
--- 学生用户1 level=2：仅可留言、回复，无删除权限
-INSERT INTO user (id, username, level) VALUES (1002, 'student_user1', 2);
-
--- 学生用户2 level=2：用于多用户场景测试
-INSERT INTO user (id, username, level) VALUES (2001, 'student_user2', 2);
+-- 初始化测试用户，严格对齐业务权限规则
+-- level=0 管理员（拥有全部权限）
+INSERT INTO user (id, username, level, status) VALUES (1001, 'test_admin', 0, 1);
+-- level=1 团队成员（拥有删除权限）
+INSERT INTO user (id, username, level, status) VALUES (1002, 'test_team', 1, 1);
+-- level=2 学生用户（无删除权限）
+INSERT INTO user (id, username, level, status) VALUES (2001, 'test_student', 2, 1);
