@@ -5,6 +5,7 @@ import com.vihu.ganlu.entitys.UserEntity;
 import com.vihu.ganlu.entitys.message.DeleteContentRequest;
 import com.vihu.ganlu.entitys.message.MessageCreateRequest;
 import com.vihu.ganlu.entitys.message.ReplyCreateRequest;
+import com.vihu.ganlu.exception.BadRequestException;
 import com.vihu.ganlu.security.AuthInterceptor;
 import com.vihu.ganlu.security.PublicEndpoint;
 import com.vihu.ganlu.security.RequireRoles;
@@ -34,18 +35,12 @@ public class MessageAction {
     @PublicEndpoint
     public ResponseEntity<Map<String, Object>> getMessages(@RequestParam(defaultValue = "1") int page,
                                                            @RequestParam(defaultValue = "10") int pageSize) {
-        // 分页参数边界校验
+        // 分页参数边界校验：失败抛异常，由全局异常处理器统一返回格式
         if (page < 1) {
-            return ResponseEntity.badRequest().body(ImmutableMap.of(
-                    "code", 400,
-                    "message", "page 参数必须大于等于 1"
-            ));
+            throw new BadRequestException("page 参数必须大于等于 1");
         }
         if (pageSize < 1 || pageSize > 50) {
-            return ResponseEntity.badRequest().body(ImmutableMap.of(
-                    "code", 400,
-                    "message", "pageSize 范围为 1~50"
-            ));
+            throw new BadRequestException("pageSize 范围为 1~50");
         }
 
         Map<String, Object> data = messageService.getMessages(page, pageSize);
@@ -65,9 +60,7 @@ public class MessageAction {
     public ResponseEntity<Map<String, Object>> addMessage(@Valid @RequestBody MessageCreateRequest request,
                                                           HttpServletRequest httpRequest) {
         UserEntity loginUser = currentUser(httpRequest);
-        // Service 内部做参数校验，失败直接抛异常，由全局异常处理器返回 400
-        Integer messageId=messageService.addMessage(request.getContent(), loginUser.getId());
-        // 走到这里说明成功
+        Integer messageId = messageService.addMessage(request.getContent(), loginUser.getId());
         return ResponseEntity.ok(ImmutableMap.of(
                 "code", 200,
                 "message", "留言添加成功",
@@ -84,7 +77,6 @@ public class MessageAction {
     public ResponseEntity<Map<String, Object>> addReply(@Valid @RequestBody ReplyCreateRequest request,
                                                          HttpServletRequest httpRequest) {
         UserEntity loginUser = currentUser(httpRequest);
-        // Service 内部校验，失败抛异常，全局处理器返回 400/404
         messageService.addReply(request.getMessageId(), request.getContent(), loginUser.getId());
 
         return ResponseEntity.ok(ImmutableMap.of(
@@ -94,14 +86,13 @@ public class MessageAction {
     }
 
     /**
-        * 删除留言
-        * 权限：仅 level 0/1 管理员
-        */
-        
-        @PostMapping("/deleteMessage")
-        @RequireRoles({0, 1})
-        public ResponseEntity<Map<String, Object>> deleteMessage(@Valid @RequestBody DeleteContentRequest request,
-                                                         HttpServletRequest httpRequest) {
+     * 删除留言
+     * 权限：仅 level 0/1 管理员
+     */
+    @PostMapping("/deleteMessage")
+    @RequireRoles({0, 1})
+    public ResponseEntity<Map<String, Object>> deleteMessage(@Valid @RequestBody DeleteContentRequest request,
+                                                             HttpServletRequest httpRequest) {
         UserEntity loginUser = currentUser(httpRequest);
         messageService.deleteMessage(request.getId(), loginUser);
 
@@ -109,7 +100,7 @@ public class MessageAction {
                 "code", 200,
                 "message", "留言删除成功"
         ));
-        }
+    }
 
     /**
      * 删除回复

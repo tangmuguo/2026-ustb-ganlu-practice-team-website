@@ -95,7 +95,6 @@ public class GlobalExceptionHandler {
                 .body(buildResult(400, "缺少必填参数: " + e.getParameterName()));
     }
 
-
     // ========== 全局兜底异常 ==========
     /**
      * 兜底所有未处理的异常，统一返回格式，避免返回 Spring 默认错误页

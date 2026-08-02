@@ -1,6 +1,7 @@
 package com.vihu.ganlu.security;
 
 import com.vihu.ganlu.entitys.UserEntity;
+import com.vihu.ganlu.exception.ForbiddenException;
 import com.vihu.ganlu.service.UserService;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.http.HttpHeaders;
@@ -66,10 +67,11 @@ public class AuthInterceptor implements HandlerInterceptor {
             return reject(response, HttpStatus.UNAUTHORIZED, "账号不存在或已失效");
         }
 
+        // 权限校验：不通过则抛出异常，交由全局异常处理器统一返回格式
         RequireRoles requireRoles = findAnnotation(handlerMethod, RequireRoles.class);
         if (requireRoles != null && Arrays.stream(requireRoles.value())
                 .noneMatch(level -> level == currentUser.getLevel())) {
-            return reject(response, HttpStatus.FORBIDDEN, "无访问权限");
+            throw new ForbiddenException("无访问权限");
         }
 
         request.setAttribute(CURRENT_USER_ATTRIBUTE, currentUser);
