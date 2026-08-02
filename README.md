@@ -8,7 +8,7 @@
 
 公共架构和已收到的成员模块已经集成到分支 `zhaoyouwei/public-architecture-integration`。后端 100 项自动测试、前端正式构建和留言板 3 项测试均已通过。
 
-当前仍缺李嘉辉负责的团队风采内容管理和 `database/patches/11_team_content.sql`，所以本分支可以本地联调，但不能宣称九人任务已经全部完成，也不能直接部署生产环境。详情见 `docs/integration/最终联调记录.md`。
+李嘉辉负责的团队风采内容管理及 `database/patches/11_team_content.sql` 已提交在依赖 PR #12，但尚未进入本集成分支；方亦琳的正式留言板后端位于依赖 PR #10，当前分支保留的是临时最小实现。两个版本都等待孙木文按 PR 顺序审核处理，因此目前不能宣称九人任务已经全部完成，也不能直接部署生产环境。详情见 `docs/integration/最终联调记录.md`。
 
 ## 你需要安装的软件
 
@@ -54,7 +54,7 @@ E:\github\zhaoyouwei\2026-ustb-ganlu-practice-team-website
    - `database/patches/20_message_board.sql`
    - `database/patches/30_material_center.sql`
    - `database/patches/40_volunteer_application.sql`
-5. `11_team_content.sql` 当前缺失。本地调试可暂时跳过，但最终验收必须等该文件到位后，在新建的数据库备份副本中按完整顺序重跑。
+5. `11_team_content.sql` 位于依赖 PR #12，尚未进入当前分支。本地调试可暂时跳过；PR #12 按顺序合入后，最终验收必须在新建的数据库备份副本中按完整顺序重跑。
 
 补丁的完整说明和注意事项见 `database/patches/README.md`。不要在已有正式数据库上直接试脚本。
 
