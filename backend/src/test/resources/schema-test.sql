@@ -1,8 +1,9 @@
--- 用户表
+-- 用户表（与UserMapper查询字段完全对齐）
 CREATE TABLE IF NOT EXISTS user (
     id INT PRIMARY KEY AUTO_INCREMENT,
     username VARCHAR(50) NOT NULL,
     password VARCHAR(100) NOT NULL,
+    teamname VARCHAR(100),
     level INT NOT NULL DEFAULT 2,
     status TINYINT NOT NULL DEFAULT 1,
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -19,7 +20,7 @@ CREATE TABLE IF NOT EXISTS message (
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- 回复表（表名修正为 reply，与业务Mapper完全对齐）
+-- 回复表
 CREATE TABLE IF NOT EXISTS reply (
     id INT PRIMARY KEY AUTO_INCREMENT,
     message_id INT NOT NULL,
