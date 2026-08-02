@@ -1,12 +1,14 @@
 -- 用户表
 CREATE TABLE IF NOT EXISTS user (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    username VARCHAR(50),
-    password VARCHAR(100),
+    username VARCHAR(50) NOT NULL,
+    password VARCHAR(100) NOT NULL,
     level INT NOT NULL DEFAULT 2,
     status TINYINT DEFAULT 1,
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+-- 插入前允许手动指定自增ID
+SET IDENTITY_INSERT user ON;
 
 -- 留言表
 CREATE TABLE IF NOT EXISTS message (
