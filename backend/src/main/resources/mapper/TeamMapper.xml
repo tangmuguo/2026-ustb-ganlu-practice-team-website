@@ -4,41 +4,138 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 <mapper namespace="com.vihu.ganlu.mappers.TeamMapper">
-    <resultMap type="com.vihu.ganlu.entitys.TeamEntity" id="teammap">
+    <resultMap type="com.vihu.ganlu.entitys.TeamEntity" id="teamMap">
         <id column="id" property="id"/>
         <result column="year" property="year"/>
         <result column="name" property="name"/>
+        <result column="owner_user_id" property="ownerUserId"/>
+        <result column="region" property="region"/>
+        <result column="school" property="school"/>
+        <result column="description" property="description"/>
+        <result column="cover_url" property="coverUrl"/>
+        <result column="status" property="status"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
     </resultMap>
 
-    <select id="getTeam" resultMap="teammap">
-        select *
-        from team
-	</select>
+    <resultMap type="com.vihu.ganlu.entitys.TeamYearSummary" id="teamYearSummaryMap">
+        <result column="year" property="year"/>
+        <result column="cover_url" property="coverUrl"/>
+        <result column="published_team_count" property="publishedTeamCount"/>
+    </resultMap>
 
-    <select id="getTeamById" resultMap="teammap" parameterType="Integer">
-        select *
-        from team where id=#{id}
+    <resultMap type="com.vihu.ganlu.entitys.TeamDetailDto" id="teamDetailMap">
+        <id column="id" property="id"/>
+        <result column="year" property="year"/>
+        <result column="name" property="name"/>
+        <result column="region" property="region"/>
+        <result column="school" property="school"/>
+        <result column="description" property="description"/>
+        <result column="cover_url" property="coverUrl"/>
+        <result column="status" property="status"/>
+        <result column="page_id" property="pageId"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <sql id="teamColumns">
+        id, year, name, owner_user_id, region, school, description, cover_url,
+        status, created_at, updated_at
+    </sql>
+
+    <select id="findPublishedYears" resultMap="teamYearSummaryMap">
+        SELECT t.year,
+               (
+                   SELECT t2.cover_url
+                   FROM team t2
+                   WHERE t2.year = t.year
+                     AND t2.status = 'PUBLISHED'
+                     AND t2.cover_url IS NOT NULL
+                     AND TRIM(t2.cover_url) != ''
+                   ORDER BY t2.id ASC
+                   LIMIT 1
+               ) AS cover_url,
+               COUNT(1) AS published_team_count
+        FROM team t
+        WHERE t.status = 'PUBLISHED'
+        GROUP BY t.year
+        ORDER BY CAST(t.year AS UNSIGNED) DESC
     </select>
 
-    <insert id="addTeam" parameterType="com.vihu.ganlu.entitys.TeamEntity">
-        insert into team(year,name)
-        values (#{year},#{name})
+    <select id="findPublishedByYear" resultMap="teamDetailMap">
+        SELECT t.id, t.year, t.name, t.region, t.school, t.description, t.cover_url,
+               t.status, t.created_at, t.updated_at, p.id AS page_id
+        FROM team t
+        INNER JOIN team_page p ON p.team_id = t.id
+        WHERE t.year = #{year}
+          AND t.status = 'PUBLISHED'
+        ORDER BY t.created_at DESC, t.id DESC
+        LIMIT #{offset}, #{size}
+    </select>
+
+    <select id="countPublishedByYear" resultType="long">
+        SELECT COUNT(1)
+        FROM team
+        WHERE year = #{year}
+          AND status = 'PUBLISHED'
+    </select>
+
+    <select id="findById" resultMap="teamMap">
+        SELECT
+        <include refid="teamColumns"/>
+        FROM team
+        WHERE id = #{id}
+    </select>
+
+    <select id="findPublishedById" resultMap="teamDetailMap">
+        SELECT t.id, t.year, t.name, t.region, t.school, t.description, t.cover_url,
+               t.status, t.created_at, t.updated_at, p.id AS page_id
+        FROM team t
+        INNER JOIN team_page p ON p.team_id = t.id
+        WHERE t.id = #{id}
+          AND t.status = 'PUBLISHED'
+    </select>
+
+    <select id="countByYearAndNameExcludingId" resultType="int">
+        SELECT COUNT(1)
+        FROM team
+        WHERE year = #{year}
+          AND name = #{name}
+        <if test="excludeId != null">
+            AND id != #{excludeId}
+        </if>
+    </select>
+
+    <insert id="insertTeam" parameterType="com.vihu.ganlu.entitys.TeamEntity"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO team (
+            year, name, owner_user_id, region, school, description, cover_url, status,
+            created_at, updated_at
+        ) VALUES (
+            #{year}, #{name}, #{ownerUserId}, #{region}, #{school}, #{description},
+            #{coverUrl}, #{status}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
     </insert>
 
-    <update id="updateTeamById" parameterType="com.vihu.ganlu.entitys.TeamEntity" >
-        update team
-        set year=#{year},name=#{name}
-        where id=#{id}
+    <update id="updateTeam" parameterType="com.vihu.ganlu.entitys.TeamEntity">
+        UPDATE team
+        SET year = #{year},
+            name = #{name},
+            owner_user_id = #{ownerUserId},
+            region = #{region},
+            school = #{school},
+            description = #{description},
+            cover_url = #{coverUrl},
+            status = #{status},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
     </update>
 
-    <delete id="deleteTeamByIds" parameterType="com.vihu.ganlu.entitys.UserQueryVo">
-        delete from team
-        <where>
-            id in
-            <foreach collection="array" item="id" separator="," open="(" close=")">
-                #{id}
-            </foreach>
-        </where>
-    </delete>
-
+    <update id="archiveTeam">
+        UPDATE team
+        SET status = 'ARCHIVED',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND status != 'ARCHIVED'
+    </update>
 </mapper>
