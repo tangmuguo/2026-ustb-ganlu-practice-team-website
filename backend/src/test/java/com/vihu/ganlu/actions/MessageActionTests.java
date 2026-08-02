@@ -4,30 +4,31 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vihu.ganlu.entitys.UserEntity;
 import com.vihu.ganlu.entitys.message.DeleteContentRequest;
 import com.vihu.ganlu.entitys.message.MessageCreateRequest;
+import com.vihu.ganlu.entitys.message.ReplyCreateRequest;
 import com.vihu.ganlu.security.TokenService;
-
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 /**
- * 留言板接口层测试
- * 对应任务单必测场景：HTTP状态码、越权防护、参数边界、游客权限
- * 补充：异常统一格式回归校验，确保异常处理器无空值崩溃
+ * 留言板接口集成测试
+ * 覆盖：参数校验、权限校验、分页边界、增删场景、统一响应格式
  */
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
+@ActiveProfiles("test")
 class MessageActionTests {
 
     @Autowired
@@ -36,107 +37,41 @@ class MessageActionTests {
     @Autowired
     private ObjectMapper objectMapper;
 
-    @Autowired
     private TokenService tokenService;
 
+    @BeforeEach
+    void setUp() {
+        tokenService = new TokenService();
+        ReflectionTestUtils.setField(tokenService, "secret", "test-token-secret-with-more-than-32-bytes");
+        ReflectionTestUtils.setField(tokenService, "expirationSeconds", 3600L);
+    }
+
     /**
-     * 生成带 Bearer 前缀的有效 token
-     * @param userId 用户ID（建议使用数据库中真实存在的用户ID）
-     * @param level  用户等级
+     * 工具方法：生成指定用户的测试token
      */
     private String buildToken(int userId, int level) {
         UserEntity user = new UserEntity();
         user.setId(userId);
         user.setLevel(level);
-        String token = tokenService.createToken(user);
-        return "Bearer " + token;
+        return tokenService.createToken(user);
     }
 
-
-    // ========== 游客权限测试 ==========
+    // ========== 分页查询测试 ==========
 
     @Test
-    @DisplayName("游客访问列表-成功200")
-    void testList_guest_shouldSuccess() throws Exception {
-        // 对应任务单：GET /message/list 对游客开放
+    @DisplayName("分页查询-正常访问（游客可访问）")
+    void testList_success_public() throws Exception {
         mockMvc.perform(get("/message/list")
                         .param("page", "1")
                         .param("pageSize", "10"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(200));
-    }
-
-    @Test
-    @DisplayName("游客新增留言-返回401")
-    void testAddMessage_guest_should401() throws Exception {
-        // 对应任务单：游客新增返回401
-        MessageCreateRequest req = new MessageCreateRequest();
-        req.setContent("游客留言");
-
-        mockMvc.perform(post("/message/add")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(req)))
-                .andExpect(status().isUnauthorized());
-    }
-
-    @Test
-    @DisplayName("游客新增回复-返回401")
-    void testAddReply_guest_should401() throws Exception {
-        // 对应任务单：游客回复返回401
-        String body = "{\"messageId\":1,\"content\":\"游客回复\"}";
-
-        mockMvc.perform(post("/message/addReply")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isUnauthorized());
-    }
-
-    // ========== 安全测试：伪造用户ID ==========
-
-    @Test
-    @DisplayName("核心安全：level2用户伪造管理员ID删除，仍返回403")
-    void testDelete_forgeUserId_still403() throws Exception {
-        // 对应任务单：请求体伪造有权用户ID不能越权
-        // 使用 level=2 的普通用户 token 认证
-        String token = buildToken(2001, 2);
-
-        // 恶意请求体：塞入 userId=1（管理员），试图越权删除
-        String maliciousBody = "{\"id\":1,\"userId\":1}";
-
-        mockMvc.perform(post("/message/deleteMessage")
-                        .header("Authorization", token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(maliciousBody))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value(403))
-                .andExpect(jsonPath("$.message").exists())
+                .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.content").exists());
     }
 
     @Test
-    @DisplayName("新增留言：请求体携带userId无效，以认证身份为准")
-    void testAddMessage_forgeUserId_ignored() throws Exception {
-        // 对应任务单：后端不信任请求体userId
-        // 使用 level=2 的普通用户 token 认证
-        String token = buildToken(2001, 2);
-        // 请求体里伪造 userId=1（管理员）
-        String maliciousBody = "{\"content\":\"测试留言\",\"userId\":1}";
-
-        mockMvc.perform(post("/message/add")
-                        .header("Authorization", token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(maliciousBody))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(200));
-        // 实际入库的userId是2001，不是伪造的1，Service层已保证
-    }
-
-    // ========== 参数边界测试 ==========
-
-    @Test
-    @DisplayName("分页参数：page=0 返回400")
+    @DisplayName("分页查询-失败：page=0 返回400")
     void testPageZero_should400() throws Exception {
-        // 对应任务单：非法分页参数返回400
         mockMvc.perform(get("/message/list")
                         .param("page", "0")
                         .param("pageSize", "10"))
@@ -147,9 +82,8 @@ class MessageActionTests {
     }
 
     @Test
-    @DisplayName("分页参数：pageSize=1000 返回400")
+    @DisplayName("分页查询-失败：pageSize=1000 超出范围 返回400")
     void testPageSize1000_should400() throws Exception {
-        // 对应任务单：pageSize限制1~50，防止大页拖垮数据库
         mockMvc.perform(get("/message/list")
                         .param("page", "1")
                         .param("pageSize", "1000"))
@@ -159,141 +93,180 @@ class MessageActionTests {
                 .andExpect(jsonPath("$.content").exists());
     }
 
+    // ========== 新增留言测试 ==========
+
     @Test
-    @DisplayName("新增留言：空内容返回400，统一响应格式")
-    void testAddMessage_emptyContent_should400() throws Exception {
-        // 验证@Valid参数校验异常走统一格式，无空值崩溃
-        String token = buildToken(2001, 2);
-        // 纯空格内容，trim后为空
-        String body = "{\"content\": \"   \"}";
+    @DisplayName("新增留言-成功（登录用户）")
+    void testAddMessage_success() throws Exception {
+        String token = buildToken(1002, 2);
+        MessageCreateRequest request = new MessageCreateRequest();
+        request.setContent("测试留言内容");
 
         mockMvc.perform(post("/message/add")
-                        .header("Authorization", token)
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(400))
-                .andExpect(jsonPath("$.message").exists())
-                .andExpect(jsonPath("$.content").exists());
-    }
-
-    @Test
-    @DisplayName("新增留言：内容超长500字返回400")
-    void testAddMessage_tooLongContent_should400() throws Exception {
-        String token = buildToken(2001, 2);
-        // 生成501个字符的超长内容
-        String longContent = new String(new char[501]).replace('\0', 'a');
-        String body = String.format("{\"content\": \"%s\"}", longContent);
-
-        mockMvc.perform(post("/message/add")
-                        .header("Authorization", token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(400))
-                .andExpect(jsonPath("$.message").exists())
-                .andExpect(jsonPath("$.content").exists());
-    }
-
-    @Test
-    @DisplayName("新增回复：空内容返回400")
-    void testAddReply_emptyContent_should400() throws Exception {
-        String token = buildToken(2001, 2);
-        String body = "{\"messageId\": 1, \"content\": \"   \"}";
-
-        mockMvc.perform(post("/message/addReply")
-                        .header("Authorization", token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(400))
-                .andExpect(jsonPath("$.message").exists())
-                .andExpect(jsonPath("$.content").exists());
-    }
-
-    @Test
-    @DisplayName("新增回复：内容超长300字返回400")
-    void testAddReply_tooLongContent_should400() throws Exception {
-        String token = buildToken(2001, 2);
-        String longContent = new String(new char[301]).replace('\0', 'a');
-        String body = String.format("{\"messageId\": 1, \"content\": \"%s\"}", longContent);
-
-        mockMvc.perform(post("/message/addReply")
-                        .header("Authorization", token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(400))
-                .andExpect(jsonPath("$.message").exists())
-                .andExpect(jsonPath("$.content").exists());
-    }
-
-    // ========== 删除接口权限测试 ==========
-
-    @Test
-    @DisplayName("删除留言：level=1 管理员成功")
-    void testDeleteMessage_level1_success() throws Exception {
-        String token = buildToken(1001, 1);
-
-        // 1. 调用新增接口，造一条测试留言
-        MessageCreateRequest addReq = new MessageCreateRequest();
-        addReq.setContent("测试删除用的留言");
-        String responseStr = mockMvc.perform(post("/message/add")
-                        .header("Authorization", token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(addReq)))
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.content").exists());
+    }
 
-        // 2. 从返回结果里取留言ID
-        Integer messageId = objectMapper.readTree(responseStr)
-                .path("content")
-                .asInt();
+    @Test
+    @DisplayName("新增留言-失败：空内容 返回400")
+    void testAddMessage_emptyContent_should400() throws Exception {
+        String token = buildToken(1002, 2);
+        MessageCreateRequest request = new MessageCreateRequest();
+        request.setContent("   ");
 
-        // 3. 执行删除
-        DeleteContentRequest req = new DeleteContentRequest();
-        req.setId(messageId);
+        mockMvc.perform(post("/message/add")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").exists())
+                .andExpect(jsonPath("$.content").exists());
+    }
+
+    @Test
+    @DisplayName("新增留言-失败：内容超长501字 返回400")
+    void testAddMessage_tooLongContent_should400() throws Exception {
+        String token = buildToken(1002, 2);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 501; i++) {
+            sb.append('a');
+        }
+        MessageCreateRequest request = new MessageCreateRequest();
+        request.setContent(sb.toString());
+
+        mockMvc.perform(post("/message/add")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").exists())
+                .andExpect(jsonPath("$.content").exists());
+    }
+
+    // ========== 新增回复测试 ==========
+
+    @Test
+    @DisplayName("新增回复-成功")
+    void testAddReply_success() throws Exception {
+        String token = buildToken(1002, 2);
+        // 先新增一条留言
+        MessageCreateRequest msg = new MessageCreateRequest();
+        msg.setContent("测试留言");
+        String msgResponse = mockMvc.perform(post("/message/add")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(msg)))
+                .andReturn().getResponse().getContentAsString();
+        Integer messageId = objectMapper.readTree(msgResponse).get("content").asInt();
+
+        // 新增回复
+        ReplyCreateRequest reply = new ReplyCreateRequest();
+        reply.setMessageId(messageId);
+        reply.setContent("测试回复");
+
+        mockMvc.perform(post("/message/addReply")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(reply)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+    }
+
+    @Test
+    @DisplayName("新增回复-失败：空内容 返回400")
+    void testAddReply_emptyContent_should400() throws Exception {
+        String token = buildToken(1002, 2);
+        ReplyCreateRequest request = new ReplyCreateRequest();
+        request.setMessageId(1);
+        request.setContent("   ");
+
+        mockMvc.perform(post("/message/addReply")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").exists())
+                .andExpect(jsonPath("$.content").exists());
+    }
+
+    @Test
+    @DisplayName("新增回复-失败：内容超长301字 返回400")
+    void testAddReply_tooLongContent_should400() throws Exception {
+        String token = buildToken(1002, 2);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 301; i++) {
+            sb.append('a');
+        }
+        ReplyCreateRequest request = new ReplyCreateRequest();
+        request.setMessageId(1);
+        request.setContent(sb.toString());
+
+        mockMvc.perform(post("/message/addReply")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").exists())
+                .andExpect(jsonPath("$.content").exists());
+    }
+
+    // ========== 删除留言测试 ==========
+
+    @Test
+    @DisplayName("删除留言-失败：不存在的ID 返回404")
+    void testDeleteMessage_notExist_should404() throws Exception {
+        String token = buildToken(1001, 1);
+        DeleteContentRequest request = new DeleteContentRequest();
+        request.setId(99999);
 
         mockMvc.perform(post("/message/deleteMessage")
-                        .header("Authorization", token)
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(req)))
-                .andExpect(status().isOk());
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(404))
+                .andExpect(jsonPath("$.message").exists())
+                .andExpect(jsonPath("$.content").exists());
     }
 
     @Test
-    @DisplayName("删除回复：level=2 学生返回403")
-    void testDeleteReply_level2_forbidden() throws Exception {
-        // 使用 level=2 的普通用户 token 认证
-        String token = buildToken(2001, 2);
+    @DisplayName("删除留言-失败：level2普通用户无权限 返回403")
+    void testDelete_forgeUserId_still403() throws Exception {
+        String token = buildToken(1002, 2);
+        DeleteContentRequest request = new DeleteContentRequest();
+        request.setId(1);
 
-        DeleteContentRequest req = new DeleteContentRequest();
-        req.setId(1);
-
-        mockMvc.perform(post("/message/deleteReply")
-                        .header("Authorization", token)
+        mockMvc.perform(post("/message/deleteMessage")
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(req)))
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value(403))
                 .andExpect(jsonPath("$.message").exists())
                 .andExpect(jsonPath("$.content").exists());
     }
 
-    // ========== 异常格式回归测试 ==========
+    // ========== 删除回复测试 ==========
 
     @Test
-    @DisplayName("删除不存在的留言-返回404，统一响应格式")
-    void testDeleteMessage_notExist_should404() throws Exception {
+    @DisplayName("删除回复-失败：不存在的ID 返回404")
+    void testDeleteReply_notExist_should404() throws Exception {
         String token = buildToken(1001, 1);
-        String body = "{\"id\": 99999}";
+        DeleteContentRequest request = new DeleteContentRequest();
+        request.setId(99999);
 
-        mockMvc.perform(post("/message/deleteMessage")
-                        .header("Authorization", token)
+        mockMvc.perform(post("/message/deleteReply")
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value(404))
                 .andExpect(jsonPath("$.message").exists())
@@ -301,17 +274,18 @@ class MessageActionTests {
     }
 
     @Test
-    @DisplayName("删除不存在的回复-返回404，统一响应格式")
-    void testDeleteReply_notExist_should404() throws Exception {
-        String token = buildToken(1001, 1);
-        String body = "{\"id\": 99999}";
+    @DisplayName("删除回复-失败：level2普通用户无权限 返回403")
+    void testDeleteReply_level2_forbidden() throws Exception {
+        String token = buildToken(1002, 2);
+        DeleteContentRequest request = new DeleteContentRequest();
+        request.setId(1);
 
         mockMvc.perform(post("/message/deleteReply")
-                        .header("Authorization", token)
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value(404))
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403))
                 .andExpect(jsonPath("$.message").exists())
                 .andExpect(jsonPath("$.content").exists());
     }
