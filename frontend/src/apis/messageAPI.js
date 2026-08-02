@@ -1,7 +1,6 @@
 import instance from '@/utils/http'
 import AllPATH from '@/utils/path'
 
-// 获取留言列表
 export function getMessages(page, pageSize) {
   return instance({
     url: AllPATH.messageListPath,
@@ -10,40 +9,34 @@ export function getMessages(page, pageSize) {
   })
 }
 
-// 添加留言
-export function addMessage(data) {
+export function addMessage(content) {
   return instance({
     url: AllPATH.messageAddPath,
     method: 'post',
-    data
+    data: { content }
   })
 }
 
-// 删除留言
 export function deleteMessage(id) {
   return instance({
     url: AllPATH.messageDeletePath,
     method: 'post',
-    data: {id}
+    data: { id }
   })
 }
 
-// 添加回复
-export function addReply(data) {
+export function addReply(messageId, content) {
   return instance({
     url: AllPATH.replyAddPath,
     method: 'post',
-    data
+    data: { messageId, content }
   })
 }
 
-// 删除回复
 export function deleteReply(id) {
   return instance({
     url: AllPATH.replyDeletePath,
     method: 'post',
-    data:{
-      id
-    }
+    data: { id }
   })
 }
