@@ -1,4 +1,4 @@
--- 用户表（与UserMapper查询字段完全对齐）
+-- 用户表
 CREATE TABLE IF NOT EXISTS user (
     id INT PRIMARY KEY AUTO_INCREMENT,
     username VARCHAR(50) NOT NULL,
