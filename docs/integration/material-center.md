@@ -14,6 +14,7 @@
 5. 把 `backend/src/main/resources/application-material.properties.example` 中 `material.libreoffice.*`、`material.upload.*` 和 multipart 配置键合并到环境配置模板。
 6. 在基线 `ganlu.sql` 导入后执行 `database/patches/30_material_center.sql`；全模块联调通过后再把表结构合并回根 SQL，不要用旧 SQL 覆盖补丁。
 7. 生产服务器安装 LibreOffice，并通过环境变量 `LIBREOFFICE_EXECUTABLE` 指向 `soffice`；确认 Tomcat/Java 服务账号对上传目录有读写权限。
+8. 合并 `backend/pom.xml` 时保留 Apache POI `poi-scratchpad` 和 `poi-ooxml` 5.5.1；课件模块依赖它们实际解析 PPT/PPTX，不能退回仅检查文件头、CFB 流名或 ZIP 条目名的实现。
 
 课件模块自身不直接修改 `router/index.js`、`Top.vue`、`http.js`、`path.js`、共享 Properties 或根 `ganlu.sql`。
 
@@ -155,12 +156,25 @@ cd ..\backend
 | M-08 | 团队 | 上传大于 50MB 的合法文件，中断后重试 | 显示进度并续传；MD5/大小一致 | 待测 |
 | M-09 | 管理员 | 删除缺少某个磁盘文件的课件 | 记录删除成功，不发生 500 | 待测 |
 | M-10 | 运维环境 | 暂时配置错误的 soffice 路径后上传 PPTX | 原文件保留，预览状态为失败，可下载 | 待测 |
+| M-11 | 团队 | 点击“保存课件”后依次尝试取消按钮、右上角关闭、点击遮罩和 Esc | 保存期间四种关闭入口均不可用；创建成功后不发送上传取消请求 | 待测 |
 
-## 8. PR #11 修改意见验证记录（2026-08-01）
+M-01～M-11 必须等赵友为完成共享路由、认证、配置、静态资源映射和 SQL 合并后，在最终联调环境中填写；当前不具备真实验收条件，因此不提前填写“通过”。
+
+## 8. PR #11 修改意见验证记录
+
+### 第一轮（2026-08-01）
 
 - 后端 `mvnw.cmd test`：32 项通过，0 失败、0 错误。其中包含真实 MVC 拦截器的游客 401、学生 403、团队/管理员允许访问测试。
-- 文件真实性：DOC/CFB 改名 `.ppt`、普通 ZIP 改名 `.pptx` 均被拒绝；包含 PowerPoint 专用流的 CFB 和完整 PresentationML 结构可通过。
+- 文件真实性：增加了 DOC/CFB 改名 `.ppt`、普通 ZIP 改名 `.pptx` 的拒绝校验；第二轮进一步替换为可靠解析器，见下方记录。
 - 上传临时存储：已覆盖超量分片拒绝、会话参数不可变、断点状态恢复、主动取消无残留、过期分片清理。
 - 前端 `npm run build`：通过；保留基线已有的大体积 chunk 与 Browserslist 数据提示。
 - MySQL 8.4 隔离实例：基线 SQL 加补丁连续执行两次成功；`course_detail` 为 22 列；`uk_course_name` 为唯一索引；重复插入“语文”返回 MySQL 1062。
-- 上表手工验收仍在共享路由、认证和配置合并后执行，避免用未集成环境冒充最终验收结果。
+
+### 第二轮（2026-08-02）
+
+- PPT/PPTX 真实性：改用 Apache POI HSLF/XSLF 实际打开演示文稿，并要求至少存在一张可解析幻灯片；伪造 `PowerPoint Document` 流、空 PPTX、缺少幻灯片部件和损坏的幻灯片 XML 均被拒绝。
+- 正向样例：测试资源中的 PPT、PPTX 由本机 LibreOffice 26.2.4.2 Impress 从同一份单页演示文稿导出，再交给生产校验器解析；不再用手工拼接的最小容器或同一解析库生成物冒充真实办公文件。
+- 保存竞态：保存期间禁用取消按钮、关闭图标、点击遮罩和 Esc；创建成功后先把两个暂存 Token 标记为已消费，再关闭窗口，避免成功记录被异步取消清理。
+- 后端 `mvnw.cmd test`：36 项通过，0 失败、0 错误；其中 `MaterialFileValidatorTests` 11 项全部通过。
+- 前端 `npm run build`：通过；仍只有基线已有的大体积 chunk 与 Browserslist 数据提示。
+- 上表 M-01～M-11 仍等待共享部分集成完成后实测，未把单模块测试结果冒充最终联调验收。

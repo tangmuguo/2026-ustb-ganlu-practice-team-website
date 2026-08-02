@@ -17,6 +17,7 @@ const coverWidget = ref()
 const fileWidget = ref()
 const coverFile = ref()
 const materialFile = ref()
+const submissionCompleted = ref(false)
 const currentYear = new Date().getFullYear()
 const years = Array.from({ length: 10 }, (_, index) => currentYear - index)
 
@@ -30,7 +31,10 @@ const form = reactive({
 
 const visible = computed({
   get: () => props.modelValue,
-  set: (value) => emit('update:modelValue', value)
+  set: (value) => {
+    if (!value && submitting.value) return
+    emit('update:modelValue', value)
+  }
 })
 const availableCategories = computed(() => props.categories.length ? props.categories : localCategories.value)
 const uploaderName = computed(() => userStore.currentUser?.teamname
@@ -74,6 +78,7 @@ const submit = async () => {
     return
   }
   submitting.value = true
+  submissionCompleted.value = false
   try {
     const response = await createMaterial({
       title: form.title.trim(),
@@ -85,6 +90,10 @@ const submit = async () => {
       fileToken: materialFile.value.token
     })
     ElMessage.success(response.data.message || '课件上传成功')
+    submissionCompleted.value = true
+    coverWidget.value?.markConsumed()
+    fileWidget.value?.markConsumed()
+    submitting.value = false
     emit('uploaded', response.data.content)
     visible.value = false
   } catch (error) {
@@ -95,16 +104,37 @@ const submit = async () => {
 }
 
 const reset = () => {
+  if (submitting.value) return
+  const cancelRemote = !submissionCompleted.value
   Object.assign(form, { title: '', courseType: 1, courseId: null, customSubject: '', year: currentYear })
   coverFile.value = null
   materialFile.value = null
-  coverWidget.value?.clearFile()
-  fileWidget.value?.clearFile()
+  coverWidget.value?.clearFile({ cancelRemote })
+  fileWidget.value?.clearFile({ cancelRemote })
+  submissionCompleted.value = false
+}
+
+const beforeClose = (done) => {
+  if (submitting.value) {
+    ElMessage.warning('正在保存课件，请等待操作完成')
+    return
+  }
+  done()
 }
 </script>
 
 <template>
-  <el-dialog v-model="visible" title="上传课件" width="min(720px, 94vw)" destroy-on-close @closed="reset">
+  <el-dialog
+    v-model="visible"
+    title="上传课件"
+    width="min(720px, 94vw)"
+    destroy-on-close
+    :before-close="beforeClose"
+    :close-on-click-modal="!submitting"
+    :close-on-press-escape="!submitting"
+    :show-close="!submitting"
+    @closed="reset"
+  >
     <el-form label-position="top">
       <el-form-item label="标题" required>
         <el-input v-model="form.title" maxlength="100" show-word-limit placeholder="请输入课件标题" />
@@ -160,7 +190,7 @@ const reset = () => {
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="visible = false">取消</el-button>
+      <el-button :disabled="submitting" @click="visible = false">取消</el-button>
       <el-button type="primary" :loading="submitting" @click="submit">保存课件</el-button>
     </template>
   </el-dialog>

@@ -182,7 +182,8 @@ const clearPreview = () => {
   previewUrl.value = ''
 }
 
-const clearFile = async () => {
+const clearFile = async (options = {}) => {
+  const cancelRemote = options.cancelRemote !== false
   const identifier = fileIdentifier.value
   const token = stagedFile.value?.token
   clearPreview()
@@ -194,7 +195,7 @@ const clearFile = async () => {
   uploadRef.value?.clearFiles()
   emit('upload', null)
   emit('update:modelValue', null)
-  if (identifier || token) {
+  if (cancelRemote && (identifier || token)) {
     try {
       await cancelMaterialUpload({ identifier, purpose: props.purpose, token })
     } catch (error) {
@@ -205,10 +206,15 @@ const clearFile = async () => {
 
 const handleExceed = () => ElMessage.warning('一次只能选择一个文件，请先清除当前文件')
 
+const markConsumed = () => {
+  fileIdentifier.value = ''
+  stagedFile.value = undefined
+}
+
 onBeforeUnmount(() => {
   clearFile()
 })
-defineExpose({ clearFile })
+defineExpose({ clearFile, markConsumed })
 </script>
 
 <template>

@@ -1,16 +1,22 @@
 package com.vihu.ganlu.utils;
 
 import com.vihu.ganlu.entitys.UploadedFileInfo;
+import org.apache.poi.xslf.usermodel.XMLSlideShow;
+import org.apache.poi.xslf.usermodel.XSLFSlide;
+import org.apache.poi.xslf.usermodel.XSLFTextBox;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.nio.charset.StandardCharsets;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -62,9 +68,18 @@ class MaterialFileValidatorTests {
     }
 
     @Test
-    void acceptsLegacyPowerPointWithReadablePresentationStream() throws Exception {
-        Path file = tempDirectory.resolve("lesson.ppt");
+    void rejectsForgedPowerPointStreamWithoutPowerPointRecords() throws Exception {
+        Path file = tempDirectory.resolve("forged.ppt");
         Files.write(file, compoundDocumentWithStream("PowerPoint Document"));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> validator.validate(file, "forged.ppt", "MATERIAL", Files.size(file)));
+    }
+
+    @Test
+    void acceptsLibreOfficeGeneratedLegacyPowerPointWithRealSlideRecords() throws Exception {
+        Path file = tempDirectory.resolve("lesson.ppt");
+        copyFixture("libreoffice-fixture.ppt", file);
 
         UploadedFileInfo info = validator.validate(file, "lesson.ppt", "MATERIAL", Files.size(file));
 
@@ -72,10 +87,12 @@ class MaterialFileValidatorTests {
     }
 
     @Test
-    void rejectsZipRenamedAsPptx() throws Exception {
+    void rejectsOrdinaryZipRenamedAsPptx() throws Exception {
         Path file = tempDirectory.resolve("fake.pptx");
         try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(file))) {
-            addZipEntry(output, "ppt/presentation.xml", "<p:presentation/>");
+            output.putNextEntry(new ZipEntry("ppt/presentation.xml"));
+            output.write("<p:presentation/>".getBytes(StandardCharsets.UTF_8));
+            output.closeEntry();
         }
 
         assertThrows(IllegalArgumentException.class,
@@ -83,32 +100,95 @@ class MaterialFileValidatorTests {
     }
 
     @Test
-    void acceptsPptxWithRequiredPresentationStructure() throws Exception {
-        Path file = tempDirectory.resolve("lesson.pptx");
-        try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(file))) {
-            addZipEntry(output, "[Content_Types].xml",
-                    "<?xml version=\"1.0\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
-                            + "<Override PartName=\"/ppt/presentation.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml\"/>"
-                            + "</Types>");
-            addZipEntry(output, "_rels/.rels",
-                    "<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
-                            + "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"ppt/presentation.xml\"/>"
-                            + "</Relationships>");
-            addZipEntry(output, "ppt/presentation.xml",
-                    "<?xml version=\"1.0\"?><p:presentation xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"/>");
-            addZipEntry(output, "ppt/_rels/presentation.xml.rels",
-                    "<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"/>");
+    void rejectsOpenXmlPresentationWithoutSlides() throws Exception {
+        Path file = tempDirectory.resolve("empty.pptx");
+        try (XMLSlideShow slideShow = new XMLSlideShow();
+             OutputStream output = Files.newOutputStream(file)) {
+            slideShow.write(output);
         }
+
+        assertThrows(IllegalArgumentException.class,
+                () -> validator.validate(file, "empty.pptx", "MATERIAL", Files.size(file)));
+    }
+
+    @Test
+    void rejectsPresentationWhoseSlideRelationshipTargetsMissingPart() throws Exception {
+        Path valid = tempDirectory.resolve("valid-for-missing-part.pptx");
+        Path missingSlide = tempDirectory.resolve("missing-slide.pptx");
+        createOpenXmlPowerPoint(valid);
+        rewriteZip(valid, missingSlide, "ppt/slides/slide1.xml", null);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> validator.validate(missingSlide, "missing-slide.pptx", "MATERIAL", Files.size(missingSlide)));
+    }
+
+    @Test
+    void rejectsPresentationWithDamagedSlideXml() throws Exception {
+        Path valid = tempDirectory.resolve("valid-for-damaged-slide.pptx");
+        Path damaged = tempDirectory.resolve("damaged-slide.pptx");
+        createOpenXmlPowerPoint(valid);
+        rewriteZip(valid, damaged, "ppt/slides/slide1.xml",
+                "<p:sld xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><broken>"
+                        .getBytes(StandardCharsets.UTF_8));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> validator.validate(damaged, "damaged-slide.pptx", "MATERIAL", Files.size(damaged)));
+    }
+
+    @Test
+    void acceptsLibreOfficeGeneratedOpenXmlPowerPointWithRealSlideAndRelationships() throws Exception {
+        Path file = tempDirectory.resolve("lesson.pptx");
+        copyFixture("libreoffice-fixture.pptx", file);
 
         UploadedFileInfo info = validator.validate(file, "lesson.pptx", "MATERIAL", Files.size(file));
 
         assertEquals("application/vnd.openxmlformats-officedocument.presentationml.presentation", info.getMimeType());
     }
 
-    private void addZipEntry(ZipOutputStream output, String name, String content) throws Exception {
-        output.putNextEntry(new ZipEntry(name));
-        output.write(content.getBytes(StandardCharsets.UTF_8));
-        output.closeEntry();
+    private void copyFixture(String name, Path target) throws Exception {
+        try (InputStream input = getClass().getResourceAsStream("/material-files/" + name)) {
+            if (input == null) {
+                throw new IllegalStateException("缺少测试文件: " + name);
+            }
+            Files.copy(input, target);
+        }
+    }
+
+    private void createOpenXmlPowerPoint(Path target) throws Exception {
+        try (XMLSlideShow slideShow = new XMLSlideShow();
+             OutputStream output = Files.newOutputStream(target)) {
+            XSLFSlide slide = slideShow.createSlide();
+            XSLFTextBox textBox = slide.createTextBox();
+            textBox.setText("Ganlu material validation");
+            slideShow.write(output);
+        }
+    }
+
+    private void rewriteZip(Path source, Path target, String selectedEntry, byte[] replacement) throws Exception {
+        try (InputStream input = Files.newInputStream(source);
+             ZipInputStream zipInput = new ZipInputStream(input);
+             OutputStream output = Files.newOutputStream(target);
+             ZipOutputStream zipOutput = new ZipOutputStream(output)) {
+            ZipEntry entry;
+            byte[] buffer = new byte[8192];
+            while ((entry = zipInput.getNextEntry()) != null) {
+                if (selectedEntry.equals(entry.getName()) && replacement == null) {
+                    zipInput.closeEntry();
+                    continue;
+                }
+                zipOutput.putNextEntry(new ZipEntry(entry.getName()));
+                if (selectedEntry.equals(entry.getName())) {
+                    zipOutput.write(replacement);
+                } else {
+                    int count;
+                    while ((count = zipInput.read(buffer)) >= 0) {
+                        if (count > 0) zipOutput.write(buffer, 0, count);
+                    }
+                }
+                zipOutput.closeEntry();
+                zipInput.closeEntry();
+            }
+        }
     }
 
     private byte[] compoundDocumentWithStream(String streamName) {
