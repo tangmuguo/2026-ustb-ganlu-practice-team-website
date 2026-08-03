@@ -16,6 +16,8 @@ import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Base64;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -53,6 +55,15 @@ class TeamPageImageUploadSecurityTests {
     }
 
     @Test
+    void acceptsAndStoresValidatedWebp() throws Exception {
+        byte[] webp = validWebp();
+        String path = service.uploadTeamImage(file("team.webp", "image/webp", webp));
+
+        assertTrue(path.matches("images/[0-9a-f-]+\\.webp"));
+        assertArrayEquals(webp, Files.readAllBytes(uploadRoot.resolve(path)));
+    }
+
+    @Test
     void rejectsHtmlAndLeavesNoPublicFile() throws Exception {
         assertThrows(IllegalArgumentException.class, () -> service.uploadTeamImage(
                 file("attack.html", "text/html", "<script>alert(1)</script>".getBytes(StandardCharsets.UTF_8))));
@@ -70,6 +81,16 @@ class TeamPageImageUploadSecurityTests {
     void rejectsTextDisguisedAsJpegAndLeavesNoPublicFile() throws Exception {
         assertThrows(IllegalArgumentException.class, () -> service.uploadTeamImage(
                 file("fake.jpg", "image/jpeg", "not a jpeg".getBytes(StandardCharsets.UTF_8))));
+        assertNoStoredFiles();
+    }
+
+    @Test
+    void rejectsWebpWithTrailingDataAndLeavesNoPublicFile() throws Exception {
+        byte[] webp = validWebp();
+        byte[] withTrailingData = Arrays.copyOf(webp, webp.length + 1);
+
+        assertThrows(IllegalArgumentException.class, () -> service.uploadTeamImage(
+                file("invalid.webp", "image/webp", withTrailingData)));
         assertNoStoredFiles();
     }
 
@@ -98,6 +119,11 @@ class TeamPageImageUploadSecurityTests {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         assertTrue(ImageIO.write(image, format, output));
         return output.toByteArray();
+    }
+
+    private byte[] validWebp() {
+        return Base64.getDecoder().decode(
+                "UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA");
     }
 
     private void assertNoStoredFiles() throws Exception {

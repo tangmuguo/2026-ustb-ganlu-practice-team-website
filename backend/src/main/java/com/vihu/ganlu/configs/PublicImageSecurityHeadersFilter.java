@@ -10,6 +10,7 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.Locale;
 
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -31,6 +32,14 @@ public class PublicImageSecurityHeadersFilter extends OncePerRequestFilter {
             FilterChain filterChain) throws ServletException, IOException {
         response.setHeader("X-Content-Type-Options", "nosniff");
         response.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
+        String path = request.getRequestURI().toLowerCase(Locale.ROOT);
+        if (path.endsWith(".png")) {
+            response.setContentType("image/png");
+        } else if (path.endsWith(".webp")) {
+            response.setContentType("image/webp");
+        } else if (path.endsWith(".jpg") || path.endsWith(".jpeg")) {
+            response.setContentType("image/jpeg");
+        }
         filterChain.doFilter(request, response);
     }
 }

@@ -22,6 +22,24 @@ class PublicImageSecurityHeadersFilterTests {
 
         assertEquals("nosniff", response.getHeader("X-Content-Type-Options"));
         assertEquals("default-src 'none'; sandbox", response.getHeader("Content-Security-Policy"));
+        assertEquals("image/png", response.getContentType());
         verify(chain).doFilter(request, response);
+    }
+
+    @Test
+    void setsCanonicalContentTypesForEveryAllowedExtension() throws Exception {
+        assertContentType("/images/team.jpg", "image/jpeg");
+        assertContentType("/images/team.webp", "image/webp");
+    }
+
+    private void assertContentType(String uri, String expected) throws Exception {
+        PublicImageSecurityHeadersFilter filter = new PublicImageSecurityHeadersFilter();
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", uri);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, mock(FilterChain.class));
+
+        assertEquals(expected, response.getContentType());
+        assertEquals("nosniff", response.getHeader("X-Content-Type-Options"));
     }
 }
