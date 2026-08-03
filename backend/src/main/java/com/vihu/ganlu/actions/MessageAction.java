@@ -17,6 +17,8 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
+
+import java.util.HashMap;
 import java.util.Map;
 
 @RestController
@@ -110,14 +112,14 @@ public class MessageAction {
     }
 
     /**
-     * 【新增】统一成功响应构建方法
+     * 统一成功响应构建方法
      * 强制包含 code、message、content 三个字段，保证所有接口返回格式完全一致
      */
     private Map<String, Object> successResult(String message, Object content) {
-        return ImmutableMap.of(
-                "code", 200,
-                "message", message,
-                "content", content
-        );
+        Map<String, Object> result = new HashMap<>(3);
+        result.put("code", 200);
+        result.put("message", message);
+        result.put("content", content);
+        return result;
     }
 }
