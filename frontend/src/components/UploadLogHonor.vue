@@ -63,6 +63,9 @@ const submitForm = async () => {
       ElMessage.error(res.data.message || '提交失败')
     }
   } catch (error) {
+    // axios reject（400/500/超时/网络错误）走这里，不走 else 分支，
+    // 必须清 lastUploadedId，否则附件区会误挂到上一次成功记录
+    lastUploadedId.value = null
     ElMessage.error('提交失败: ' + error.message)
   } finally {
     submitting.value = false

@@ -121,12 +121,36 @@ export function getPublicTeamContent (teamId) {
 }
 
 /**
- * 下载视频/附件
+ * 下载视频/附件（公开端，仅 PUBLISHED 附件可下）
  * @param {Number} mediaId
  */
 export function downloadMedia (mediaId) {
   return instance({
     url: AllPATH.teamContentMediaDownloadPath(mediaId),
+    method: 'GET',
+    responseType: 'blob'
+  })
+}
+
+/**
+ * 团队端下载附件（含 PENDING/REJECTED/ARCHIVED，用于团队负责人确认上传内容）
+ * @param {Number} mediaId
+ */
+export function downloadMediaOwner (mediaId) {
+  return instance({
+    url: AllPATH.teamContentMediaOwnerDownloadPath(mediaId),
+    method: 'GET',
+    responseType: 'blob'
+  })
+}
+
+/**
+ * 管理员下载附件（任意状态，用于审核 PENDING/REJECTED 时查看内容）
+ * @param {Number} mediaId
+ */
+export function downloadMediaAdmin (mediaId) {
+  return instance({
+    url: AllPATH.adminTeamContentMediaDownloadPath(mediaId),
     method: 'GET',
     responseType: 'blob'
   })

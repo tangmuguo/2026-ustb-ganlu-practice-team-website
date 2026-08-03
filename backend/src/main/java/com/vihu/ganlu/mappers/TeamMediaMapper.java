@@ -14,6 +14,12 @@ public interface TeamMediaMapper {
 
     List<TeamMediaEntity> findByStatus(@Param("teamId") int teamId, @Param("status") String status);
 
+    /**
+     * 公开端查询：只返回 media 状态 PUBLISHED，且（无父内容 或 父内容 PUBLISHED 且同 team）的记录。
+     * 解决 Item 6：避免列表展示但下载 404（父内容未发布时不该出现在公开列表）。
+     */
+    List<TeamMediaEntity> findPublicByTeamId(@Param("teamId") int teamId);
+
     List<TeamMediaEntity> findByRelated(@Param("relatedType") String relatedType, @Param("relatedId") int relatedId);
 
     int updateStatus(@Param("id") int id, @Param("status") String status, @Param("rejectReason") String rejectReason);

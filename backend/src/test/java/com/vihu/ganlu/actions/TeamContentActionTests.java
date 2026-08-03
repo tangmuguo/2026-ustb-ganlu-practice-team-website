@@ -32,6 +32,8 @@ class TeamContentActionTests {
     private TeamMediaService mediaService;
     private FileStorageUtil fileStorageUtil;
     private TeamMapper teamMapper;
+    private com.vihu.ganlu.security.TokenService tokenService;
+    private com.vihu.ganlu.service.UserService userService;
 
     @BeforeEach
     void setUp() {
@@ -40,6 +42,8 @@ class TeamContentActionTests {
         mediaService = mock(TeamMediaService.class);
         fileStorageUtil = mock(FileStorageUtil.class);
         teamMapper = mock(TeamMapper.class);
+        tokenService = mock(com.vihu.ganlu.security.TokenService.class);
+        userService = mock(com.vihu.ganlu.service.UserService.class);
         action = new TeamContentAction();
         // 通过反射注入 @Resource 字段
         inject(action, "teamPageImageService", imageService);
@@ -47,6 +51,8 @@ class TeamContentActionTests {
         inject(action, "teamMediaService", mediaService);
         inject(action, "fileStorageUtil", fileStorageUtil);
         inject(action, "teamMapper", teamMapper);
+        inject(action, "tokenService", tokenService);
+        inject(action, "userService", userService);
     }
 
     /**
@@ -146,6 +152,70 @@ class TeamContentActionTests {
         verify(imageService).updateStatus(10, "REJECTED", "内容不当");
     }
 
+    // =====================================================================
+    // Item 11: 服务端字段长度/非空校验（与 DB varchar 限制对齐）
+    // =====================================================================
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void adminReject_reasonTooLong_returns400() {
+        // reject_reason varchar(512)
+        String tooLong = new String(new char[513]).replace('\0', 'a');
+        ResponseEntity<?> resp = action.adminReject("image", 10, tooLong);
+        assertEquals(400, resp.getStatusCodeValue());
+        verify(imageService, never()).updateStatus(anyInt(), anyString(), anyString());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void uploadImage_blankCaption_returns400() {
+        UserEntity user = user(5, 1);
+        mockTeamUser(5, 10);
+        MockMultipartFile file = new MockMultipartFile("file", "a.jpg", "image/jpeg",
+                new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0, 0, 0, 0, 0});
+
+        ResponseEntity<?> resp = action.uploadMember(file, "   ", "content", null, req(user));
+        assertEquals(400, resp.getStatusCodeValue());
+        verify(imageService, never()).insertTeamImage(any());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void uploadImage_captionTooLong_returns400() {
+        UserEntity user = user(5, 1);
+        mockTeamUser(5, 10);
+        MockMultipartFile file = new MockMultipartFile("file", "a.jpg", "image/jpeg",
+                new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0, 0, 0, 0, 0});
+        String tooLong = new String(new char[256]).replace('\0', 'a');
+
+        ResponseEntity<?> resp = action.uploadMember(file, tooLong, "content", null, req(user));
+        assertEquals(400, resp.getStatusCodeValue());
+        verify(imageService, never()).insertTeamImage(any());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void uploadLog_blankContent_returns400() {
+        UserEntity user = user(5, 1);
+        mockTeamUser(5, 10);
+
+        ResponseEntity<?> resp = action.uploadLog("标题", "   ", null, req(user));
+        assertEquals(400, resp.getStatusCodeValue());
+        verify(wordService, never()).insertTeamWord(any());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void uploadLog_contentTooLong_returns400() {
+        UserEntity user = user(5, 1);
+        mockTeamUser(5, 10);
+        String tooLong = new String(new char[256]).replace('\0', 'a');
+
+        ResponseEntity<?> resp = action.uploadLog("标题", tooLong, null, req(user));
+        assertEquals(400, resp.getStatusCodeValue());
+        verify(wordService, never()).insertTeamWord(any());
+    }
+
     @SuppressWarnings("unchecked")
     @Test
     void getPublicTeamContent_onlyPublished() {
@@ -155,11 +225,33 @@ class TeamContentActionTests {
         when(teamMapper.findById(5)).thenReturn(team);
         when(imageService.findByTeamIdAndStatus(5, "PUBLISHED")).thenReturn(Collections.emptyList());
         when(wordService.findByTeamIdAndStatus(5, "PUBLISHED")).thenReturn(Collections.emptyList());
-        when(mediaService.findByStatus(5, "PUBLISHED")).thenReturn(Collections.emptyList());
+        // Item 6: 公开端 media 改用 findPublicByTeamId（过滤父内容状态）
+        when(mediaService.findPublicByTeamId(5)).thenReturn(Collections.emptyList());
 
         ResponseEntity<?> resp = action.getPublicTeamContent(5);
         assertEquals(200, resp.getStatusCodeValue());
         verify(imageService).findByTeamIdAndStatus(5, "PUBLISHED");
+        verify(mediaService).findPublicByTeamId(5);
+    }
+
+    @Test
+    void getPublicTeamContent_mediaFilteredByParentStatus() {
+        // Item 6: 公开端只返回父内容也是 PUBLISHED 的附件（过滤逻辑在 mapper SQL）
+        // 这里验证 service 调用 findPublicByTeamId 而非 findByStatus
+        TeamEntity team = new TeamEntity();
+        team.setId(5);
+        team.setStatus(TeamEntity.Status.PUBLISHED);
+        when(teamMapper.findById(5)).thenReturn(team);
+        when(imageService.findByTeamIdAndStatus(5, "PUBLISHED")).thenReturn(Collections.emptyList());
+        when(wordService.findByTeamIdAndStatus(5, "PUBLISHED")).thenReturn(Collections.emptyList());
+        TeamMediaEntity m = new TeamMediaEntity();
+        m.setId(1); m.setStatus("PUBLISHED"); m.setTeamId(5); m.setFilename("a.mp4");
+        when(mediaService.findPublicByTeamId(5)).thenReturn(java.util.Collections.singletonList(m));
+
+        ResponseEntity<?> resp = action.getPublicTeamContent(5);
+        assertEquals(200, resp.getStatusCodeValue());
+        verify(mediaService).findPublicByTeamId(5);
+        verify(mediaService, never()).findByStatus(anyInt(), anyString());
     }
 
     @SuppressWarnings("unchecked")
@@ -330,8 +422,221 @@ class TeamContentActionTests {
     }
 
     // =====================================================================
+    // Item 3: 团队端/管理员端私有下载（可下 PENDING/REJECTED 附件）
+    // 解决：管理员审核附件前无法下载查看内容的问题
+    // =====================================================================
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void adminDownload_canDownloadPending() {
+        // 管理员可下载 PENDING 附件用于审核
+        TeamMediaEntity m = media(10, "PENDING", 5);
+        when(mediaService.findById(10)).thenReturn(m);
+        when(fileStorageUtil.loadFile(anyString())).thenReturn(java.nio.file.Paths.get("/tmp/x"));
+
+        ResponseEntity<?> resp = action.adminDownload(10);
+        assertEquals(200, resp.getStatusCodeValue());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void adminDownload_canDownloadRejected() {
+        TeamMediaEntity m = media(10, "REJECTED", 5);
+        when(mediaService.findById(10)).thenReturn(m);
+        when(fileStorageUtil.loadFile(anyString())).thenReturn(java.nio.file.Paths.get("/tmp/x"));
+
+        ResponseEntity<?> resp = action.adminDownload(10);
+        assertEquals(200, resp.getStatusCodeValue());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void adminDownload_mediaWithoutTeamId_returns404() {
+        TeamMediaEntity m = media(10, "PENDING", null);
+        when(mediaService.findById(10)).thenReturn(m);
+
+        ResponseEntity<?> resp = action.adminDownload(10);
+        assertEquals(404, resp.getStatusCodeValue());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void ownerDownload_teamOwner_canDownloadOwnPending() {
+        // team 5 的负责人 user 5 可下载自己团队的 PENDING 附件
+        UserEntity owner = user(5, 1);
+        mockTeamUser(5, 5); // user 5 → team 5
+        TeamMediaEntity m = media(10, "PENDING", 5);
+        when(mediaService.findById(10)).thenReturn(m);
+        when(fileStorageUtil.loadFile(anyString())).thenReturn(java.nio.file.Paths.get("/tmp/x"));
+
+        ResponseEntity<?> resp = action.ownerDownload(10, req(owner));
+        assertEquals(200, resp.getStatusCodeValue());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void ownerDownload_otherTeam_returns403() {
+        // user 5 属于 team 5，但 media 属于 team 99 → 拒绝
+        UserEntity owner = user(5, 1);
+        mockTeamUser(5, 5);
+        TeamMediaEntity m = media(10, "PENDING", 99);
+        when(mediaService.findById(10)).thenReturn(m);
+
+        ResponseEntity<?> resp = action.ownerDownload(10, req(owner));
+        assertEquals(403, resp.getStatusCodeValue());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void ownerDownload_admin_canDownloadAnyPending() {
+        // 管理员（level=0）跳过归属校验，可下任意团队的 PENDING
+        UserEntity admin = user(1, 0);
+        TeamMediaEntity m = media(10, "PENDING", 99);
+        when(mediaService.findById(10)).thenReturn(m);
+        when(fileStorageUtil.loadFile(anyString())).thenReturn(java.nio.file.Paths.get("/tmp/x"));
+
+        ResponseEntity<?> resp = action.ownerDownload(10, req(admin));
+        assertEquals(200, resp.getStatusCodeValue());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void ownerDownload_mediaNotFound_returns404() {
+        UserEntity owner = user(5, 1);
+        when(mediaService.findById(999)).thenReturn(null);
+
+        ResponseEntity<?> resp = action.ownerDownload(999, req(owner));
+        assertEquals(404, resp.getStatusCodeValue());
+    }
+
+    // =====================================================================
+    // Bug 1: 受控图片读取接口（管理员/owner 可看任意状态，匿名仅 PUBLISHED）
+    // 解决 Item 4 把 PENDING 移到 images_pending/ 后管理员无法预览的问题
+    // =====================================================================
+
+    @Test
+    void serveImage_admin_canViewPending() throws Exception {
+        // 管理员可查看任意状态图片
+        java.nio.file.Path tmp = java.nio.file.Files.createTempFile("test-img", ".jpg");
+        UserEntity admin = user(1, 0);
+        when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
+        when(fileStorageUtil.loadFile("images_pending/x.jpg")).thenReturn(tmp);
+
+        ResponseEntity<?> resp = action.serveImage(10, null, req(admin));
+        assertEquals(200, resp.getStatusCodeValue());
+        java.nio.file.Files.delete(tmp);
+    }
+
+    @Test
+    void serveImage_owner_canViewOwnPending() throws Exception {
+        // 团队负责人可查看自己 team 的 PENDING 图片
+        java.nio.file.Path tmp = java.nio.file.Files.createTempFile("test-img", ".jpg");
+        UserEntity owner = user(5, 1);
+        mockTeamUser(5, 5); // user 5 → team 5
+        when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
+        when(fileStorageUtil.loadFile("images_pending/x.jpg")).thenReturn(tmp);
+
+        ResponseEntity<?> resp = action.serveImage(10, null, req(owner));
+        assertEquals(200, resp.getStatusCodeValue());
+        java.nio.file.Files.delete(tmp);
+    }
+
+    @Test
+    void serveImage_otherTeam_returns404() {
+        // user 5 属于 team 5，但图片属于 team 99 → 视为匿名 → 非 PUBLISHED 返回 404
+        UserEntity owner = user(5, 1);
+        mockTeamUser(5, 5);
+        when(imageService.findById(10)).thenReturn(image(10, "PENDING", 99, "images_pending/x.jpg"));
+
+        ResponseEntity<?> resp = action.serveImage(10, null, req(owner));
+        assertEquals(404, resp.getStatusCodeValue());
+    }
+
+    @Test
+    void serveImage_anonymous_canViewPublishedOfPublishedTeam() throws Exception {
+        // 匿名用户（无 token）可看 PUBLISHED 图片（PUBLISHED team）
+        java.nio.file.Path tmp = java.nio.file.Files.createTempFile("test-img", ".jpg");
+        MockHttpServletRequest request = new MockHttpServletRequest(); // 无 user attribute，无 token
+        TeamEntity team = new TeamEntity();
+        team.setId(5);
+        team.setStatus(TeamEntity.Status.PUBLISHED);
+        when(imageService.findById(10)).thenReturn(image(10, "PUBLISHED", 5, "images/x.jpg"));
+        when(teamMapper.findById(5)).thenReturn(team);
+        when(fileStorageUtil.loadFile("images/x.jpg")).thenReturn(tmp);
+
+        ResponseEntity<?> resp = action.serveImage(10, null, request);
+        assertEquals(200, resp.getStatusCodeValue());
+        java.nio.file.Files.delete(tmp);
+    }
+
+    @Test
+    void serveImage_anonymous_pending_returns404() {
+        // 匿名看 PENDING → 拒绝（核心安全属性：PENDING 不泄露）
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
+
+        ResponseEntity<?> resp = action.serveImage(10, null, request);
+        assertEquals(404, resp.getStatusCodeValue());
+    }
+
+    @Test
+    void serveImage_queryToken_admin_canView() throws Exception {
+        // query token 场景（<img src="...?token=xxx">）：管理员 token 可看 PENDING
+        java.nio.file.Path tmp = java.nio.file.Files.createTempFile("test-img", ".jpg");
+        MockHttpServletRequest request = new MockHttpServletRequest(); // 无 header user attribute
+        UserEntity admin = user(1, 0);
+        when(tokenService.verifyAndGetUserId("admin-token")).thenReturn(1);
+        when(userService.findUserById(1)).thenReturn(admin);
+        when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
+        when(fileStorageUtil.loadFile("images_pending/x.jpg")).thenReturn(tmp);
+
+        ResponseEntity<?> resp = action.serveImage(10, "admin-token", request);
+        assertEquals(200, resp.getStatusCodeValue());
+        java.nio.file.Files.delete(tmp);
+    }
+
+    @Test
+    void serveImage_invalidQueryToken_treatedAsAnonymous() {
+        // 无效 query token 当匿名处理 → PENDING 拒绝
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        when(tokenService.verifyAndGetUserId("bad-token")).thenThrow(new RuntimeException("invalid"));
+        when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
+
+        ResponseEntity<?> resp = action.serveImage(10, "bad-token", request);
+        assertEquals(404, resp.getStatusCodeValue());
+    }
+
+    @Test
+    void serveImage_imageNotFound_returns404() {
+        when(imageService.findById(999)).thenReturn(null);
+        ResponseEntity<?> resp = action.serveImage(999, null, new MockHttpServletRequest());
+        assertEquals(404, resp.getStatusCodeValue());
+    }
+
+    // =====================================================================
     // 辅助方法
     // =====================================================================
+
+    private TeamPageImageEntity image(int id, String status, int teamId, String imageUrl) {
+        TeamPageImageEntity img = new TeamPageImageEntity();
+        img.setId(id);
+        img.setStatus(status);
+        img.setTeamId(teamId);
+        img.setImageUrl(imageUrl);
+        return img;
+    }
+
+    private TeamMediaEntity media(int id, String status, Integer teamId) {
+        TeamMediaEntity m = new TeamMediaEntity();
+        m.setId(id);
+        m.setStatus(status);
+        m.setTeamId(teamId);
+        m.setFilename("test.mp4");
+        m.setRelativePath("media/test.mp4");
+        m.setMimeType("video/mp4");
+        m.setFileSize(100L);
+        return m;
+    }
 
     private UserEntity user(int id, int level) {
         UserEntity u = new UserEntity();

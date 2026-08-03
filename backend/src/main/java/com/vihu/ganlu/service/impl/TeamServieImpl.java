@@ -72,6 +72,7 @@ public class TeamServieImpl implements TeamServie {
     public TeamDetailDto createTeam(TeamSaveRequest request) {
         TeamEntity team = validatedTeam(null, request);
         ensureUniqueName(team.getYear(), team.getName(), null);
+        ensureUniqueOwner(team.getOwnerUserId(), null);
 
         int inserted = teamMapper.insertTeam(team);
         if (inserted != 1 || team.getId() == null) {
@@ -93,6 +94,7 @@ public class TeamServieImpl implements TeamServie {
 
         TeamEntity team = validatedTeam(teamId, request);
         ensureUniqueName(team.getYear(), team.getName(), teamId);
+        ensureUniqueOwner(team.getOwnerUserId(), teamId);
         teamMapper.updateTeam(team);
 
         TeamPageEntity page = teamPageService.ensureTeamPage(team);
@@ -147,6 +149,17 @@ public class TeamServieImpl implements TeamServie {
     private void ensureUniqueName(String year, String name, Integer excludeId) {
         if (teamMapper.countByYearAndNameExcludingId(year, name, excludeId) > 0) {
             throw new DuplicateKeyException("同一年份下已存在同名小队");
+        }
+    }
+
+    /**
+     * 校验负责人账号未被其他小队占用（配合 Patch 12 的 UNIQUE(owner_user_id) 约束）。
+     * 合同：1 个甘露团队账号最多负责 1 个小队。
+     * 更新自身时传入 excludeId = 当前 teamId，允许保留原 owner。
+     */
+    private void ensureUniqueOwner(int ownerUserId, Integer excludeId) {
+        if (teamMapper.countByOwnerUserIdExcludingId(ownerUserId, excludeId) > 0) {
+            throw new DuplicateKeyException("该负责人账号已绑定其他小队");
         }
     }
 

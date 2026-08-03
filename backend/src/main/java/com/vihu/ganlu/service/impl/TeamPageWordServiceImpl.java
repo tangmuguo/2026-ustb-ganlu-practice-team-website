@@ -5,6 +5,7 @@ import com.vihu.ganlu.mappers.TeamMediaMapper;
 import com.vihu.ganlu.mappers.TeamPageWordMapper;
 import com.vihu.ganlu.service.TeamPageWordService;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 import java.util.List;
@@ -51,6 +52,7 @@ public class TeamPageWordServiceImpl implements TeamPageWordService {
     }
 
     @Override
+    @Transactional
     public boolean archiveById(int id) {
         TeamPageWordEntity e = teamPageWordMapper.findById(id);
         int n = teamPageWordMapper.archiveById(id);
@@ -61,6 +63,7 @@ public class TeamPageWordServiceImpl implements TeamPageWordService {
     }
 
     @Override
+    @Transactional
     public boolean archiveByIdAndTeamId(int id, int teamId) {
         int n = teamPageWordMapper.archiveByIdAndTeamId(id, teamId);
         if (n > 0) {
@@ -70,6 +73,7 @@ public class TeamPageWordServiceImpl implements TeamPageWordService {
     }
 
     @Override
+    @Transactional
     public boolean updateStatus(int id, String status, String rejectReason) {
         TeamPageWordEntity e = teamPageWordMapper.findById(id);
         int n = teamPageWordMapper.updateWordStatus(id, status, rejectReason);

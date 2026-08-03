@@ -49,6 +49,39 @@
         </if>
     </select>
 
+    <!--
+      公开端媒体查询（Item 6）：
+      只返回 media.status='PUBLISHED' 且（无父内容 或 父内容存在且 PUBLISHED 且同 team）的记录，
+      避免公开列表展示后下载 404。父内容类型：IMAGE→team_page_images，WORD→team_page_word。
+      独立附件（related_type 为空）不关联父内容，只要自身 PUBLISHED 即可。
+    -->
+    <select id="findPublicByTeamId" resultMap="teammediamap">
+        select m.* from team_media m
+        where m.team_id = #{teamId}
+          and m.status = 'PUBLISHED'
+          and (
+                m.related_type IS NULL
+                OR m.related_type = ''
+                OR (
+                    m.related_type = 'IMAGE' AND EXISTS (
+                        SELECT 1 FROM team_page_images img
+                        WHERE img.id = m.related_id
+                          AND img.team_id = m.team_id
+                          AND img.status = 'PUBLISHED'
+                    )
+                )
+                OR (
+                    m.related_type = 'WORD' AND EXISTS (
+                        SELECT 1 FROM team_page_word wrd
+                        WHERE wrd.id = m.related_id
+                          AND wrd.team_id = m.team_id
+                          AND wrd.status = 'PUBLISHED'
+                    )
+                )
+              )
+        order by m.created_at desc
+    </select>
+
     <select id="findByRelated" resultMap="teammediamap">
         select * from team_media
         where related_type = #{relatedType} and related_id = #{relatedId}

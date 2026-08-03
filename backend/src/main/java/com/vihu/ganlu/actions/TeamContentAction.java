@@ -10,9 +10,11 @@ import com.vihu.ganlu.mappers.TeamMapper;
 import com.vihu.ganlu.security.AuthInterceptor;
 import com.vihu.ganlu.security.PublicEndpoint;
 import com.vihu.ganlu.security.RequireRoles;
+import com.vihu.ganlu.security.TokenService;
 import com.vihu.ganlu.service.TeamMediaService;
 import com.vihu.ganlu.service.TeamPageImageService;
 import com.vihu.ganlu.service.TeamPageWordService;
+import com.vihu.ganlu.service.UserService;
 import com.vihu.ganlu.utils.FileStorageUtil;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -50,6 +52,10 @@ public class TeamContentAction {
     private FileStorageUtil fileStorageUtil;
     @Resource
     private TeamMapper teamMapper;
+    @Resource
+    private TokenService tokenService;
+    @Resource
+    private UserService userService;
 
     // =====================================================================
     // 团队端 @RequireRoles({0,1}) — teamId 从 Token 推导，不信任任何客户端输入
@@ -221,12 +227,17 @@ public class TeamContentAction {
 
         List<TeamPageImageEntity> images = teamPageImageService.findByTeamIdAndStatus(teamId, "PUBLISHED");
         List<TeamPageWordEntity> words = teamPageWordService.findByTeamIdAndStatus(teamId, "PUBLISHED");
-        List<TeamMediaEntity> media = teamMediaService.findByStatus(teamId, "PUBLISHED");
+        // Item 6: 公开端 media 只返回 PUBLISHED 且（无父内容 或 父内容 PUBLISHED 同 team）的记录，
+        // 并转 DTO 脱敏（不暴露 relativePath/uploaderId）。
+        List<TeamMediaEntity> publicMedia = teamMediaService.findPublicByTeamId(teamId);
+        List<com.vihu.ganlu.entitys.TeamMediaPublicDto> mediaDto = publicMedia.stream()
+                .map(com.vihu.ganlu.entitys.TeamMediaPublicDto::from)
+                .collect(java.util.stream.Collectors.toList());
 
         Map<String, Object> content = ImmutableMap.of(
                 "images", images,
                 "words", words,
-                "media", media);
+                "media", mediaDto);
         return ok("查询成功", content);
     }
 
@@ -253,6 +264,143 @@ public class TeamContentAction {
                 return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "资源不存在"));
             }
         }
+        return buildDownloadResponse(m);
+    }
+
+    /**
+     * 受控图片读取（inline 渲染，供管理员/团队端 <img> 预览 PENDING/REJECTED 图片）。
+     *
+     * 解决 Bug 1：Item 4 把 PENDING 图片移到 images_pending/ 后无静态映射，
+     * 管理员审核时看不到图片内容。此接口按权限返回图片流：
+     * - 匿名/无 token 或 token 无效 → 仅当图片 PUBLISHED 且团队 PUBLISHED 时返回，否则 404
+     * - 管理员（level=0）→ 任意状态可看
+     * - 团队负责人（level=1）→ 仅自己 teamId 的图片可看（任意状态）
+     *
+     * 鉴权方式：@PublicEndpoint 让 <img src> 能过拦截器，方法内自行解析 token
+     * （支持 Authorization header 或 ?token= query 参数，后者方便 <img> 直接拼 URL）。
+     * 返回 inline（非 attachment），浏览器可直接渲染。
+     */
+    @PublicEndpoint
+    @GetMapping("/team-content/image/{imageId}")
+    public ResponseEntity<?> serveImage(@PathVariable int imageId,
+                                        @RequestParam(value = "token", required = false) String queryToken,
+                                        HttpServletRequest request) {
+        TeamPageImageEntity img = teamPageImageService.findById(imageId);
+        if (img == null || img.getTeamId() == null || img.getImageUrl() == null) {
+            return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "资源不存在"));
+        }
+
+        UserEntity u = resolveUserFromToken(request, queryToken);
+        boolean isAdmin = u != null && u.getLevel() != null && u.getLevel() == 0;
+        boolean isOwner = false;
+        if (u != null && u.getLevel() != null && u.getLevel() == 1) {
+            Integer teamId = resolveTeamId(u);
+            isOwner = teamId != null && teamId.equals(img.getTeamId());
+        }
+
+        // 非管理员、非所属团队负责人 → 视为匿名，仅 PUBLISHED 链路完整时可见
+        if (!isAdmin && !isOwner) {
+            if (!"PUBLISHED".equals(img.getStatus())) {
+                return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "资源不存在"));
+            }
+            TeamEntity team = teamMapper.findById(img.getTeamId());
+            if (team == null || team.getStatus() != TeamEntity.Status.PUBLISHED) {
+                return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "资源不存在"));
+            }
+        }
+
+        return buildImageResponse(img);
+    }
+
+    /**
+     * 构造图片 inline 响应（Content-Type 由文件扩展名推断，inline 便于浏览器渲染）。
+     */
+    private ResponseEntity<?> buildImageResponse(TeamPageImageEntity img) {
+        Path path = fileStorageUtil.loadFile(img.getImageUrl());
+        if (!java.nio.file.Files.exists(path)) {
+            return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "文件不存在"));
+        }
+        org.springframework.core.io.Resource resource = new org.springframework.core.io.FileSystemResource(path.toFile());
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_TYPE, guessImageContentType(img.getImageUrl()))
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .header("X-Content-Type-Options", "nosniff")
+                .body(resource);
+    }
+
+    /**
+     * 从 Authorization header 或 ?token= query 参数解析当前用户（兼容 <img src> 无法带 header 的场景）。
+     * 解析失败返回 null（调用方按匿名处理）。
+     */
+    private UserEntity resolveUserFromToken(HttpServletRequest request, String queryToken) {
+        // 1. 优先用拦截器已解析的用户（带 header 的正常请求）
+        UserEntity attr = (UserEntity) request.getAttribute(AuthInterceptor.CURRENT_USER_ATTRIBUTE);
+        if (attr != null) {
+            return attr;
+        }
+        // 2. 尝试 query token（<img src="...?token=xxx"> 场景）
+        String token = queryToken;
+        if (token == null || token.isEmpty()) {
+            String auth = request.getHeader(HttpHeaders.AUTHORIZATION);
+            if (auth != null && auth.startsWith("Bearer ")) {
+                token = auth.substring("Bearer ".length()).trim();
+            }
+        }
+        if (token == null || token.isEmpty()) {
+            return null;
+        }
+        try {
+            Integer userId = tokenService.verifyAndGetUserId(token);
+            return userService.findUserById(userId);
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    private String guessImageContentType(String imageUrl) {
+        if (imageUrl == null) return "image/jpeg";
+        String lower = imageUrl.toLowerCase();
+        if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".gif")) return "image/gif";
+        return "image/jpeg"; // jpg/jpeg 默认
+    }
+    @RequireRoles({0, 1})
+    @GetMapping("/team-content/media/{mediaId}/owner-download")
+    public ResponseEntity<?> ownerDownload(@PathVariable int mediaId, HttpServletRequest request) {
+        UserEntity u = currentUser(request);
+        TeamMediaEntity m = teamMediaService.findById(mediaId);
+        if (m == null || m.getTeamId() == null) {
+            return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "资源不存在"));
+        }
+        // 团队账号（level=1）必须是该 media 所属团队的负责人；管理员（level=0）跳过此校验。
+        if (u.getLevel() != 0) {
+            Integer teamId = resolveTeamId(u);
+            if (teamId == null || !teamId.equals(m.getTeamId())) {
+                return ResponseEntity.status(403).body(ImmutableMap.of("code", 403, "message", "无访问权限"));
+            }
+        }
+        return buildDownloadResponse(m);
+    }
+
+    /**
+     * 管理员下载附件（任意状态，用于审核 PENDING/REJECTED 时查看内容）。
+     */
+    @RequireRoles({0})
+    @GetMapping("/admin/team-content/media/{mediaId}/download")
+    public ResponseEntity<?> adminDownload(@PathVariable int mediaId) {
+        TeamMediaEntity m = teamMediaService.findById(mediaId);
+        if (m == null || m.getTeamId() == null) {
+            return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "资源不存在"));
+        }
+        return buildDownloadResponse(m);
+    }
+
+    /**
+     * 构造下载响应（Content-Disposition/Content-Type/Content-Length/nosniff）。
+     * 抽取自 download()，供公开/团队端/管理员端三个接口复用。
+     */
+    private ResponseEntity<?> buildDownloadResponse(TeamMediaEntity m) {
         Path path = fileStorageUtil.loadFile(m.getRelativePath());
         org.springframework.core.io.Resource resource = new org.springframework.core.io.FileSystemResource(path.toFile());
         return ResponseEntity.ok()
@@ -332,8 +480,12 @@ public class TeamContentAction {
     @PostMapping("/admin/team-content/{type}/{id}/reject")
     public ResponseEntity<?> adminReject(@PathVariable String type, @PathVariable int id,
                                          @RequestParam("reason") String reason) {
-        if (reason == null || reason.trim().isEmpty()) {
+        if (requireTextOrNull(reason) == null) {
             return badRequest("驳回原因不能为空");
+        }
+        // 与 DB reject_reason varchar(512) 对齐
+        if (reason.length() > 512) {
+            return badRequest("驳回原因长度不能超过512字符");
         }
         boolean ok;
         switch (type) {
@@ -383,6 +535,13 @@ public class TeamContentAction {
         if (teamId == null) {
             return badRequest("当前用户未绑定小队");
         }
+        // 服务端字段校验（与 DB varchar(255) 对齐）：caption 必填，content 可空
+        if (requireTextOrNull(caption) == null) {
+            return badRequest("标题不能为空");
+        }
+        if (!withinLength(caption, 255) || !withinLength(content, 255)) {
+            return badRequest("标题或说明长度不能超过255字符");
+        }
         try {
             fileStorageUtil.isAllowedImage(file);
         } catch (IllegalArgumentException e) {
@@ -414,6 +573,16 @@ public class TeamContentAction {
         Integer teamId = resolveTeamId(u);
         if (teamId == null) {
             return badRequest("当前用户未绑定小队");
+        }
+        // 服务端字段校验（与 DB varchar(255) NOT NULL 对齐）：caption/content 均必填
+        if (requireTextOrNull(caption) == null) {
+            return badRequest("标题不能为空");
+        }
+        if (requireTextOrNull(content) == null) {
+            return badRequest("内容不能为空");
+        }
+        if (!withinLength(caption, 255) || !withinLength(content, 255)) {
+            return badRequest("标题或内容长度不能超过255字符");
         }
         TeamPageWordEntity entity = new TeamPageWordEntity();
         entity.setTeamId(teamId);
@@ -499,5 +668,23 @@ public class TeamContentAction {
     private ResponseEntity<?> badRequest(String message) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ImmutableMap.of("code", 400, "message", message));
+    }
+
+    /**
+     * 必填文本校验：trim 后为空返回 null（表示校验失败，调用方应返回 400）。
+     * @return 校验通过返回 trim 后的值；空返回 null
+     */
+    private String requireTextOrNull(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    /**
+     * 校验文本长度不超过 max（不 trim null，空值视为合法由调用方决定）。
+     * @return 超长返回 false
+     */
+    private boolean withinLength(String value, int max) {
+        return value == null || value.length() <= max;
     }
 }

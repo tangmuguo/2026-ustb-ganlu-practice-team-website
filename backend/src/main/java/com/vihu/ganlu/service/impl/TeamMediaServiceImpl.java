@@ -55,6 +55,11 @@ public class TeamMediaServiceImpl implements TeamMediaService {
     }
 
     @Override
+    public List<TeamMediaEntity> findPublicByTeamId(int teamId) {
+        return teamMediaMapper.findPublicByTeamId(teamId);
+    }
+
+    @Override
     public boolean updateStatus(int id, String status, String rejectReason) {
         return teamMediaMapper.updateStatus(id, status, rejectReason) > 0;
     }

@@ -8,6 +8,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.*;
+import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
@@ -114,6 +115,36 @@ public class FileStorageUtil {
             throw new StorageException("尝试访问上传目录之外的文件: " + relativePath);
         }
         return filePath;
+    }
+
+    /**
+     * 在 uploadRoot 下把文件从 fromRelativePath 移动到 toRelativePath。
+     * 用于团队风采图片审核状态切换时在私有目录(images_pending)与公开目录(images)之间搬运，
+     * 保证非公开文件物理上不可通过静态资源地址访问。
+     *
+     * @param fromRelativePath 源相对路径（uploadRoot 下）
+     * @param toRelativePath   目标相对路径（uploadRoot 下）
+     * @return 移动后的目标绝对路径
+     * @throws StorageException 源不存在、目标已存在、或路径越界时抛出
+     */
+    public Path moveFile(String fromRelativePath, String toRelativePath) {
+        Path from = loadFile(fromRelativePath); // 内含 startsWith(uploadRoot) 校验
+        Path to = uploadRoot.resolve(toRelativePath).toAbsolutePath().normalize();
+        if (!to.startsWith(uploadRoot)) {
+            throw new StorageException("非法的目标路径: " + toRelativePath);
+        }
+        if (!Files.exists(from)) {
+            throw new StorageException("源文件不存在: " + fromRelativePath);
+        }
+        if (Files.exists(to)) {
+            throw new StorageException("目标文件已存在: " + toRelativePath);
+        }
+        try {
+            Files.createDirectories(to.getParent());
+            return Files.move(from, to, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException e) {
+            throw new StorageException("移动文件失败: " + fromRelativePath + " -> " + toRelativePath, e);
+        }
     }
 
     /**
@@ -266,6 +297,13 @@ public class FileStorageUtil {
             if (!matchesMagic(header, category, ext)) {
                 throw new IllegalArgumentException("文件内容与实际扩展名不符（魔数校验失败）");
             }
+            // Item 9: docx/pptx 仅凭 ZIP 头不够（任意 ZIP 改后缀即可通过），
+            // 追加 OOXML 真实结构校验：检查 ZIP 内含 [Content_Types].xml 和 word/(docx)/ppt/(pptx)。
+            if (category == FileCategory.DOCUMENT && ("docx".equals(ext) || "pptx".equals(ext))) {
+                if (!isRealOoxml(file, ext)) {
+                    throw new IllegalArgumentException("文件不是有效的 " + ext + "（OOXML 结构校验失败）");
+                }
+            }
         } catch (IOException e) {
             throw new IllegalArgumentException("读取文件失败: " + e.getMessage());
         }
@@ -315,6 +353,49 @@ public class FileStorageUtil {
             default:
                 return false;
         }
+    }
+
+    /**
+     * OOXML 真实格式校验（Item 9）。
+     * docx/pptx 本质是 ZIP，仅凭 PK 头无法区分；需验证 ZIP 内确实包含 OOXML 标志性条目：
+     *   - docx: [Content_Types].xml + word/
+     *   - pptx: [Content_Types].xml + ppt/
+     * 限制最多扫 MAX_OOXML_ENTRIES 个条目防 zip bomb，读到匹配即停。
+     * 普通 zip 不走此方法（继续只验 ZIP 容器）。
+     */
+    private static final int MAX_OOXML_ENTRIES = 1000;
+
+    private boolean isRealOoxml(MultipartFile file, String ext) {
+        String prefix = "docx".equals(ext) ? "word/" : "ppt/";
+        boolean hasContentTypes = false;
+        boolean hasWordOrPpt = false;
+        try (InputStream is = file.getInputStream();
+             java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(is)) {
+            java.util.zip.ZipEntry entry;
+            int count = 0;
+            while ((entry = zis.getNextEntry()) != null) {
+                if (++count > MAX_OOXML_ENTRIES) {
+                    break; // 超过上限，停止扫描（防 zip bomb）
+                }
+                String name = entry.getName();
+                // 防止 Zip Slip（条目名含 ../ 试图逃逸），仅比较不含路径穿越的条目名
+                if (name != null && !name.contains("..")) {
+                    if ("[Content_Types].xml".equals(name)) {
+                        hasContentTypes = true;
+                    }
+                    if (name.startsWith(prefix)) {
+                        hasWordOrPpt = true;
+                    }
+                }
+                if (hasContentTypes && hasWordOrPpt) {
+                    return true;
+                }
+                zis.closeEntry();
+            }
+        } catch (IOException e) {
+            return false; // 读取失败或非合法 ZIP → 视为非 OOXML
+        }
+        return false;
     }
 
     private boolean startsWith(byte[] data, byte[] prefix) {

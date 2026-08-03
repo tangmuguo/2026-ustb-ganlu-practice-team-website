@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getMyTeamContent, deleteContent, adminListContent, adminListTeams, adminPublish, adminReject, adminArchive, downloadMedia } from '@/apis/fengcaiAPI'
+import { getMyTeamContent, deleteContent, adminListContent, adminListTeams, adminPublish, adminReject, adminArchive, downloadMediaOwner, downloadMediaAdmin } from '@/apis/fengcaiAPI'
 import { userinfoStore } from '@/stores/userStore'
 import ContentStatusTag from '@/components/fengcai/ContentStatusTag.vue'
 import TeamAttachmentUpload from '@/components/fengcai/TeamAttachmentUpload.vue'
@@ -10,6 +10,16 @@ import UploadLogHonor from '@/components/UploadLogHonor.vue'
 
 const userStore = userinfoStore()
 const isAdmin = computed(() => userStore.currentUser?.level === 0)
+// 受控图片预览接口：后端 /team-content/image/{id}?token=xxx
+//   - 管理员/owner 可看任意状态（含 PENDING/REJECTED，解决 Item 4 后管理员盲审问题）
+//   - 匿名仅 PUBLISHED 可见
+//   <img src> 无法带 header，故用 query token 兜底鉴权
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL
+const imageBaseUrl = import.meta.env.VITE_API_BASE_URL.replace(/\/$/, '')
+function imagePreviewUrl(row) {
+  const token = userStore.token || ''
+  return `${imageBaseUrl}/team-content/image/${row.id}?token=${encodeURIComponent(token)}`
+}
 
 const activeTab = ref('images')
 const loading = ref(false)
@@ -34,10 +44,11 @@ async function loadTeams() {
   }
 }
 
-// 下载媒体
+// 下载媒体（按身份分流：管理员/团队端用受保护接口，可下 PENDING/REJECTED；公开页用 downloadMedia）
 async function handleDownload(m) {
   try {
-    const res = await downloadMedia(m.id)
+    const fn = isAdmin.value ? downloadMediaAdmin : downloadMediaOwner
+    const res = await fn(m.id)
     const url = URL.createObjectURL(res.data)
     const a = document.createElement('a')
     a.href = url
@@ -220,6 +231,25 @@ onMounted(() => {
         </div>
         <el-table :data="images" v-loading="loading" style="width: 100%">
           <el-table-column prop="id" label="ID" width="60" />
+          <el-table-column label="预览" width="120">
+            <template #default="{ row }">
+              <el-image
+                :src="imagePreviewUrl(row)"
+                :preview-src-list="[imagePreviewUrl(row)]"
+                :preview-teleported="true"
+                fit="cover"
+                style="width: 80px; height: 60px; border-radius: 4px;"
+                hide-on-click-modal
+              >
+                <template #error>
+                  <div style="width:80px;height:60px;display:flex;align-items:center;justify-content:center;background:#f5f7fa;color:#c0c4cc;font-size:12px;border-radius:4px;">无预览</div>
+                </template>
+                <template #placeholder>
+                  <div style="width:80px;height:60px;display:flex;align-items:center;justify-content:center;background:#f5f7fa;color:#c0c4cc;font-size:12px;border-radius:4px;">加载中</div>
+                </template>
+              </el-image>
+            </template>
+          </el-table-column>
           <el-table-column label="类型" width="120">
             <template #default="{ row }">{{ convertImageType(row.type) }}</template>
           </el-table-column>

@@ -21,6 +21,11 @@ const honorlist=computed(()=>{
 const photolist=computed(()=>{
     return imagelists.value.filter(item => item.type === 2);
 })
+const regionphotolist=computed(()=>{
+    // type 列为 varchar，可能存数字 2 或字符串 "2"，用 == 宽松比较兼容
+    // eslint-disable-next-line eqeqeq
+    return imagelists.value.filter(item => item.type == 3);
+})
 const loglist=computed(()=>{
     return wordlists.value.filter(item => item.type === 4);
 })
@@ -93,6 +98,16 @@ onMounted(() => {
             <div class="team-members">
                 <PhotoList
                 :photos="photolist"
+                />
+            </div>
+        </section>
+    </div>
+    <div class="main-container1" v-if="regionphotolist.length > 0">
+        <section class="team-section">
+            <h2 class="section-title">地区照片</h2>
+            <div class="team-members">
+                <PhotoList
+                :photos="regionphotolist"
                 />
             </div>
         </section>

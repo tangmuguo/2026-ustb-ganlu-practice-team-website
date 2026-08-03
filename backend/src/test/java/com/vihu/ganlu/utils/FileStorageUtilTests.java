@@ -148,6 +148,50 @@ class FileStorageUtilTests {
     }
 
     @Test
+    void moveFile_movesBetweenSubdirs() throws IOException {
+        // Item 4: 文件应能从 images_pending/ move 到 images/
+        byte[] content = "img-data".getBytes();
+        MockMultipartFile file = new MockMultipartFile("file", "a.jpg", "image/jpeg", content);
+        String fromPath = util.storeFile(file, "images_pending");
+        assertTrue(fromPath.startsWith("images_pending/"));
+
+        String filename = fromPath.substring(fromPath.indexOf('/') + 1);
+        String toPath = "images/" + filename;
+
+        Path moved = util.moveFile(fromPath, toPath);
+        assertTrue(Files.exists(moved));
+        assertTrue(moved.toString().replace("\\", "/").contains("images/"));
+        // 源文件应已不存在
+        assertFalse(Files.exists(util.loadFile(fromPath)));
+    }
+
+    @Test
+    void moveFile_pathTraversal_rejected() throws IOException {
+        // 目标路径含 ../ 试图逃出 uploadRoot，应被拒绝
+        byte[] content = "x".getBytes();
+        MockMultipartFile file = new MockMultipartFile("file", "a.jpg", "image/jpeg", content);
+        String fromPath = util.storeFile(file, "images_pending");
+
+        assertThrows(FileStorageUtil.StorageException.class,
+                () -> util.moveFile(fromPath, "../../etc/evil.jpg"));
+    }
+
+    @Test
+    void moveFile_targetExists_rejected() throws IOException {
+        // 目标文件已存在时 move 应失败，避免覆盖
+        byte[] content = "x".getBytes();
+        MockMultipartFile f1 = new MockMultipartFile("file", "a.jpg", "image/jpeg", content);
+        String fromPath = util.storeFile(f1, "images_pending");
+        MockMultipartFile f2 = new MockMultipartFile("file", "b.jpg", "image/jpeg", content);
+        String existingPath = util.storeFile(f2, "images");
+
+        String filename = fromPath.substring(fromPath.indexOf('/') + 1);
+        // 已存在的同名文件（用 storeFile 保证文件名不同；这里构造目标为已存在的 existingPath）
+        assertThrows(FileStorageUtil.StorageException.class,
+                () -> util.moveFile(fromPath, existingPath));
+    }
+
+    @Test
     void validate_plaintextRenamedAsDocx_rejected() {
         // 纯文本内容改名为 .docx，应被 ZIP 魔数校验拒绝
         byte[] plaintext = "this is just plain text, not a real docx".getBytes();
@@ -169,5 +213,82 @@ class FileStorageUtilTests {
 
         FileStorageUtil.ValidatedFile vf = util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE);
         assertEquals(FileStorageUtil.FileCategory.DOCUMENT, vf.getCategory());
+    }
+
+    // =====================================================================
+    // Item 9: docx/pptx OOXML 真实格式校验
+    // 普通 ZIP 改名为 docx/pptx 应被拒绝，真正的 OOXML 通过
+    // =====================================================================
+
+    @Test
+    void validate_realDocx_passes() throws Exception {
+        // 构造包含 [Content_Types].xml 和 word/document.xml 的合法 OOXML ZIP
+        byte[] ooxml = buildOoxmlZip("word/");
+        MockMultipartFile file = new MockMultipartFile("file", "real.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ooxml);
+
+        FileStorageUtil.ValidatedFile vf = util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE);
+        assertEquals(FileStorageUtil.FileCategory.DOCUMENT, vf.getCategory());
+        assertEquals("docx", vf.getExtension());
+    }
+
+    @Test
+    void validate_realPptx_passes() throws Exception {
+        byte[] ooxml = buildOoxmlZip("ppt/");
+        MockMultipartFile file = new MockMultipartFile("file", "real.pptx",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation", ooxml);
+
+        FileStorageUtil.ValidatedFile vf = util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE);
+        assertEquals(FileStorageUtil.FileCategory.DOCUMENT, vf.getCategory());
+        assertEquals("pptx", vf.getExtension());
+    }
+
+    @Test
+    void validate_plainZipRenamedAsDocx_rejected() throws Exception {
+        // 普通 ZIP（无 [Content_Types].xml 和 word/）改名为 docx → 应拒绝
+        byte[] plainZip = buildPlainZip();
+        MockMultipartFile file = new MockMultipartFile("file", "fake.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document", plainZip);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE));
+        assertTrue(ex.getMessage().contains("OOXML"));
+    }
+
+    @Test
+    void validate_plainZipAsZip_stillPasses() throws Exception {
+        // 普通 zip 文件（非 docx/pptx）不进入 OOXML 校验，仅验 ZIP 头即可
+        byte[] plainZip = buildPlainZip();
+        MockMultipartFile file = new MockMultipartFile("file", "archive.zip",
+                "application/zip", plainZip);
+
+        FileStorageUtil.ValidatedFile vf = util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE);
+        assertEquals(FileStorageUtil.FileCategory.DOCUMENT, vf.getCategory());
+        assertEquals("zip", vf.getExtension());
+    }
+
+    /** 构造合法 OOXML ZIP 字节：含 [Content_Types].xml 和 <prefix> 条目 */
+    private byte[] buildOoxmlZip(String prefix) throws Exception {
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
+            zos.putNextEntry(new java.util.zip.ZipEntry("[Content_Types].xml"));
+            zos.write("<Types/>".getBytes());
+            zos.closeEntry();
+            zos.putNextEntry(new java.util.zip.ZipEntry(prefix + "document.xml"));
+            zos.write("<doc/>".getBytes());
+            zos.closeEntry();
+        }
+        return baos.toByteArray();
+    }
+
+    /** 构造普通 ZIP（无 OOXML 标志条目） */
+    private byte[] buildPlainZip() throws Exception {
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
+            zos.putNextEntry(new java.util.zip.ZipEntry("readme.txt"));
+            zos.write("hello".getBytes());
+            zos.closeEntry();
+        }
+        return baos.toByteArray();
     }
 }

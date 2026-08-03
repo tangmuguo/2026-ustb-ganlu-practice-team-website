@@ -35,6 +35,9 @@ const AllPATH = {
   teamContentDeletePath: (type, id) => `team-content/${type}/${id}/delete`,
   teamContentPublicPath: (teamId) => `team-content/public/${teamId}`,
   teamContentMediaDownloadPath: (mediaId) => `team-content/media/${mediaId}/download`,
+  // 团队端/管理员端私有下载（含 PENDING/REJECTED 附件，用于审核前查看）
+  teamContentMediaOwnerDownloadPath: (mediaId) => `team-content/media/${mediaId}/owner-download`,
+  adminTeamContentMediaDownloadPath: (mediaId) => `admin/team-content/media/${mediaId}/download`,
 
   //管理員端
   adminTeamContentPath:"admin/team-content",

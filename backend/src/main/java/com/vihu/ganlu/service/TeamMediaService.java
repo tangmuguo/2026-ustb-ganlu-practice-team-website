@@ -15,6 +15,11 @@ public interface TeamMediaService {
 
     List<TeamMediaEntity> findByStatus(int teamId, String status);
 
+    /**
+     * 公开端查询：只返回 PUBLISHED 且（无父内容 或 父内容 PUBLISHED 同 team）的附件。
+     */
+    List<TeamMediaEntity> findPublicByTeamId(int teamId);
+
     boolean updateStatus(int id, String status, String rejectReason);
 
     boolean archiveByRelated(String relatedType, int relatedId, int teamId);

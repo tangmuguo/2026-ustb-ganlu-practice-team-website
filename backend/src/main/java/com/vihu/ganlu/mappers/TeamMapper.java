@@ -24,6 +24,14 @@ public interface TeamMapper {
                                       @Param("name") String name,
                                       @Param("excludeId") Integer excludeId);
 
+    /**
+     * 统计指定负责人账号已绑定的小队数量（排除 excludeId 自身，用于更新时校验）。
+     * 配合 Patch 12 的 UNIQUE(owner_user_id) 约束，应用层在 create/update 前主动校验，
+     * 给出明确的 DuplicateKeyException 而非依赖 DB 约束抛出。
+     */
+    int countByOwnerUserIdExcludingId(@Param("ownerUserId") int ownerUserId,
+                                      @Param("excludeId") Integer excludeId);
+
     int insertTeam(TeamEntity team);
 
     int updateTeam(TeamEntity team);
