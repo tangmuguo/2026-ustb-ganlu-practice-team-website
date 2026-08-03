@@ -2,7 +2,6 @@ package com.vihu.ganlu.entitys.message;
 
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.NotNull;
-import javax.validation.constraints.Size;
 
 public class ReplyCreateRequest {
 
@@ -10,7 +9,6 @@ public class ReplyCreateRequest {
     private Integer messageId;
 
     @NotBlank(message = "回复内容不可为空")
-    @Size(min = 1, max = 300, message = "回复内容长度限制1~300字符")
     private String content;
 
     public Integer getMessageId() {
