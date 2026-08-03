@@ -115,7 +115,8 @@
             #{mid}
         </foreach>
         AND r.status = #{status}
-        ORDER BY r.message_id ASC, r.create_time ASC, r.id ASC
+        <!-- 【修改】排序规则：按留言ID升序分组，同留言下按创建时间倒序、ID倒序，与接口文档一致 -->
+        ORDER BY r.message_id ASC, r.create_time DESC, r.id DESC
     </select>
 
     <!-- 根据ID查询单条回复（可查出已删除数据，用于权限校验）【重点修改：去掉LEFT JOIN user】 -->
