@@ -4,6 +4,7 @@ import com.vihu.ganlu.entitys.VolunteerApplicationEntity;
 import com.vihu.ganlu.entitys.VolunteerApplicationRequest;
 import com.vihu.ganlu.mappers.VolunteerApplicationMapper;
 import com.vihu.ganlu.service.VolunteerApplicationService;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,10 +22,6 @@ public class VolunteerApplicationServiceImpl implements VolunteerApplicationServ
     @Transactional
     public VolunteerApplicationEntity submit(VolunteerApplicationRequest request) {
         String phone = request.getPhone().trim();
-        if (mapper.countActiveByPhone(phone) > 0) {
-            throw new DuplicateApplicationException("该手机号已有正在处理的报名，请勿重复提交");
-        }
-
         VolunteerApplicationEntity entity = new VolunteerApplicationEntity();
         entity.setName(request.getName().trim());
         entity.setPhone(phone);
@@ -35,7 +32,11 @@ public class VolunteerApplicationServiceImpl implements VolunteerApplicationServ
         entity.setIntroduction(request.getIntroduction().trim());
         entity.setPrivacyAgreed(true);
         entity.setStatus("PENDING");
-        mapper.insert(entity);
+        try {
+            mapper.insert(entity);
+        } catch (DuplicateKeyException ex) {
+            throw new DuplicateApplicationException("该手机号已有正在处理的报名，请勿重复提交");
+        }
         return entity;
     }
 

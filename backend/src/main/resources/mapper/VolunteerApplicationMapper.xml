@@ -23,11 +23,6 @@
         (#{name}, #{phone}, #{organization}, #{gradeOrMajor}, #{preferredRegion}, #{skills}, #{introduction}, #{privacyAgreed}, #{status})
     </insert>
 
-    <select id="countActiveByPhone" resultType="int">
-        select count(1) from volunteer_application
-        where phone=#{phone} and status in ('PENDING', 'CONTACTED')
-    </select>
-
     <select id="count" resultType="int">
         select count(1) from volunteer_application
         <where><if test="status != null and status != ''">status=#{status}</if></where>

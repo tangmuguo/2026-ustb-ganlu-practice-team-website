@@ -221,11 +221,13 @@ CREATE TABLE `volunteer_application` (
   `introduction` varchar(1000) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
   `privacy_agreed` tinyint(1) NOT NULL DEFAULT 0,
   `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'PENDING',
+  `active_phone` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci GENERATED ALWAYS AS (CASE WHEN `status` IN ('PENDING','CONTACTED') THEN `phone` ELSE NULL END) STORED,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`) USING BTREE,
   KEY `idx_volunteer_application_status_created` (`status`, `created_at`),
   KEY `idx_volunteer_application_phone_status` (`phone`, `status`),
+  UNIQUE KEY `uk_volunteer_active_phone` (`active_phone`),
   CONSTRAINT `chk_volunteer_application_status` CHECK (`status` IN ('PENDING','CONTACTED','ACCEPTED','REJECTED'))
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 

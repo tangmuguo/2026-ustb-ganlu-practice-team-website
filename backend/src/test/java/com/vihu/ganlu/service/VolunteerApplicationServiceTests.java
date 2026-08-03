@@ -7,6 +7,15 @@ import com.vihu.ganlu.service.impl.VolunteerApplicationServiceImpl;
 import com.vihu.ganlu.service.impl.VolunteerApplicationServiceImpl.DuplicateApplicationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DuplicateKeyException;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -25,7 +34,6 @@ class VolunteerApplicationServiceTests {
     @Test
     void createsPendingApplicationWithoutExposingExtraState() {
         VolunteerApplicationRequest request = validRequest();
-        when(mapper.countActiveByPhone("13800000000")).thenReturn(0);
         when(mapper.insert(any())).thenAnswer(invocation -> {
             VolunteerApplicationEntity entity = invocation.getArgument(0);
             entity.setId(10L);
@@ -41,9 +49,46 @@ class VolunteerApplicationServiceTests {
 
     @Test
     void blocksDuplicateActivePhone() {
-        when(mapper.countActiveByPhone("13800000000")).thenReturn(1);
+        when(mapper.insert(any())).thenThrow(new DuplicateKeyException("uk_volunteer_active_phone"));
+
         assertThrows(DuplicateApplicationException.class, () -> service.submit(validRequest()));
-        verify(mapper, never()).insert(any());
+    }
+
+    @Test
+    void concurrentSubmissionsStoreOnlyOneActiveApplication() throws Exception {
+        AtomicBoolean activePhoneClaimed = new AtomicBoolean(false);
+        AtomicInteger storedRows = new AtomicInteger(0);
+        CountDownLatch bothAtInsert = new CountDownLatch(2);
+        CountDownLatch startInsert = new CountDownLatch(1);
+        when(mapper.insert(any())).thenAnswer(invocation -> {
+            bothAtInsert.countDown();
+            if (!startInsert.await(2, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("concurrent test did not start");
+            }
+            if (!activePhoneClaimed.compareAndSet(false, true)) {
+                throw new DuplicateKeyException("uk_volunteer_active_phone");
+            }
+            VolunteerApplicationEntity entity = invocation.getArgument(0);
+            entity.setId(20L);
+            storedRows.incrementAndGet();
+            return 1;
+        });
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Boolean> first = executor.submit(() -> submitAndReportSuccess());
+            Future<Boolean> second = executor.submit(() -> submitAndReportSuccess());
+            assertTrue(bothAtInsert.await(2, TimeUnit.SECONDS));
+            startInsert.countDown();
+
+            int successes = (first.get(2, TimeUnit.SECONDS) ? 1 : 0)
+                    + (second.get(2, TimeUnit.SECONDS) ? 1 : 0);
+            assertEquals(1, successes);
+            assertEquals(1, storedRows.get());
+        } finally {
+            startInsert.countDown();
+            executor.shutdownNow();
+        }
     }
 
     @Test
@@ -61,5 +106,14 @@ class VolunteerApplicationServiceTests {
         request.setIntroduction("我愿意参与支教并认真准备课程内容。");
         request.setPrivacyAgreed(true);
         return request;
+    }
+
+    private boolean submitAndReportSuccess() {
+        try {
+            service.submit(validRequest());
+            return true;
+        } catch (DuplicateApplicationException ex) {
+            return false;
+        }
     }
 }

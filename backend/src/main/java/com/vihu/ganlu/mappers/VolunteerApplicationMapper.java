@@ -7,7 +7,6 @@ import java.util.List;
 
 public interface VolunteerApplicationMapper {
     int insert(VolunteerApplicationEntity entity);
-    int countActiveByPhone(@Param("phone") String phone);
     int count(@Param("status") String status);
     List<VolunteerApplicationEntity> findPage(
             @Param("status") String status,
