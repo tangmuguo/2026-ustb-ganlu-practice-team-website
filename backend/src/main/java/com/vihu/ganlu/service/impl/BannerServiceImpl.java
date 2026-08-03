@@ -51,6 +51,7 @@ public class BannerServiceImpl implements BannerService {
         boolean replacingImage = hasUploadToken(banner);
         if (replacingImage) {
             requireUploadOwner(banner);
+            imageLifecycleService.deletePublicImageAfterCommit(oldPath);
             banner.setImageUrl(imageLifecycleService.promote(
                     banner.getImageUploadUserId(), banner.getImageUploadToken()));
         } else {
@@ -58,9 +59,6 @@ public class BannerServiceImpl implements BannerService {
         }
         int updated = bannerMapper.update(banner);
         if (updated != 1 && replacingImage) throw new IllegalStateException("更新轮播图失败");
-        if (updated == 1 && !java.util.Objects.equals(oldPath, banner.getImageUrl())) {
-            imageLifecycleService.deletePublicImageAfterCommit(oldPath);
-        }
         return updated;
     }
 

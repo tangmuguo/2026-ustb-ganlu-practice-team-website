@@ -46,6 +46,14 @@ public class FileStorageUtil {
         return uploadRoot;
     }
 
+    public long getUsableSpace() {
+        try {
+            return Files.getFileStore(uploadRoot).getUsableSpace();
+        } catch (IOException e) {
+            throw new StorageException("无法读取上传磁盘剩余空间", e);
+        }
+    }
+
     public Path createDirectory(String relativeDirectory) {
         Path directory = resolveSafe(relativeDirectory);
         try {

@@ -1,12 +1,16 @@
 package com.vihu.ganlu.service.impl;
 
 import com.vihu.ganlu.entitys.PublicImageUploadInfo;
+import com.vihu.ganlu.entitys.PublicImageAssetEntity;
+import com.vihu.ganlu.mappers.PublicImageQuotaMapper;
 import com.vihu.ganlu.utils.FileStorageUtil;
 import com.vihu.ganlu.utils.PublicImageValidator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
@@ -31,27 +35,40 @@ public class PublicImageLifecycleService {
 
     private final FileStorageUtil fileStorageUtil;
     private final PublicImageValidator validator;
+    private final PublicImageQuotaMapper quotaMapper;
     private final long stagingTtlMillis;
     private final long userQuotaBytes;
     private final int maxStagedFilesPerUser;
+    private final long permanentQuotaBytes;
+    private final int maxPermanentFilesPerUser;
+    private final long minFreeDiskBytes;
     private final ConcurrentHashMap<Integer, Object> userLocks = new ConcurrentHashMap<>();
 
     public PublicImageLifecycleService(
             FileStorageUtil fileStorageUtil,
             PublicImageValidator validator,
+            PublicImageQuotaMapper quotaMapper,
             @Value("${team.public-image.staging-ttl-hours:24}") long stagingTtlHours,
             @Value("${team.public-image.user-temp-quota-mb:50}") long userQuotaMegabytes,
-            @Value("${team.public-image.max-staged-files-per-user:10}") int maxStagedFilesPerUser) {
+            @Value("${team.public-image.max-staged-files-per-user:10}") int maxStagedFilesPerUser,
+            @Value("${team.public-image.user-permanent-quota-mb:500}") long permanentQuotaMegabytes,
+            @Value("${team.public-image.max-permanent-files-per-user:100}") int maxPermanentFilesPerUser,
+            @Value("${team.public-image.min-free-disk-mb:1024}") long minFreeDiskMegabytes) {
         this.fileStorageUtil = fileStorageUtil;
         this.validator = validator;
+        this.quotaMapper = quotaMapper;
         this.stagingTtlMillis = Duration.ofHours(Math.max(1L, stagingTtlHours)).toMillis();
         this.userQuotaBytes = Math.max(5L, userQuotaMegabytes) * 1024L * 1024L;
         this.maxStagedFilesPerUser = Math.max(1, maxStagedFilesPerUser);
+        this.permanentQuotaBytes = Math.max(5L, permanentQuotaMegabytes) * 1024L * 1024L;
+        this.maxPermanentFilesPerUser = Math.max(1, maxPermanentFilesPerUser);
+        this.minFreeDiskBytes = Math.max(0L, minFreeDiskMegabytes) * 1024L * 1024L;
     }
 
     public PublicImageUploadInfo stage(MultipartFile file, int userId) {
         requireUserId(userId);
         PublicImageValidator.ValidatedImage validated = validator.validate(file);
+        ensureDiskCapacity(file.getSize());
         synchronized (lockFor(userId)) {
             cleanupUserExpired(userId, System.currentTimeMillis());
             List<Path> stagedFiles = stagedFiles(userId);
@@ -76,14 +93,21 @@ public class PublicImageLifecycleService {
         }
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
     public String promote(int userId, String token) {
         requireUserId(userId);
         requireToken(token);
         synchronized (lockFor(userId)) {
             Path staged = findStagedFile(userId, token, true);
             String extension = FileStorageUtil.extensionOf(staged.getFileName().toString());
-            String publicPath = fileStorageUtil.moveInto(staged, PUBLIC_ROOT, extension);
+            long fileSize = safeSize(staged);
+            reservePermanentQuota(userId, fileSize);
+            String publicPath = fileStorageUtil.moveInto(
+                    staged, PUBLIC_ROOT + "/" + userId, extension);
             registerRollbackCleanup(publicPath);
+            if (quotaMapper.insertAsset(publicPath, userId, fileSize) != 1) {
+                throw new IllegalStateException("登记公共图片失败");
+            }
             return publicPath;
         }
     }
@@ -99,9 +123,17 @@ public class PublicImageLifecycleService {
         }
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
     public void deletePublicImageAfterCommit(String relativePath) {
         String normalized = normalizeManagedPublicPath(relativePath);
         if (normalized == null) return;
+        PublicImageAssetEntity asset = quotaMapper.findAsset(normalized);
+        if (asset != null && quotaMapper.deleteAsset(normalized) == 1) {
+            if (quotaMapper.releasePermanentQuota(
+                    asset.getOwnerUserId(), asset.getFileSize()) != 1) {
+                throw new IllegalStateException("释放公共图片配额失败");
+            }
+        }
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
@@ -194,7 +226,25 @@ public class PublicImageLifecycleService {
     private String normalizeManagedPublicPath(String relativePath) {
         if (relativePath == null) return null;
         String normalized = relativePath.trim().replace('\\', '/').replaceFirst("^/+", "");
-        return normalized.matches("^images/[0-9a-fA-F-]{36}\\.(jpg|png|webp)$") ? normalized : null;
+        return normalized.matches("^images/(?:[1-9][0-9]*/)?[0-9a-fA-F-]{36}\\.(jpg|png|webp)$")
+                ? normalized : null;
+    }
+
+    private void reservePermanentQuota(int userId, long fileSize) {
+        quotaMapper.ensureQuotaRow(userId);
+        int reserved = quotaMapper.reservePermanentQuota(
+                userId, fileSize, maxPermanentFilesPerUser, permanentQuotaBytes);
+        if (reserved != 1) {
+            throw new IllegalStateException("当前账号的正式图片数量或容量已达到上限，请先删除不再使用的图片");
+        }
+    }
+
+    private void ensureDiskCapacity(long incomingBytes) {
+        if (minFreeDiskBytes <= 0) return;
+        long usableBytes = fileStorageUtil.getUsableSpace();
+        if (usableBytes < incomingBytes || usableBytes - incomingBytes < minFreeDiskBytes) {
+            throw new IllegalStateException("服务器图片存储空间不足，请联系管理员清理后再上传");
+        }
     }
 
     private void safeDelete(String relativePath) {

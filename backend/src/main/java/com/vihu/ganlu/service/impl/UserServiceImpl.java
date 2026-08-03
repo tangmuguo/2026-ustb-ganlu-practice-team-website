@@ -125,6 +125,7 @@ public class UserServiceImpl implements UserService {
             if (user.getImageUploadUserId() == null) {
                 throw new IllegalArgumentException("图片上传用户不正确");
             }
+            imageLifecycleService.deletePublicImageAfterCommit(oldImagePath);
             user.setImageUrl(imageLifecycleService.promote(
                     user.getImageUploadUserId(), user.getImageUploadToken()));
         } else {
@@ -132,10 +133,6 @@ public class UserServiceImpl implements UserService {
         }
         int updated = userMapper.updateUserById(user);
         if (updated != 1 && replacingImage) throw new IllegalStateException("更新用户图片失败");
-        if (updated == 1 && !java.util.Objects.equals(oldImagePath, user.getImageUrl())
-                && replacingImage) {
-            imageLifecycleService.deletePublicImageAfterCommit(oldImagePath);
-        }
         return updated;
     }
 

@@ -162,6 +162,31 @@ CREATE TABLE `team_page_images`  (
 ) ENGINE = InnoDB AUTO_INCREMENT = 10 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
+-- Tables for permanent public image quota
+-- ----------------------------
+DROP TABLE IF EXISTS `public_image_quota`;
+CREATE TABLE `public_image_quota` (
+  `owner_user_id` int NOT NULL COMMENT '上传账号ID',
+  `used_file_count` int NOT NULL DEFAULT 0 COMMENT '已转正图片数',
+  `used_bytes` bigint NOT NULL DEFAULT 0 COMMENT '已转正图片累计字节数',
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`owner_user_id`),
+  CONSTRAINT `chk_public_image_quota_count` CHECK (`used_file_count` >= 0),
+  CONSTRAINT `chk_public_image_quota_bytes` CHECK (`used_bytes` >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='公共图片永久配额原子账本';
+
+DROP TABLE IF EXISTS `public_image_asset`;
+CREATE TABLE `public_image_asset` (
+  `relative_path` varchar(512) NOT NULL COMMENT '相对上传根目录的文件路径',
+  `owner_user_id` int NOT NULL COMMENT '上传账号ID',
+  `file_size` bigint NOT NULL COMMENT '文件字节数',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`relative_path`),
+  KEY `idx_public_image_asset_owner` (`owner_user_id`),
+  CONSTRAINT `chk_public_image_asset_size` CHECK (`file_size` >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='已转正公共图片所有者与大小';
+
+-- ----------------------------
 -- Table structure for team_page_word
 -- ----------------------------
 DROP TABLE IF EXISTS `team_page_word`;

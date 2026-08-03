@@ -54,6 +54,7 @@ public class NewsServiceImpl implements NewService {
         boolean replacingImage = hasUploadToken(news);
         if (replacingImage) {
             requireUploadOwner(news);
+            imageLifecycleService.deletePublicImageAfterCommit(oldPath);
             news.setImageUrl(imageLifecycleService.promote(
                     news.getImageUploadUserId(), news.getImageUploadToken()));
         } else {
@@ -61,9 +62,6 @@ public class NewsServiceImpl implements NewService {
         }
         int updated = newsMapper.update(news);
         if (updated != 1 && replacingImage) throw new IllegalStateException("更新新闻失败");
-        if (updated == 1 && !java.util.Objects.equals(oldPath, news.getImageUrl())) {
-            imageLifecycleService.deletePublicImageAfterCommit(oldPath);
-        }
         return updated;
     }
 

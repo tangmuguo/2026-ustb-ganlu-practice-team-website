@@ -6,7 +6,7 @@
 
 ## 当前交付状态
 
-公共架构和已收到的成员模块已经集成到分支 `zhaoyouwei/public-architecture-integration`。后端 122 项自动测试、前端正式构建和 6 项前端状态/上传契约测试均已通过。
+公共架构和已收到的成员模块已经集成到分支 `zhaoyouwei/public-architecture-integration`。后端 124 项自动测试、前端正式构建和 6 项前端状态/上传契约测试均已通过。
 
 李嘉辉负责的团队风采内容管理及 `database/patches/11_team_content.sql` 已提交在依赖 PR #12，但尚未进入本集成分支；方亦琳的正式留言板后端位于依赖 PR #10，当前分支保留的是临时最小实现。两个版本都等待孙木文按 PR 顺序审核处理，因此目前不能宣称九人任务已经全部完成，也不能直接部署生产环境。详情见 `docs/integration/最终联调记录.md`。
 
@@ -51,6 +51,7 @@ E:\github\zhaoyouwei\2026-ustb-ganlu-practice-team-website
 4. 再依次打开并执行当前已有补丁：
    - `database/patches/00_user_security.sql`
    - `database/patches/10_team_core.sql`
+   - `database/patches/12_public_image_quota.sql`
    - `database/patches/20_message_board.sql`
    - `database/patches/30_material_center.sql`
    - `database/patches/40_volunteer_application.sql`
@@ -98,6 +99,8 @@ Remove-Item Env:GANLU_BOOTSTRAP_ADMIN_PHONE
 ```
 
 密码会由后端使用 BCrypt 加密后写入数据库，日志不会打印密码。数据库中已经有 level=0 管理员时，初始化程序也不会创建第二个管理员。
+
+公共图片默认每个上传账号最多保存 100 张、累计 500MB，并要求上传磁盘至少保留 1GB 可用空间。生产部署可通过 `TEAM_PUBLIC_IMAGE_MAX_PERMANENT_FILES`、`TEAM_PUBLIC_IMAGE_USER_PERMANENT_QUOTA_MB` 和 `TEAM_PUBLIC_IMAGE_MIN_FREE_DISK_MB` 调整；修改前需由孙木文结合服务器磁盘容量确认。
 
 不要关闭这个 PowerShell 窗口。后端默认运行在 `http://localhost:8080`。
 
