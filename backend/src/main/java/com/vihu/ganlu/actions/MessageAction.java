@@ -44,11 +44,7 @@ public class MessageAction {
         }
 
         Map<String, Object> data = messageService.getMessages(page, pageSize);
-        return ResponseEntity.ok(ImmutableMap.of(
-                "code", 200,
-                "message", "查询成功",
-                "content", data
-        ));
+        return ResponseEntity.ok(successResult("查询成功", data));
     }
 
     /**
@@ -61,11 +57,7 @@ public class MessageAction {
                                                           HttpServletRequest httpRequest) {
         UserEntity loginUser = currentUser(httpRequest);
         Integer messageId = messageService.addMessage(request.getContent(), loginUser.getId());
-        return ResponseEntity.ok(ImmutableMap.of(
-                "code", 200,
-                "message", "留言添加成功",
-                "content", messageId
-        ));
+        return ResponseEntity.ok(successResult("留言添加成功", messageId));
     }
 
     /**
@@ -79,10 +71,7 @@ public class MessageAction {
         UserEntity loginUser = currentUser(httpRequest);
         messageService.addReply(request.getMessageId(), request.getContent(), loginUser.getId());
 
-        return ResponseEntity.ok(ImmutableMap.of(
-                "code", 200,
-                "message", "回复添加成功"
-        ));
+        return ResponseEntity.ok(successResult("回复添加成功", null));
     }
 
     /**
@@ -96,10 +85,7 @@ public class MessageAction {
         UserEntity loginUser = currentUser(httpRequest);
         messageService.deleteMessage(request.getId(), loginUser);
 
-        return ResponseEntity.ok(ImmutableMap.of(
-                "code", 200,
-                "message", "留言删除成功"
-        ));
+        return ResponseEntity.ok(successResult("留言删除成功", null));
     }
 
     /**
@@ -113,10 +99,7 @@ public class MessageAction {
         UserEntity loginUser = currentUser(httpRequest);
         messageService.deleteReply(request.getId(), loginUser);
 
-        return ResponseEntity.ok(ImmutableMap.of(
-                "code", 200,
-                "message", "回复删除成功"
-        ));
+        return ResponseEntity.ok(successResult("回复删除成功", null));
     }
 
     /**
@@ -124,5 +107,17 @@ public class MessageAction {
      */
     private UserEntity currentUser(HttpServletRequest request) {
         return (UserEntity) request.getAttribute(AuthInterceptor.CURRENT_USER_ATTRIBUTE);
+    }
+
+    /**
+     * 【新增】统一成功响应构建方法
+     * 强制包含 code、message、content 三个字段，保证所有接口返回格式完全一致
+     */
+    private Map<String, Object> successResult(String message, Object content) {
+        return ImmutableMap.of(
+                "code", 200,
+                "message", message,
+                "content", content
+        );
     }
 }
