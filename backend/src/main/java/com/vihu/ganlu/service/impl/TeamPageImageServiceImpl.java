@@ -4,21 +4,25 @@ import com.vihu.ganlu.entitys.TeamPageImageEntity;
 import com.vihu.ganlu.mappers.TeamPageImageMapper;
 import com.vihu.ganlu.service.TeamPageImageService;
 import com.vihu.ganlu.utils.FileStorageUtil;
-import org.springframework.beans.factory.annotation.Value;
+import com.vihu.ganlu.utils.PublicImageValidator;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import javax.annotation.Resource;
 import java.util.List;
 @Service
 public class TeamPageImageServiceImpl implements TeamPageImageService {
-    @Resource
-    TeamPageImageMapper teamPageImageMapper;
-    @Resource
-    FileStorageUtil fileStorageUtil;
+    private final TeamPageImageMapper teamPageImageMapper;
+    private final FileStorageUtil fileStorageUtil;
+    private final PublicImageValidator publicImageValidator;
 
-    @Value("${file.upload-dir}")
-    private String uploadDir;
+    public TeamPageImageServiceImpl(
+            TeamPageImageMapper teamPageImageMapper,
+            FileStorageUtil fileStorageUtil,
+            PublicImageValidator publicImageValidator) {
+        this.teamPageImageMapper = teamPageImageMapper;
+        this.fileStorageUtil = fileStorageUtil;
+        this.publicImageValidator = publicImageValidator;
+    }
 
     @Override
     public int insertTeamImage(TeamPageImageEntity e) {
@@ -41,12 +45,7 @@ public class TeamPageImageServiceImpl implements TeamPageImageService {
     }
 
     public String uploadTeamImage(MultipartFile imageFile){
-        try{
-            String thumbnailPath = fileStorageUtil.storeFile(imageFile, "images");
-            return thumbnailPath;
-
-        }catch (RuntimeException e) {
-            throw new RuntimeException("文件存储失败", e);
-        }
+        PublicImageValidator.ValidatedImage validated = publicImageValidator.validate(imageFile);
+        return fileStorageUtil.storeFile(imageFile, "images", validated.getExtension());
     }
 }

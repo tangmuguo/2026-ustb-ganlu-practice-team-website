@@ -9,6 +9,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.AccessDeniedException;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -56,21 +57,40 @@ public class FileStorageUtil {
     }
 
     public String storeFile(MultipartFile file, String subDir) {
+        String originalName = safeLeafName(file == null ? null : file.getOriginalFilename());
+        return storeFile(file, subDir, extensionOf(originalName));
+    }
+
+    public String storeFile(MultipartFile file, String subDir, String forcedExtension) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("上传文件不能为空");
         }
         String originalName = safeLeafName(file.getOriginalFilename());
-        String extension = extensionOf(originalName);
+        String extension = sanitizeExtension(forcedExtension);
         String targetName = UUID.randomUUID().toString()
                 + (extension.isEmpty() ? "" : "." + extension);
         Path target = createDirectory(subDir).resolve(targetName).normalize();
         ensureInsideRoot(target);
 
-        try (InputStream input = file.getInputStream()) {
-            Files.copy(input, target, StandardCopyOption.REPLACE_EXISTING);
+        Path staging = null;
+        try {
+            // Staging lives outside /images/**, so a failed or partial copy is never same-origin public.
+            staging = Files.createTempFile(uploadRoot, ".upload-", ".tmp");
+            try (InputStream input = file.getInputStream()) {
+                Files.copy(input, staging, StandardCopyOption.REPLACE_EXISTING);
+            }
+            try {
+                Files.move(staging, target, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException ex) {
+                Files.move(staging, target);
+            }
             return toRelativePath(target);
         } catch (IOException e) {
+            deleteQuietly(staging);
+            deleteQuietly(target);
             throw new StorageException("存储文件失败: " + originalName, e);
+        } finally {
+            deleteQuietly(staging);
         }
     }
 
@@ -213,6 +233,15 @@ public class FileStorageUtil {
             Files.delete(testFile);
         } catch (AccessDeniedException e) {
             throw new IOException("上传目录不可写: " + uploadRoot, e);
+        }
+    }
+
+    private void deleteQuietly(Path path) {
+        if (path == null) return;
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException cleanupError) {
+            log.warn("清理上传暂存文件失败: {}", path, cleanupError);
         }
     }
 
