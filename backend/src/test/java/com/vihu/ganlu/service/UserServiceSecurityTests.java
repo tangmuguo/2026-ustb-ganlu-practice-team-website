@@ -10,6 +10,9 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.util.Collections;
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -75,6 +78,69 @@ class UserServiceSecurityTests {
 
         assertThrows(ConflictException.class, () -> service.addUser(user));
         verify(mapper, never()).addUser(any());
+    }
+
+    @Test
+    void leavesPasswordUnchangedWhenUpdateOmitsIt() {
+        UserEntity user = user(4, "student", null);
+
+        service.updateUserById(user);
+
+        assertNull(user.getPassword());
+        verify(mapper).updateUserById(user);
+    }
+
+    @Test
+    void leavesPasswordUnchangedWhenUpdateIsBlank() {
+        UserEntity user = user(5, "student", "   ");
+
+        service.updateUserById(user);
+
+        assertNull(user.getPassword());
+        verify(mapper).updateUserById(user);
+    }
+
+    @Test
+    void hashesPlaintextPasswordOnUpdate() {
+        UserEntity user = user(6, "student", "new-secret");
+
+        service.updateUserById(user);
+
+        assertNotEquals("new-secret", user.getPassword());
+        assertTrue(encoder.matches("new-secret", user.getPassword()));
+    }
+
+    @Test
+    void rehashesPasswordThatLooksLikeBcryptOnUpdate() {
+        String forgedBcrypt = encoder.encode("attacker-secret");
+        UserEntity user = user(7, "student", forgedBcrypt);
+
+        service.updateUserById(user);
+
+        assertNotEquals(forgedBcrypt, user.getPassword());
+        assertTrue(encoder.matches(forgedBcrypt, user.getPassword()));
+    }
+
+    @Test
+    void deletesUnboundUser() {
+        List<Integer> ids = Collections.singletonList(8);
+        when(mapper.countTeamBindingsByUserIds(ids)).thenReturn(0);
+        when(mapper.deleteUserByIds(ids)).thenReturn(1);
+
+        assertEquals(1, service.deleteUserByIds(ids));
+        verify(mapper).deleteUserByIds(ids);
+    }
+
+    @Test
+    void rejectsDeletingUserBoundToTeam() {
+        List<Integer> ids = Collections.singletonList(9);
+        when(mapper.countTeamBindingsByUserIds(ids)).thenReturn(1);
+
+        ConflictException exception = assertThrows(
+                ConflictException.class, () -> service.deleteUserByIds(ids));
+
+        assertTrue(exception.getMessage().contains("绑定团队"));
+        verify(mapper, never()).deleteUserByIds(anyList());
     }
 
     private UserEntity user(Integer id, String username, String password) {

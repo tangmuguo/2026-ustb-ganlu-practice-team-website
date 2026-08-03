@@ -104,18 +104,30 @@ const handleEdit = (row) => {
 }
 
 // 删除团队
-const handleDelete = (id) => {
-  ElMessageBox.confirm('确定要删除该团队吗?', '警告', {
-    confirmButtonText: '确定',
-    cancelButtonText: '取消',
-    type: 'warning'
-  })
-    .then(async () => {
-      await DeleteTeam(id)
-      ElMessage.success('删除成功')
-      await loadTeams()
+const handleDelete = async (id) => {
+  try {
+    await ElMessageBox.confirm('确定要删除该团队吗?', '警告', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
     })
-    .catch(() => {})
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error('无法确认删除操作')
+    }
+    return
+  }
+
+  try {
+    const response = await DeleteTeam(id)
+    if (response.data.code !== 200) {
+      throw new Error(response.data.message || '删除失败')
+    }
+    ElMessage.success('删除成功')
+    await loadTeams()
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || error.message || '删除失败')
+  }
 }
 
 function AddUser(){

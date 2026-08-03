@@ -92,7 +92,7 @@
     <update id="updateUserById" parameterType="com.vihu.ganlu.entitys.UserEntity" >
         update user
         set username=#{username},
-        <if test="password != null">
+        <if test="password != null and password != ''">
             password=#{password},
         </if>
         <if test="imageUrl != null">
@@ -117,6 +117,15 @@
             phone=#{phone}
         where id=#{id}
     </update>
+
+    <select id="countTeamBindingsByUserIds" resultType="int">
+        select count(1)
+        from team
+        where owner_user_id in
+        <foreach collection="ids" item="id" separator="," open="(" close=")">
+            #{id}
+        </foreach>
+    </select>
 
     <delete id="deleteUserByIds" parameterType="com.vihu.ganlu.entitys.UserQueryVo">
         delete from user

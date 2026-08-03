@@ -102,18 +102,27 @@ public class UserServiceImpl implements UserService {
             throw new IllegalArgumentException("账号长度应为3到30个字符");
         }
         user.setUsername(user.getUsername().trim());
-        if (user.getPassword() != null && !user.getPassword().isEmpty()
-                && (user.getPassword().length() < 8 || user.getPassword().length() > 72)) {
+        String submittedPassword = user.getPassword();
+        if (submittedPassword == null || submittedPassword.trim().isEmpty()) {
+            user.setPassword(null);
+        } else if (submittedPassword.length() < 8 || submittedPassword.length() > 72) {
             throw new IllegalArgumentException("密码长度应为8到72个字符");
-        }
-        if (user != null && user.getPassword() != null && !user.getPassword().isEmpty() && !isBcrypt(user.getPassword())) {
-            user.setPassword(passwordEncoder.encode(user.getPassword()));
+        } else {
+            // 更新接口只接收明文密码。即使输入伪装成 BCrypt，也必须重新哈希。
+            user.setPassword(passwordEncoder.encode(submittedPassword));
         }
         return userMapper.updateUserById(user);
     }
 
     @Override
-    public Integer deleteUserByIds(List<Integer> ids) { return userMapper.deleteUserByIds(ids); }
+    @Transactional
+    public Integer deleteUserByIds(List<Integer> ids) {
+        if (ids == null || ids.isEmpty()) throw new IllegalArgumentException("用户编号不能为空");
+        if (userMapper.countTeamBindingsByUserIds(ids) > 0) {
+            throw new ConflictException("所选团队账号已绑定团队内容，请先归档、迁移或解绑团队后再删除");
+        }
+        return userMapper.deleteUserByIds(ids);
+    }
 
     private boolean isBcrypt(String value) {
         return value != null && value.matches("^\\$2[aby]\\$\\d{2}\\$.{53}$");

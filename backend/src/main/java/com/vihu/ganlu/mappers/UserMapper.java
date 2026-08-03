@@ -20,6 +20,7 @@ public interface UserMapper {
     List<UserEntity> findUserByPage(UserQueryVo vo);
     Integer addUser(UserEntity e);
     Integer updateUserById(UserEntity e);
+    int countTeamBindingsByUserIds(@Param("ids") List<Integer> ids);
     Integer deleteUserByIds(List<Integer> ids);
 
 }
