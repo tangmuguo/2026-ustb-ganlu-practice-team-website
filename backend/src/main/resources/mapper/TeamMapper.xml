@@ -106,6 +106,15 @@
         </if>
     </select>
 
+    <select id="countByOwnerUserIdExcludingId" resultType="int">
+        SELECT COUNT(1)
+        FROM team
+        WHERE owner_user_id = #{ownerUserId}
+        <if test="excludeId != null">
+            AND id != #{excludeId}
+        </if>
+    </select>
+
     <insert id="insertTeam" parameterType="com.vihu.ganlu.entitys.TeamEntity"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO team (
@@ -138,4 +147,27 @@
         WHERE id = #{id}
           AND status != 'ARCHIVED'
     </update>
+
+    <!-- ===== 团队风采内容管理新增 ===== -->
+
+    <!-- 按 owner_user_id 查找当前用户负责的小队（团队端从 Token 推导 teamId）。
+         权限规则：只要团队未归档即可，允许 DRAFT 状态负责人准备内容。
+         Patch 12 加 UNIQUE(owner_user_id) 后此查询至多返回 0 或 1 行，
+         ORDER BY id DESC 保证多行场景（理论不应出现）下的确定性。 -->
+    <select id="findOwnedTeamByOwnerUserId" resultMap="teamMap">
+        SELECT <include refid="teamColumns"/>
+        FROM team
+        WHERE owner_user_id = #{ownerUserId}
+          AND status &lt;&gt; 'ARCHIVED'
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
+    <!-- 查找所有团队（管理员内容管理下拉选择用） -->
+    <select id="findAllTeams" resultMap="teamMap">
+        SELECT <include refid="teamColumns"/>
+        FROM team
+        ORDER BY year DESC, id DESC
+    </select>
+
 </mapper>

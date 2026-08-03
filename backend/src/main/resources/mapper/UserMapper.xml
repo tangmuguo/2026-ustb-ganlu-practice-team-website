@@ -29,6 +29,10 @@
         select * from user where id=#{id}
     </select>
 
+    <select id="findUserByIdForUpdate" parameterType="Integer" resultMap="usermap">
+        select * from user where id=#{id} for update
+    </select>
+
     <select id="findUserByLevel" parameterType="Integer" resultMap="usermap">
         select * from user where level=#{level}
     </select>

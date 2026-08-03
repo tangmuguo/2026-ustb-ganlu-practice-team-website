@@ -83,6 +83,18 @@ const router = createRouter({
       meta: { ...defaultMeta, title: '课件管理', requiresAuth: true, roles: [0, 1] },
     },
     {
+      path: '/team-content-manage',
+      name: 'team-content-manage',
+      component: () => import('@/views/TeamContentManage.vue'),
+      meta: { ...defaultMeta, title: '团队内容管理', requiresAuth: true, roles: [0, 1] },
+    },
+    {
+      path: '/admin/team-content',
+      name: 'admin-team-content',
+      component: () => import('@/views/TeamContentManage.vue'),
+      meta: { ...defaultMeta, title: '团队内容审核', requiresAuth: true, roles: [0] },
+    },
+    {
       path: '/fengcai',
       name: 'fengcai',
       component: () => import('@/views/FengCai.vue'),
@@ -143,14 +155,12 @@ const router = createRouter({
     {
       path: '/logh',
       name: 'team-log-manage',
-      component: () => import('@/views/LogHonor.vue'),
-      meta: { ...defaultMeta, title: '日志与荣誉', requiresAuth: true, roles: [0, 1] },
+      redirect: '/team-content-manage',
     },
     {
       path: '/photo',
       name: 'team-photo-manage',
-      component: () => import('@/views/Photos.vue'),
-      meta: { ...defaultMeta, title: '团队照片', requiresAuth: true, roles: [0, 1] },
+      redirect: '/team-content-manage',
     },
     {
       path: '/:pathMatch(.*)*',

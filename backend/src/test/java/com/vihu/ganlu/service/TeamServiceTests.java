@@ -46,6 +46,7 @@ class TeamServiceTests {
     void createsTeamAndBindsExactlyOneDetailPage() {
         when(userService.findUserById(7)).thenReturn(user(7, 1));
         when(teamMapper.countByYearAndNameExcludingId("2025", "星火小队", null)).thenReturn(0);
+        when(teamMapper.countByOwnerUserIdExcludingId(7, null)).thenReturn(0);
         when(teamMapper.insertTeam(any(TeamEntity.class))).thenAnswer(invocation -> {
             TeamEntity team = invocation.getArgument(0);
             team.setId(10);
@@ -72,6 +73,54 @@ class TeamServiceTests {
 
         assertThrows(DuplicateKeyException.class, () -> teamService.createTeam(validRequest()));
         verify(teamMapper, never()).insertTeam(any(TeamEntity.class));
+    }
+
+    @Test
+    void rejectsOwnerAlreadyBoundToAnotherTeam() {
+        // Item 5: 同一负责人账号已绑别的小队时，create 应拒绝
+        when(userService.findUserById(7)).thenReturn(user(7, 1));
+        when(teamMapper.countByYearAndNameExcludingId("2025", "星火小队", null)).thenReturn(0);
+        when(teamMapper.countByOwnerUserIdExcludingId(7, null)).thenReturn(1); // owner 已被占用
+
+        assertThrows(DuplicateKeyException.class, () -> teamService.createTeam(validRequest()));
+        verify(teamMapper, never()).insertTeam(any(TeamEntity.class));
+    }
+
+    @Test
+    void updateKeepsSameOwnerWithoutConflict() {
+        // Item 5: 更新自身时传入 excludeId=当前 teamId，同一 owner 不算冲突
+        TeamEntity existing = new TeamEntity();
+        existing.setId(10);
+        existing.setOwnerUserId(7);
+        existing.setStatus(TeamEntity.Status.DRAFT);
+        when(teamMapper.findById(10)).thenReturn(existing);
+        when(userService.findUserById(7)).thenReturn(user(7, 1));
+        when(teamMapper.countByYearAndNameExcludingId("2025", "星火小队", 10)).thenReturn(0);
+        when(teamMapper.countByOwnerUserIdExcludingId(7, 10)).thenReturn(0); // 同 owner 改自己
+        TeamPageEntity page = new TeamPageEntity();
+        page.setId(20);
+        when(teamPageService.ensureTeamPage(any(TeamEntity.class))).thenReturn(page);
+
+        TeamDetailDto detail = teamService.updateTeam(10, validRequest());
+
+        assertEquals(20, detail.getPageId());
+        verify(teamMapper).updateTeam(any(TeamEntity.class));
+    }
+
+    @Test
+    void updateRejectsOwnerAlreadyBoundToAnotherTeam() {
+        // Item 5: 更新时把 owner 改成已被别的小队占用的账号 → 拒绝
+        TeamEntity existing = new TeamEntity();
+        existing.setId(10);
+        existing.setOwnerUserId(8);
+        existing.setStatus(TeamEntity.Status.DRAFT);
+        when(teamMapper.findById(10)).thenReturn(existing);
+        when(userService.findUserById(7)).thenReturn(user(7, 1));
+        when(teamMapper.countByYearAndNameExcludingId("2025", "星火小队", 10)).thenReturn(0);
+        when(teamMapper.countByOwnerUserIdExcludingId(7, 10)).thenReturn(1); // owner 7 已绑别的小队
+
+        assertThrows(DuplicateKeyException.class, () -> teamService.updateTeam(10, validRequest()));
+        verify(teamMapper, never()).updateTeam(any(TeamEntity.class));
     }
 
     @Test
@@ -107,6 +156,7 @@ class TeamServiceTests {
         when(teamMapper.findById(10)).thenReturn(existing);
         when(userService.findUserById(7)).thenReturn(user(7, 1));
         when(teamMapper.countByYearAndNameExcludingId("2025", "星火小队", 10)).thenReturn(0);
+        when(teamMapper.countByOwnerUserIdExcludingId(7, 10)).thenReturn(0);
         TeamPageEntity page = new TeamPageEntity();
         page.setId(20);
         when(teamPageService.ensureTeamPage(any(TeamEntity.class))).thenReturn(page);

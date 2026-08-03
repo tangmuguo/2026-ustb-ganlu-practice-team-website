@@ -7,6 +7,7 @@ import java.util.List;
 public interface BannerMapper {
     List<BannerEntity> findAll();
     BannerEntity findById(Integer id);
+    BannerEntity findByIdForUpdate(Integer id);
     int count();
     int insert(BannerEntity banner);
     int update(BannerEntity banner);

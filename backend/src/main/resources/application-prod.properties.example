@@ -6,6 +6,9 @@ spring.datasource.password=${GANLU_DB_PASSWORD}
 spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
 
 file.upload-dir=${UPLOAD_DIR:/usr/share/ganlu/uploads}
+spring.servlet.multipart.max-file-size=${GANLU_MAX_UPLOAD_FILE_SIZE:200MB}
+spring.servlet.multipart.max-request-size=${GANLU_MAX_UPLOAD_REQUEST_SIZE:210MB}
+spring.servlet.multipart.file-size-threshold=${GANLU_UPLOAD_MEMORY_THRESHOLD:10MB}
 app.allowed-origins=${GANLU_ALLOWED_ORIGINS}
 app.base-url=${GANLU_APP_BASE_URL}
 security.jwt.secret=${GANLU_JWT_SECRET}

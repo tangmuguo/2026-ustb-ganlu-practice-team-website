@@ -31,6 +31,13 @@
         WHERE id = #{id}
     </select>
 
+    <select id="findByIdForUpdate" parameterType="int" resultMap="bannermap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM banner
+        WHERE id = #{id}
+        FOR UPDATE
+    </select>
+
     <select id="count" resultType="int">
         SELECT COUNT(*) FROM banner
     </select>

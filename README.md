@@ -6,9 +6,9 @@
 
 ## 当前交付状态
 
-公共架构和已收到的成员模块已经集成到分支 `zhaoyouwei/public-architecture-integration`。后端 124 项自动测试、前端正式构建和 6 项前端状态/上传契约测试均已通过。
+公共架构和已收到的成员模块已经集成到分支 `zhaoyouwei/public-architecture-integration`。自动测试数量以 `docs/integration/最终联调记录.md` 中最近一次完整构建记录为准。
 
-李嘉辉负责的团队风采内容管理及 `database/patches/11_team_content.sql` 已提交在依赖 PR #12，但尚未进入本集成分支；方亦琳的正式留言板后端位于依赖 PR #10，当前分支保留的是临时最小实现。两个版本都等待孙木文按 PR 顺序审核处理，因此目前不能宣称九人任务已经全部完成，也不能直接部署生产环境。详情见 `docs/integration/最终联调记录.md`。
+李嘉辉负责的团队风采内容管理（依赖 PR #12）已经合入本集成分支并接入统一图片生命周期；它仍需孙木文先审核、合并 PR #12，再审核本 Draft PR。方亦琳的正式留言板后端位于依赖 PR #10，当前分支保留的是临时最小实现。因此目前不能宣称九人任务已经全部完成，也不能直接部署生产环境。详情见 `docs/integration/最终联调记录.md`。
 
 ## 你需要安装的软件
 
@@ -51,11 +51,13 @@ E:\github\zhaoyouwei\2026-ustb-ganlu-practice-team-website
 4. 再依次打开并执行当前已有补丁：
    - `database/patches/00_user_security.sql`
    - `database/patches/10_team_core.sql`
-   - `database/patches/12_public_image_quota.sql`
+   - `database/patches/11_team_content.sql`
+   - `database/patches/12_team_owner_unique.sql`
+   - `database/patches/13_public_image_quota.sql`
    - `database/patches/20_message_board.sql`
    - `database/patches/30_material_center.sql`
    - `database/patches/40_volunteer_application.sql`
-5. `11_team_content.sql` 位于依赖 PR #12，尚未进入当前分支。本地调试可暂时跳过；PR #12 按顺序合入后，最终验收必须在新建的数据库备份副本中按完整顺序重跑。
+5. 最终固定顺序是 `00 → 10 → 11 → 12 → 13 → 20 → 30 → 40`。仍须在数据库备份副本中用真实 MySQL 完整重跑；本轮没有数据库凭据，不能把静态检查写成实测通过。
 
 补丁的完整说明和注意事项见 `database/patches/README.md`。不要在已有正式数据库上直接试脚本。
 

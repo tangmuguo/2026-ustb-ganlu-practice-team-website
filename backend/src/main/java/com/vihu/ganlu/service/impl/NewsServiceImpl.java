@@ -48,7 +48,7 @@ public class NewsServiceImpl implements NewService {
     @Override
     @Transactional
     public int updateNews(NewsEntity news) {
-        NewsEntity existing = news == null ? null : newsMapper.findById(news.getId());
+        NewsEntity existing = news == null ? null : newsMapper.findByIdForUpdate(news.getId());
         if (existing == null) return 0;
         String oldPath = existing.getImageUrl();
         boolean replacingImage = hasUploadToken(news);

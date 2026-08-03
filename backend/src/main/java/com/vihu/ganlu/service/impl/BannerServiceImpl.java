@@ -45,7 +45,7 @@ public class BannerServiceImpl implements BannerService {
     @Transactional
     public int updateBanner(BannerEntity banner) {
         BannerEntity existing = banner == null || banner.getId() == null
-                ? null : bannerMapper.findById(banner.getId());
+                ? null : bannerMapper.findByIdForUpdate(banner.getId());
         if (existing == null) return 0;
         String oldPath = existing.getImageUrl();
         boolean replacingImage = hasUploadToken(banner);

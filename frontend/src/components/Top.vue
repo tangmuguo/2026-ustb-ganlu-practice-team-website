@@ -41,18 +41,16 @@ const managementItems = computed(() => {
       { command: '/regt', label: '创建团队账号' },
       { command: '/mstudent', label: '学生账号管理' },
       { command: '/applications', label: '志愿者报名管理' },
+      { command: '/admin/team-content', label: '团队内容审核' },
       ...common,
-      { command: '/logh', label: '日志与荣誉' },
-      { command: '/photo', label: '团队照片' },
     ]
   }
 
   if (level.value === 1) {
     return [
       { command: '/mstudent', label: '学生账号管理' },
+      { command: '/team-content-manage', label: '团队内容管理' },
       ...common,
-      { command: '/logh', label: '日志与荣誉' },
-      { command: '/photo', label: '团队照片' },
     ]
   }
 

@@ -4,8 +4,10 @@ import com.vihu.ganlu.entitys.PublicImageAssetEntity;
 import com.vihu.ganlu.entitys.PublicImageUploadInfo;
 import com.vihu.ganlu.entitys.TeamPageImageEntity;
 import com.vihu.ganlu.mappers.PublicImageQuotaMapper;
+import com.vihu.ganlu.mappers.TeamMediaMapper;
 import com.vihu.ganlu.mappers.TeamPageImageMapper;
 import com.vihu.ganlu.service.impl.PublicImageLifecycleService;
+import com.vihu.ganlu.service.impl.PublicImageAssetDeletionService;
 import com.vihu.ganlu.service.impl.TeamPageImageServiceImpl;
 import com.vihu.ganlu.utils.FileStorageUtil;
 import com.vihu.ganlu.utils.PublicImageValidator;
@@ -63,7 +65,7 @@ class TeamPageImageUploadSecurityTests {
         byte[] png = imageBytes("png");
         String path = stageAndSave(file("team.png", "image/png", png));
 
-        assertTrue(path.matches("images/" + UPLOADER_ID + "/[0-9a-f-]+\\.png"));
+        assertTrue(path.matches("images_pending/" + UPLOADER_ID + "/[0-9a-f-]+\\.png"));
         assertArrayEquals(png, Files.readAllBytes(uploadRoot.resolve(path)));
     }
 
@@ -72,7 +74,7 @@ class TeamPageImageUploadSecurityTests {
         byte[] jpeg = imageBytes("jpg");
         String path = stageAndSave(file("team.jpeg", "image/jpeg", jpeg));
 
-        assertTrue(path.matches("images/" + UPLOADER_ID + "/[0-9a-f-]+\\.jpg"));
+        assertTrue(path.matches("images_pending/" + UPLOADER_ID + "/[0-9a-f-]+\\.jpg"));
         assertArrayEquals(jpeg, Files.readAllBytes(uploadRoot.resolve(path)));
     }
 
@@ -81,7 +83,7 @@ class TeamPageImageUploadSecurityTests {
         byte[] webp = validWebp();
         String path = stageAndSave(file("team.webp", "image/webp", webp));
 
-        assertTrue(path.matches("images/" + UPLOADER_ID + "/[0-9a-f-]+\\.webp"));
+        assertTrue(path.matches("images_pending/" + UPLOADER_ID + "/[0-9a-f-]+\\.webp"));
         assertArrayEquals(webp, Files.readAllBytes(uploadRoot.resolve(path)));
     }
 
@@ -174,6 +176,31 @@ class TeamPageImageUploadSecurityTests {
     }
 
     @Test
+    void formalTeamStatusMovesStableAssetWithoutChangingQuota() throws Exception {
+        String pendingPath = stageAndSave(file("review.png", "image/png", imageBytes("png")));
+        TeamPageImageEntity stored = new TeamPageImageEntity();
+        stored.setId(77);
+        stored.setTeamId(12);
+        stored.setImageUrl(pendingPath);
+        when(mapper.findByIdForUpdate(77)).thenReturn(stored);
+        when(mapper.updateImageUrl(eq(77), anyString())).thenReturn(1);
+        when(mapper.updateImageStatus(eq(77), anyString(), any())).thenReturn(1);
+
+        assertTrue(service.updateStatus(77, "PUBLISHED", null));
+        String publicPath = permanentAssets.keySet().iterator().next();
+        assertTrue(publicPath.startsWith("images/" + UPLOADER_ID + "/"));
+        assertFalse(Files.exists(uploadRoot.resolve(pendingPath)));
+        assertTrue(Files.exists(uploadRoot.resolve(publicPath)));
+        assertEquals(1, permanentFileCount.get());
+
+        stored.setImageUrl(publicPath);
+        assertTrue(service.updateStatus(77, "REJECTED", "需修改"));
+        String privatePath = permanentAssets.keySet().iterator().next();
+        assertTrue(privatePath.startsWith("images_pending/" + UPLOADER_ID + "/"));
+        assertEquals(1, permanentFileCount.get());
+    }
+
+    @Test
     void rejectsUploadWhenGlobalFreeDiskThresholdWouldBeCrossed() throws Exception {
         FileStorageUtil lowSpaceStorage = spy(new FileStorageUtil(uploadRoot.toString(), "test"));
         doReturn(0L).when(lowSpaceStorage).getUsableSpace();
@@ -182,6 +209,23 @@ class TeamPageImageUploadSecurityTests {
         assertThrows(IllegalStateException.class, () -> service.stageTeamImage(
                 file("no-space.png", "image/png", imageBytes("png")), UPLOADER_ID));
         assertNoStoredFiles();
+    }
+
+    @Test
+    void physicalDeleteFailureKeepsAssetAndQuotaOccupied() throws Exception {
+        String imagePath = stageAndSave(file("keep-quota.png", "image/png", imageBytes("png")));
+        FileStorageUtil failingStorage = spy(fileStorageUtil);
+        doThrow(new FileStorageUtil.StorageException("磁盘删除失败"))
+                .when(failingStorage).deleteFile(imagePath);
+        PublicImageAssetDeletionService deletionService =
+                new PublicImageAssetDeletionService(failingStorage, quotaMapper);
+
+        assertThrows(FileStorageUtil.StorageException.class,
+                () -> deletionService.deletePhysicalFileThenReleaseQuota(imagePath));
+
+        assertTrue(Files.exists(uploadRoot.resolve(imagePath)));
+        assertTrue(permanentAssets.containsKey(imagePath));
+        assertEquals(1, permanentFileCount.get());
     }
 
     @Test
@@ -231,6 +275,7 @@ class TeamPageImageUploadSecurityTests {
             int maxPermanentFiles,
             long minFreeDiskMegabytes) {
         mapper = mock(TeamPageImageMapper.class);
+        TeamMediaMapper mediaMapper = mock(TeamMediaMapper.class);
         quotaMapper = mock(PublicImageQuotaMapper.class);
         fileStorageUtil = storage;
         configureInMemoryPermanentQuota();
@@ -239,19 +284,21 @@ class TeamPageImageUploadSecurityTests {
                 fileStorageUtil,
                 validator,
                 quotaMapper,
+                new PublicImageAssetDeletionService(fileStorageUtil, quotaMapper),
                 1,
                 50,
                 maxStagedFiles,
                 500,
                 maxPermanentFiles,
                 minFreeDiskMegabytes);
-        return new TeamPageImageServiceImpl(mapper, lifecycleService);
+        return new TeamPageImageServiceImpl(mapper, mediaMapper, lifecycleService);
     }
 
     private void configureInMemoryPermanentQuota() {
         permanentFileCount = new AtomicInteger();
         permanentBytes = new AtomicLong();
         permanentAssets = new HashMap<>();
+        AtomicLong nextAssetId = new AtomicLong(1);
         when(quotaMapper.ensureQuotaRow(anyInt())).thenReturn(1);
         when(quotaMapper.reservePermanentQuota(anyInt(), anyLong(), anyInt(), anyLong()))
                 .thenAnswer(invocation -> {
@@ -268,20 +315,41 @@ class TeamPageImageUploadSecurityTests {
                         return 1;
                     }
                 });
-        when(quotaMapper.insertAsset(anyString(), anyInt(), anyLong()))
+        when(quotaMapper.insertAsset(any(PublicImageAssetEntity.class)))
                 .thenAnswer(invocation -> {
-                    PublicImageAssetEntity asset = new PublicImageAssetEntity();
-                    asset.setRelativePath(invocation.getArgument(0));
-                    asset.setOwnerUserId(invocation.getArgument(1));
-                    asset.setFileSize(invocation.getArgument(2));
+                    PublicImageAssetEntity asset = invocation.getArgument(0);
+                    asset.setAssetId(nextAssetId.getAndIncrement());
                     synchronized (permanentAssets) {
                         return permanentAssets.putIfAbsent(asset.getRelativePath(), asset) == null ? 1 : 0;
                     }
                 });
         when(quotaMapper.findAsset(anyString()))
                 .thenAnswer(invocation -> permanentAssets.get(invocation.getArgument(0)));
-        when(quotaMapper.deleteAsset(anyString()))
-                .thenAnswer(invocation -> permanentAssets.remove(invocation.getArgument(0)) == null ? 0 : 1);
+        when(quotaMapper.updateAssetPath(anyLong(), anyString()))
+                .thenAnswer(invocation -> {
+                    long assetId = invocation.getArgument(0);
+                    String newPath = invocation.getArgument(1);
+                    synchronized (permanentAssets) {
+                        PublicImageAssetEntity found = permanentAssets.values().stream()
+                                .filter(asset -> asset.getAssetId() == assetId)
+                                .findFirst().orElse(null);
+                        if (found == null || permanentAssets.containsKey(newPath)) return 0;
+                        permanentAssets.remove(found.getRelativePath());
+                        found.setRelativePath(newPath);
+                        permanentAssets.put(newPath, found);
+                        return 1;
+                    }
+                });
+        when(quotaMapper.deleteAsset(anyLong()))
+                .thenAnswer(invocation -> {
+                    long assetId = invocation.getArgument(0);
+                    synchronized (permanentAssets) {
+                        String path = permanentAssets.entrySet().stream()
+                                .filter(entry -> entry.getValue().getAssetId() == assetId)
+                                .map(Map.Entry::getKey).findFirst().orElse(null);
+                        return path != null && permanentAssets.remove(path) != null ? 1 : 0;
+                    }
+                });
         when(quotaMapper.releasePermanentQuota(anyInt(), anyLong()))
                 .thenAnswer(invocation -> {
                     permanentFileCount.updateAndGet(value -> Math.max(0, value - 1));

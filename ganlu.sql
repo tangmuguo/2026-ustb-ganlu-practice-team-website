@@ -175,13 +175,15 @@ CREATE TABLE `public_image_quota` (
   CONSTRAINT `chk_public_image_quota_bytes` CHECK (`used_bytes` >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='公共图片永久配额原子账本';
 
-DROP TABLE IF EXISTS `public_image_asset`;
-CREATE TABLE `public_image_asset` (
-  `relative_path` varchar(512) NOT NULL COMMENT '相对上传根目录的文件路径',
+  DROP TABLE IF EXISTS `public_image_asset`;
+  CREATE TABLE `public_image_asset` (
+    `asset_id` bigint NOT NULL AUTO_INCREMENT COMMENT '稳定资源编号；文件移动时保持不变',
+    `relative_path` varchar(512) NOT NULL COMMENT '相对上传根目录的文件路径',
   `owner_user_id` int NOT NULL COMMENT '上传账号ID',
   `file_size` bigint NOT NULL COMMENT '文件字节数',
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`relative_path`),
+    PRIMARY KEY (`asset_id`),
+    UNIQUE KEY `uk_public_image_asset_path` (`relative_path`),
   KEY `idx_public_image_asset_owner` (`owner_user_id`),
   CONSTRAINT `chk_public_image_asset_size` CHECK (`file_size` >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='已转正公共图片所有者与大小';

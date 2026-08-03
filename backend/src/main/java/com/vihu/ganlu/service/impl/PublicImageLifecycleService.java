@@ -31,11 +31,13 @@ import java.util.stream.Stream;
 public class PublicImageLifecycleService {
     private static final String STAGING_ROOT = "staging/public-images";
     private static final String PUBLIC_ROOT = "images";
+    private static final String PRIVATE_ROOT = "images_pending";
     private static final List<String> EXTENSIONS = Arrays.asList("jpg", "png", "webp");
 
     private final FileStorageUtil fileStorageUtil;
     private final PublicImageValidator validator;
     private final PublicImageQuotaMapper quotaMapper;
+    private final PublicImageAssetDeletionService assetDeletionService;
     private final long stagingTtlMillis;
     private final long userQuotaBytes;
     private final int maxStagedFilesPerUser;
@@ -48,6 +50,7 @@ public class PublicImageLifecycleService {
             FileStorageUtil fileStorageUtil,
             PublicImageValidator validator,
             PublicImageQuotaMapper quotaMapper,
+            PublicImageAssetDeletionService assetDeletionService,
             @Value("${team.public-image.staging-ttl-hours:24}") long stagingTtlHours,
             @Value("${team.public-image.user-temp-quota-mb:50}") long userQuotaMegabytes,
             @Value("${team.public-image.max-staged-files-per-user:10}") int maxStagedFilesPerUser,
@@ -57,6 +60,7 @@ public class PublicImageLifecycleService {
         this.fileStorageUtil = fileStorageUtil;
         this.validator = validator;
         this.quotaMapper = quotaMapper;
+        this.assetDeletionService = assetDeletionService;
         this.stagingTtlMillis = Duration.ofHours(Math.max(1L, stagingTtlHours)).toMillis();
         this.userQuotaBytes = Math.max(5L, userQuotaMegabytes) * 1024L * 1024L;
         this.maxStagedFilesPerUser = Math.max(1, maxStagedFilesPerUser);
@@ -95,6 +99,15 @@ public class PublicImageLifecycleService {
 
     @Transactional(propagation = Propagation.MANDATORY)
     public String promote(int userId, String token) {
+        return promote(userId, token, true);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public String promotePrivate(int userId, String token) {
+        return promote(userId, token, false);
+    }
+
+    private String promote(int userId, String token, boolean makePublic) {
         requireUserId(userId);
         requireToken(token);
         synchronized (lockFor(userId)) {
@@ -103,13 +116,40 @@ public class PublicImageLifecycleService {
             long fileSize = safeSize(staged);
             reservePermanentQuota(userId, fileSize);
             String publicPath = fileStorageUtil.moveInto(
-                    staged, PUBLIC_ROOT + "/" + userId, extension);
+                    staged, managedRoot(makePublic) + "/" + userId, extension);
             registerRollbackCleanup(publicPath);
-            if (quotaMapper.insertAsset(publicPath, userId, fileSize) != 1) {
+            PublicImageAssetEntity asset = new PublicImageAssetEntity();
+            asset.setRelativePath(publicPath);
+            asset.setOwnerUserId(userId);
+            asset.setFileSize(fileSize);
+            if (quotaMapper.insertAsset(asset) != 1) {
                 throw new IllegalStateException("登记公共图片失败");
             }
             return publicPath;
         }
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public String moveManagedImage(String relativePath, boolean makePublic) {
+        String normalized = normalizeManagedImagePath(relativePath);
+        if (normalized == null) {
+            throw new IllegalArgumentException("图片路径不属于统一生命周期管理");
+        }
+        PublicImageAssetEntity asset = quotaMapper.findAsset(normalized);
+        if (asset == null || asset.getAssetId() == null) {
+            throw new IllegalStateException("图片资源账本缺失，禁止改变公开状态");
+        }
+        String targetRoot = managedRoot(makePublic);
+        if (normalized.startsWith(targetRoot + "/")) return normalized;
+
+        String filename = fileStorageUtil.loadFile(normalized).getFileName().toString();
+        String targetPath = targetRoot + "/" + asset.getOwnerUserId() + "/" + filename;
+        fileStorageUtil.moveFile(normalized, targetPath);
+        registerRollbackMove(targetPath, normalized);
+        if (quotaMapper.updateAssetPath(asset.getAssetId(), targetPath) != 1) {
+            throw new IllegalStateException("更新图片资源位置失败");
+        }
+        return targetPath;
     }
 
     public void cancel(int userId, String token) {
@@ -125,24 +165,21 @@ public class PublicImageLifecycleService {
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void deletePublicImageAfterCommit(String relativePath) {
-        String normalized = normalizeManagedPublicPath(relativePath);
+        String normalized = normalizeManagedImagePath(relativePath);
         if (normalized == null) return;
-        PublicImageAssetEntity asset = quotaMapper.findAsset(normalized);
-        if (asset != null && quotaMapper.deleteAsset(normalized) == 1) {
-            if (quotaMapper.releasePermanentQuota(
-                    asset.getOwnerUserId(), asset.getFileSize()) != 1) {
-                throw new IllegalStateException("释放公共图片配额失败");
-            }
-        }
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    safeDelete(normalized);
+                    try {
+                        assetDeletionService.deletePhysicalFileThenReleaseQuota(normalized);
+                    } catch (RuntimeException error) {
+                        log.error("公共图片删除失败，配额保持占用以便重试: {}", normalized, error);
+                    }
                 }
             });
         } else {
-            safeDelete(normalized);
+            assetDeletionService.deletePhysicalFileThenReleaseQuota(normalized);
         }
     }
 
@@ -223,11 +260,31 @@ public class PublicImageLifecycleService {
         });
     }
 
-    private String normalizeManagedPublicPath(String relativePath) {
+    private void registerRollbackMove(String currentPath, String rollbackPath) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) return;
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != TransactionSynchronization.STATUS_COMMITTED) {
+                    try {
+                        fileStorageUtil.moveFile(currentPath, rollbackPath);
+                    } catch (RuntimeException error) {
+                        log.error("回滚图片移动失败 {} -> {}", currentPath, rollbackPath, error);
+                    }
+                }
+            }
+        });
+    }
+
+    private String normalizeManagedImagePath(String relativePath) {
         if (relativePath == null) return null;
         String normalized = relativePath.trim().replace('\\', '/').replaceFirst("^/+", "");
-        return normalized.matches("^images/(?:[1-9][0-9]*/)?[0-9a-fA-F-]{36}\\.(jpg|png|webp)$")
+        return normalized.matches("^(?:images|images_pending)/(?:[1-9][0-9]*/)?[0-9a-fA-F-]{36}\\.(jpg|png|webp)$")
                 ? normalized : null;
+    }
+
+    private String managedRoot(boolean makePublic) {
+        return makePublic ? PUBLIC_ROOT : PRIVATE_ROOT;
     }
 
     private void reservePermanentQuota(int userId, long fileSize) {

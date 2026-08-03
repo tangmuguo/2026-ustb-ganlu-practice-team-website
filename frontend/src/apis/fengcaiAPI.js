@@ -51,55 +51,96 @@ export function cancelPublicImageUpload (token) {
 }
 
 export function uploadWholeImage (val) {
-
   return instance({
-    url: AllPATH.addTeamImagePath,
+    url: Number(val.type) === 1 ? AllPATH.teamContentMembersPath : AllPATH.teamContentPhotosPath,
     method: 'POST',
     data: val
   })
 }
 
-export function uploadWholeWord (val) {
-
-  return instance({
-    url: AllPATH.addTeamWordPath,
-    method: 'POST',
-    data: val
-  })
+export function getMyTeamContent () {
+  return instance({ url: AllPATH.teamContentMinePath, method: 'GET' })
 }
 
-export function findAllWords (id) {
-
-  return instance({
-    url: AllPATH.findAllWordsPath,
-    method: 'POST',
-    data: {userId:id}
-  })
+export function uploadMember (file, extra = {}) {
+  return uploadImageMultipart(AllPATH.teamContentMembersPath, file, extra)
 }
 
-export function findAllImages (id) {
-
-  return instance({
-    url: AllPATH.findAllImagesPath,
-    method: 'POST',
-    data: {userId:id}
-  })
+export function uploadPhotoNew (file, extra = {}) {
+  return uploadImageMultipart(AllPATH.teamContentPhotosPath, file, extra)
 }
 
-export function deleteImage (id) {
-  const ids = Array.isArray(id) ? id : [id];
-  return instance({
-    url: AllPATH.deleteImagePath,
-    method: 'POST',
-    data: ids
-  })
+export function uploadLog (payload) {
+  return postForm(AllPATH.teamContentLogsPath, payload)
 }
 
-export function deleteWord (id) {
-  const ids = Array.isArray(id) ? id : [id];
-  return instance({
-    url: AllPATH.deleteWordPath,
-    method: 'POST',
-    data: ids
+export function uploadHonor (payload) {
+  return postForm(AllPATH.teamContentHonorsPath, payload)
+}
+
+export function uploadMedia (file, extra = {}) {
+  const data = new FormData()
+  data.append('file', file)
+  if (extra.relatedType) data.append('relatedType', extra.relatedType)
+  if (extra.relatedId != null) data.append('relatedId', extra.relatedId)
+  return instance({ url: AllPATH.teamContentMediaPath, method: 'POST', data })
+}
+
+export function deleteContent (type, id) {
+  return instance({ url: AllPATH.teamContentDeletePath(type, id), method: 'POST' })
+}
+
+export function downloadMedia (mediaId) {
+  return instance({ url: AllPATH.teamContentMediaDownloadPath(mediaId), method: 'GET', responseType: 'blob' })
+}
+
+export function downloadMediaOwner (mediaId) {
+  return instance({ url: AllPATH.teamContentMediaOwnerDownloadPath(mediaId), method: 'GET', responseType: 'blob' })
+}
+
+export function downloadMediaAdmin (mediaId) {
+  return instance({ url: AllPATH.adminTeamContentMediaDownloadPath(mediaId), method: 'GET', responseType: 'blob' })
+}
+
+export function adminListTeams () {
+  return instance({ url: AllPATH.adminTeamContentTeamsPath, method: 'GET' })
+}
+
+export function adminListContent (params = {}) {
+  return instance({ url: AllPATH.adminTeamContentPath, method: 'GET', params })
+}
+
+export function adminPublish (type, id) {
+  return instance({ url: AllPATH.adminTeamContentPublishPath(type, id), method: 'POST' })
+}
+
+export function adminReject (type, id, reason) {
+  return instance({ url: AllPATH.adminTeamContentRejectPath(type, id), method: 'POST', params: { reason } })
+}
+
+export function adminArchive (type, id) {
+  return instance({ url: AllPATH.adminTeamContentArchivePath(type, id), method: 'POST' })
+}
+
+export const getPublishedYears = getTeamYears
+
+export function getPublishedTeamsByYear (year, page = 1, size = 12) {
+  return getTeamsByYear(year, { page, size })
+}
+
+function uploadImageMultipart (url, file, extra) {
+  const data = new FormData()
+  data.append('file', file)
+  Object.entries(extra).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') data.append(key, value)
   })
+  return instance({ url, method: 'POST', data })
+}
+
+function postForm (url, payload) {
+  const data = new URLSearchParams()
+  Object.entries(payload || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') data.append(key, value)
+  })
+  return instance({ url, method: 'POST', data })
 }

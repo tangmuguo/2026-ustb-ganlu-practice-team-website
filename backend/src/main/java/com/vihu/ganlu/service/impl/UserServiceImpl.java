@@ -118,7 +118,7 @@ public class UserServiceImpl implements UserService {
             // 更新接口只接收明文密码。即使输入伪装成 BCrypt，也必须重新哈希。
             user.setPassword(passwordEncoder.encode(submittedPassword));
         }
-        UserEntity existing = userMapper.findUserById(user.getId());
+        UserEntity existing = userMapper.findUserByIdForUpdate(user.getId());
         String oldImagePath = existing == null ? null : existing.getImageUrl();
         boolean replacingImage = hasImageUploadToken(user);
         if (replacingImage) {

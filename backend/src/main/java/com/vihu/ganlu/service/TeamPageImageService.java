@@ -13,4 +13,11 @@ public interface TeamPageImageService {
     int deleteTeamPageImageByIdsAndUserId(List<Integer> ids, Integer userId);
     PublicImageUploadInfo stageTeamImage(MultipartFile imageFile, int uploaderUserId);
     void cancelStagedTeamImage(String token, int uploaderUserId);
+    List<TeamPageImageEntity> findByTeamId(int teamId);
+    List<TeamPageImageEntity> findByTeamIdAndStatus(int teamId, String status);
+    TeamPageImageEntity findById(int id);
+    boolean archiveById(int id);
+    boolean archiveByIdAndTeamId(int id, int teamId);
+    boolean updateStatus(int id, String status, String rejectReason);
+    boolean purgeById(int id);
 }

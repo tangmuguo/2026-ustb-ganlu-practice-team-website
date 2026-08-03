@@ -12,14 +12,15 @@ public interface PublicImageQuotaMapper {
             @Param("maxFiles") int maxFiles,
             @Param("maxBytes") long maxBytes);
 
-    int insertAsset(
-            @Param("relativePath") String relativePath,
-            @Param("ownerUserId") int ownerUserId,
-            @Param("fileSize") long fileSize);
+    int insertAsset(PublicImageAssetEntity asset);
 
     PublicImageAssetEntity findAsset(@Param("relativePath") String relativePath);
 
-    int deleteAsset(@Param("relativePath") String relativePath);
+    int updateAssetPath(
+            @Param("assetId") long assetId,
+            @Param("relativePath") String relativePath);
+
+    int deleteAsset(@Param("assetId") long assetId);
 
     int releasePermanentQuota(
             @Param("ownerUserId") int ownerUserId,

@@ -5,7 +5,8 @@
 
 <mapper namespace="com.vihu.ganlu.mappers.PublicImageQuotaMapper">
     <resultMap id="assetMap" type="com.vihu.ganlu.entitys.PublicImageAssetEntity">
-        <id column="relative_path" property="relativePath"/>
+        <id column="asset_id" property="assetId"/>
+        <result column="relative_path" property="relativePath"/>
         <result column="owner_user_id" property="ownerUserId"/>
         <result column="file_size" property="fileSize"/>
     </resultMap>
@@ -28,20 +29,27 @@
           AND used_bytes &lt;= #{maxBytes} - #{fileSize}
     </update>
 
-    <insert id="insertAsset">
+    <insert id="insertAsset" parameterType="com.vihu.ganlu.entitys.PublicImageAssetEntity"
+            useGeneratedKeys="true" keyProperty="assetId">
         INSERT INTO public_image_asset(relative_path, owner_user_id, file_size)
         VALUES(#{relativePath}, #{ownerUserId}, #{fileSize})
     </insert>
 
     <select id="findAsset" resultMap="assetMap">
-        SELECT relative_path, owner_user_id, file_size
+        SELECT asset_id, relative_path, owner_user_id, file_size
         FROM public_image_asset
         WHERE relative_path = #{relativePath}
     </select>
 
+    <update id="updateAssetPath">
+        UPDATE public_image_asset
+        SET relative_path = #{relativePath}
+        WHERE asset_id = #{assetId}
+    </update>
+
     <delete id="deleteAsset">
         DELETE FROM public_image_asset
-        WHERE relative_path = #{relativePath}
+        WHERE asset_id = #{assetId}
     </delete>
 
     <update id="releasePermanentQuota">

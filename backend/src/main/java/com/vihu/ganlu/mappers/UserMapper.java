@@ -10,6 +10,7 @@ public interface UserMapper {
 
     List<UserEntity> findAllUser();
     UserEntity findUserById(int id);
+    UserEntity findUserByIdForUpdate(int id);
     List<UserEntity> findUserByLevel(int level);
     List<UserEntity> findUserBigLevel(int level);
     UserEntity findUserByUsername(@Param("username") String username);
