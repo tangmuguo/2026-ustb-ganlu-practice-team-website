@@ -21,6 +21,23 @@
         select * from team_page_images where userId=#{userId}
     </select>
 
+    <select id="findByIds" resultMap="teampageimagemap">
+        select * from team_page_images
+        where id in
+        <foreach collection="ids" item="id" separator="," open="(" close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <select id="findByIdsAndUserId" resultMap="teampageimagemap">
+        select * from team_page_images
+        where userId = #{userId}
+          and id in
+        <foreach collection="ids" item="id" separator="," open="(" close=")">
+            #{id}
+        </foreach>
+    </select>
+
     <insert id="insertTeamImage" parameterType="com.vihu.ganlu.entitys.TeamPageImageEntity">
         insert into team_page_images(
                 userId,imageUrl,caption,content,createdAt,type
@@ -29,7 +46,7 @@
                 )
     </insert>
 
-    <delete id="deleteTeamPageImageByIds" parameterType="com.vihu.ganlu.entitys.UserQueryVo">
+    <delete id="deleteTeamPageImageByIds">
         delete from team_page_images
         <where>
             id in

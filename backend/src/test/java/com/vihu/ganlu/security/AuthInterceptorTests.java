@@ -11,6 +11,8 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.method.HandlerMethod;
 
+import javax.servlet.http.HttpServletRequest;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -46,7 +48,7 @@ class AuthInterceptorTests {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         assertFalse(interceptor.preHandle(request, response,
-                bannerHandler("addBanner", BannerEntity.class)));
+                bannerHandler("addBanner", BannerEntity.class, HttpServletRequest.class)));
         assertEquals(401, response.getStatus());
     }
 
@@ -58,7 +60,7 @@ class AuthInterceptorTests {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         assertFalse(interceptor.preHandle(request, response,
-                bannerHandler("addBanner", BannerEntity.class)));
+                bannerHandler("addBanner", BannerEntity.class, HttpServletRequest.class)));
         assertEquals(403, response.getStatus());
     }
 
@@ -70,7 +72,7 @@ class AuthInterceptorTests {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         assertTrue(interceptor.preHandle(request, response,
-                bannerHandler("addBanner", BannerEntity.class)));
+                bannerHandler("addBanner", BannerEntity.class, HttpServletRequest.class)));
         assertSame(administrator, request.getAttribute(AuthInterceptor.CURRENT_USER_ATTRIBUTE));
     }
 

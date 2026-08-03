@@ -3,10 +3,12 @@ package com.vihu.ganlu.service;
 import com.vihu.ganlu.entitys.UserEntity;
 import com.vihu.ganlu.mappers.UserMapper;
 import com.vihu.ganlu.service.impl.UserServiceImpl;
+import com.vihu.ganlu.service.impl.PublicImageLifecycleService;
 import com.vihu.ganlu.utils.ConflictException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -20,13 +22,15 @@ import static org.mockito.Mockito.*;
 class UserServiceSecurityTests {
     private UserMapper mapper;
     private PasswordEncoder encoder;
+    private PublicImageLifecycleService imageLifecycleService;
     private UserServiceImpl service;
 
     @BeforeEach
     void setUp() {
         mapper = mock(UserMapper.class);
         encoder = new BCryptPasswordEncoder(4);
-        service = new UserServiceImpl(mapper, encoder);
+        imageLifecycleService = mock(PublicImageLifecycleService.class);
+        service = new UserServiceImpl(mapper, encoder, imageLifecycleService);
     }
 
     @Test
@@ -141,6 +145,18 @@ class UserServiceSecurityTests {
 
         assertTrue(exception.getMessage().contains("绑定团队"));
         verify(mapper, never()).deleteUserByIds(anyList());
+    }
+
+    @Test
+    void convertsDeleteRaceIntegrityViolationToAccountSpecificConflict() {
+        List<Integer> ids = Collections.singletonList(10);
+        when(mapper.countTeamBindingsByUserIds(ids)).thenReturn(0);
+        when(mapper.deleteUserByIds(ids)).thenThrow(new DataIntegrityViolationException("late foreign key"));
+
+        ConflictException exception = assertThrows(
+                ConflictException.class, () -> service.deleteUserByIds(ids));
+
+        assertTrue(exception.getMessage().contains("\u4e1a\u52a1\u6570\u636e"));
     }
 
     private UserEntity user(Integer id, String username, String password) {

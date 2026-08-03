@@ -1,6 +1,7 @@
 package com.vihu.ganlu.actions;
 
 import com.google.common.collect.ImmutableMap;
+import com.vihu.ganlu.entitys.PublicImageUploadInfo;
 import com.vihu.ganlu.entitys.TeamPageImageEntity;
 import com.vihu.ganlu.entitys.TeamPageWordEntity;
 import com.vihu.ganlu.entitys.UserEntity;
@@ -10,6 +11,8 @@ import com.vihu.ganlu.security.RequireRoles;
 import com.vihu.ganlu.service.TeamPageImageService;
 import com.vihu.ganlu.service.TeamPageWordService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -28,15 +31,18 @@ public class FengCaiAction {
     @Resource
     TeamPageImageService teamPageImageService;
     @RequireRoles({0, 1})
-    @RequestMapping("/uploadImage")
-    public ResponseEntity<?> uploadImage(@RequestParam("imageFile") MultipartFile imageFile){
-        String imagePath = teamPageImageService.uploadTeamImage(imageFile);
+    @PostMapping("/uploadImage")
+    public ResponseEntity<?> uploadImage(
+            @RequestParam("imageFile") MultipartFile imageFile,
+            HttpServletRequest request){
+        PublicImageUploadInfo staged = teamPageImageService.stageTeamImage(
+                imageFile, currentUser(request).getId());
 
-        if (imagePath!=null) {
+        if (staged != null) {
             return ResponseEntity.ok().body(ImmutableMap.of(
                     "code", 200,
-                    "message", "上传成功",
-                    "content",imagePath
+                    "message", "图片已暂存，请完成业务保存",
+                    "content", staged
             ));
         } else {
             return ResponseEntity.badRequest().body(ImmutableMap.of(
@@ -47,12 +53,25 @@ public class FengCaiAction {
     }
 
     @RequireRoles({0, 1})
+    @DeleteMapping("/uploadImage")
+    public ResponseEntity<?> cancelUpload(
+            @RequestParam("token") String token,
+            HttpServletRequest request) {
+        teamPageImageService.cancelStagedTeamImage(token, currentUser(request).getId());
+        return ResponseEntity.ok().body(ImmutableMap.of(
+                "code", 200,
+                "message", "临时图片已清理"
+        ));
+    }
+
+    @RequireRoles({0, 1})
     @RequestMapping("/addImage")
     public ResponseEntity<?> addImage(@RequestBody TeamPageImageEntity entity, HttpServletRequest request){
         UserEntity currentUser = currentUser(request);
         if (currentUser.getLevel() == 1 || entity.getUserId() == null) {
             entity.setUserId(currentUser.getId());
         }
+        entity.setImageUploadUserId(currentUser.getId());
         int i = teamPageImageService.insertTeamImage(entity);
         if(i>0){
             return ResponseEntity.ok().body(ImmutableMap.of(

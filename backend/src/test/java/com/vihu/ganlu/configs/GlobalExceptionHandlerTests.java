@@ -6,12 +6,12 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GlobalExceptionHandlerTests {
     @Test
-    void convertsLateForeignKeyConflictToReadableResponse() {
+    void keepsNonDeleteIntegrityConflictGeneric() {
         GlobalExceptionHandler handler = new GlobalExceptionHandler();
 
         ResponseEntity<ApiResponse<Void>> response = handler.handleDataIntegrityViolation(
@@ -20,6 +20,9 @@ class GlobalExceptionHandlerTests {
         assertEquals(409, response.getStatusCodeValue());
         assertNotNull(response.getBody());
         assertEquals(409, response.getBody().getCode());
-        assertTrue(response.getBody().getMessage().contains("无法删除"));
+        assertEquals("\u6570\u636e\u7ea6\u675f\u51b2\u7a81\uff0c\u8bf7\u68c0\u67e5\u5173\u8054\u8bb0\u5f55\u548c\u5fc5\u586b\u5b57\u6bb5",
+                response.getBody().getMessage());
+        assertFalse(response.getBody().getMessage().contains("\u5220\u9664"));
+        assertFalse(response.getBody().getMessage().contains("\u8d26\u53f7"));
     }
 }

@@ -25,6 +25,12 @@
         ORDER BY sortOrder DESC
     </select>
 
+    <select id="findById" parameterType="int" resultMap="bannermap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM banner
+        WHERE id = #{id}
+    </select>
+
     <select id="count" resultType="int">
         SELECT COUNT(*) FROM banner
     </select>

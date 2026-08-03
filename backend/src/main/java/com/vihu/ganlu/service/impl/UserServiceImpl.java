@@ -5,6 +5,7 @@ import com.vihu.ganlu.entitys.UserQueryVo;
 import com.vihu.ganlu.mappers.UserMapper;
 import com.vihu.ganlu.service.UserService;
 import com.vihu.ganlu.utils.ConflictException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,10 +18,15 @@ import java.util.List;
 public class UserServiceImpl implements UserService {
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
+    private final PublicImageLifecycleService imageLifecycleService;
 
-    public UserServiceImpl(UserMapper userMapper, PasswordEncoder passwordEncoder) {
+    public UserServiceImpl(
+            UserMapper userMapper,
+            PasswordEncoder passwordEncoder,
+            PublicImageLifecycleService imageLifecycleService) {
         this.userMapper = userMapper;
         this.passwordEncoder = passwordEncoder;
+        this.imageLifecycleService = imageLifecycleService;
     }
 
     @Override
@@ -95,6 +101,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional
     public Integer updateUserById(UserEntity user) {
         if (user == null || user.getId() == null) throw new IllegalArgumentException("用户编号不能为空");
         if (user.getUsername() == null || user.getUsername().trim().length() < 3
@@ -111,7 +118,25 @@ public class UserServiceImpl implements UserService {
             // 更新接口只接收明文密码。即使输入伪装成 BCrypt，也必须重新哈希。
             user.setPassword(passwordEncoder.encode(submittedPassword));
         }
-        return userMapper.updateUserById(user);
+        UserEntity existing = userMapper.findUserById(user.getId());
+        String oldImagePath = existing == null ? null : existing.getImageUrl();
+        boolean replacingImage = hasImageUploadToken(user);
+        if (replacingImage) {
+            if (user.getImageUploadUserId() == null) {
+                throw new IllegalArgumentException("图片上传用户不正确");
+            }
+            user.setImageUrl(imageLifecycleService.promote(
+                    user.getImageUploadUserId(), user.getImageUploadToken()));
+        } else {
+            user.setImageUrl(oldImagePath);
+        }
+        int updated = userMapper.updateUserById(user);
+        if (updated != 1 && replacingImage) throw new IllegalStateException("更新用户图片失败");
+        if (updated == 1 && !java.util.Objects.equals(oldImagePath, user.getImageUrl())
+                && replacingImage) {
+            imageLifecycleService.deletePublicImageAfterCommit(oldImagePath);
+        }
+        return updated;
     }
 
     @Override
@@ -121,7 +146,27 @@ public class UserServiceImpl implements UserService {
         if (userMapper.countTeamBindingsByUserIds(ids) > 0) {
             throw new ConflictException("所选团队账号已绑定团队内容，请先归档、迁移或解绑团队后再删除");
         }
-        return userMapper.deleteUserByIds(ids);
+        List<UserEntity> existingUsers = new java.util.ArrayList<>();
+        for (Integer id : ids) {
+            UserEntity existing = userMapper.findUserById(id);
+            if (existing != null) existingUsers.add(existing);
+        }
+        final int deleted;
+        try {
+            deleted = userMapper.deleteUserByIds(ids);
+        } catch (DataIntegrityViolationException ex) {
+            throw new ConflictException("所选账号仍被业务数据引用，请先归档、迁移或解绑后再删除");
+        }
+        if (deleted > 0) {
+            for (UserEntity existing : existingUsers) {
+                imageLifecycleService.deletePublicImageAfterCommit(existing.getImageUrl());
+            }
+        }
+        return deleted;
+    }
+
+    private boolean hasImageUploadToken(UserEntity user) {
+        return user.getImageUploadToken() != null && !user.getImageUploadToken().trim().isEmpty();
     }
 
     private boolean isBcrypt(String value) {

@@ -31,17 +31,22 @@ export function getPublicTeamContent (teamId) {
   })
 }
 
-export function uploadPhoto (photoFile) {
-
+export function stagePublicImage (photoFile, onProgress) {
+  const formData = new FormData()
+  formData.append('imageFile', photoFile)
   return instance({
     url: AllPATH.uploadTeamImagePath,
     method: 'POST',
-    data: {
-      imageFile: photoFile
-    },
-    headers: {
-      "Content-Type": "multipart/form-data", // 关键！设置正确的 Content-Type
-    }
+    data: formData,
+    onUploadProgress: onProgress
+  })
+}
+
+export function cancelPublicImageUpload (token) {
+  return instance({
+    url: AllPATH.uploadTeamImagePath,
+    method: 'DELETE',
+    params: { token }
   })
 }
 

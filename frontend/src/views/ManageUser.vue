@@ -4,7 +4,7 @@ import { Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {AddTeam,GetAllTeams,DeleteTeam,UpdateTeam} from '@/apis/userAPI'
 import {access} from '@/utils/access'
-import UploadWidget from "@/components/UploadWidget.vue"
+import PublicImageUploadWidget from "@/components/PublicImageUploadWidget.vue"
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -52,9 +52,11 @@ const teamForm = ref({
   username: '',
   password: '',
   teamname: '',
-  imageUrl: ''
+  imageUrl: '',
+  imageUploadToken: ''
 })
 const teamFormRef=ref(null)
+const uploadWidget=ref(null)
 
 // 表单验证规则
 const rules = {
@@ -99,7 +101,7 @@ const handleAdd = () => {
 const handleEdit = (row) => {
   isEdit.value = true
   needPassword.value=false
-  teamForm.value = { ...row }
+  teamForm.value = { ...row, imageUploadToken: '' }
   dialogVisible.value = true
 }
 
@@ -173,7 +175,7 @@ const submitForm = async () => {
     return
   }
 
-  if (!teamForm.value.imageUrl) {
+  if (!teamForm.value.imageUrl && !teamForm.value.imageUploadToken) {
     ElMessage.warning('请上传图片')
     return
   }
@@ -191,6 +193,7 @@ const submitForm = async () => {
         delete updatedTeam.imageUrl
       }
       if (!await UpdateUser(updatedTeam)) return
+      uploadWidget.value?.markConsumed()
     }
   } else {
     // 添加团队
@@ -208,8 +211,12 @@ async function loadTeams(){
     }
 }
 
-const handleImageUpload = (url) => {
-  teamForm.value.imageUrl = url
+const handleImageUpload = (stagedImage) => {
+  teamForm.value.imageUploadToken = stagedImage?.token || ''
+}
+
+const handleDialogClosed = () => {
+  uploadWidget.value?.clearFile()
 }
 
 onMounted(() => {
@@ -287,6 +294,7 @@ onBeforeMount(()=>{
         v-model="dialogVisible"
         :title="isEdit ? '编辑团队' : '添加团队'"
         width="500px"
+        @closed="handleDialogClosed"
       >
         <el-form
           ref="teamFormRef"
@@ -309,11 +317,11 @@ onBeforeMount(()=>{
             <el-input v-model="teamForm.teamname" />
           </el-form-item>
           <el-form-item label="上传图片" prop="imageUrl">
-            <UploadWidget
+            <PublicImageUploadWidget
               ref="uploadWidget"
-              accept="image/*"
+              accept=".jpg,.jpeg,.png,.webp"
               tipText="请上传图片文件，大小不超过5MB"
-              max-size-mb="5"
+              :max-size-mb="5"
               @upload="handleImageUpload"
             />
           </el-form-item>

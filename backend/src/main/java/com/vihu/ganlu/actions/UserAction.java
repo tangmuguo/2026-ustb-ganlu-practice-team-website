@@ -103,6 +103,7 @@ public class UserAction {
         if (!canManageTarget(currentUser, targetUser)) return forbidden();
 
         user.setLevel(targetUser.getLevel());
+        user.setImageUploadUserId(currentUser.getId());
         int updated = userService.updateUserById(user);
         return updated > 0
                 ? ResponseEntity.ok(ApiResponse.success("账号更新成功", null))

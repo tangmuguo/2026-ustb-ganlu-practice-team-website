@@ -34,7 +34,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ApiResponse<Void>> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(ApiResponse.error(409, "该账号仍被团队或其他业务数据引用，无法删除"));
+                .body(ApiResponse.error(409, "数据约束冲突，请检查关联记录和必填字段"));
     }
 
     @ExceptionHandler(ConflictException.class)
