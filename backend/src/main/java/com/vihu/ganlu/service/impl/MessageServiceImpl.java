@@ -97,16 +97,18 @@ public class MessageServiceImpl implements MessageService {
             List<ReplyEntity> replyList = replyGroupMap.getOrDefault(msg.getId(), Collections.emptyList());
             msg.setReplies(replyList);
 
+            // 【修改】用户名统一设置：用户存在用真实名称，不存在用ID占位，保证前端不显示空白
+            msg.setUsername(getDisplayUsername(msg.getUserId(), userMap));
             UserEntity msgUser = userMap.get(msg.getUserId());
             if (msgUser != null) {
-                msg.setUsername(msgUser.getUsername());
                 msg.setTeamname(msgUser.getTeamname());
             }
 
             for (ReplyEntity reply : replyList) {
+                // 【修改】回复用户名同样增加占位逻辑
+                reply.setUsername(getDisplayUsername(reply.getUserId(), userMap));
                 UserEntity replyUser = userMap.get(reply.getUserId());
                 if (replyUser != null) {
-                    reply.setUsername(replyUser.getUsername());
                     reply.setTeamname(replyUser.getTeamname());
                 }
             }
@@ -203,5 +205,21 @@ public class MessageServiceImpl implements MessageService {
         }
 
         replyMapper.logicDeleteById(replyId);
+    }
+
+    /**
+     * 【新增】获取展示用的用户名
+     * 用户存在且用户名有效时返回真实用户名，不存在时返回「用户#ID」占位
+     * 保证前端始终有可展示的文本，避免用户删除后显示空白
+     */
+    private String getDisplayUsername(Integer userId, Map<Integer, UserEntity> userMap) {
+        if (userId == null) {
+            return "未知用户";
+        }
+        UserEntity user = userMap.get(userId);
+        if (user != null && user.getUsername() != null && !user.getUsername().trim().isEmpty()) {
+            return user.getUsername();
+        }
+        return "用户#" + userId;
     }
 }
