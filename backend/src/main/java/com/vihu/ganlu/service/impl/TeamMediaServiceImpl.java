@@ -3,6 +3,10 @@ package com.vihu.ganlu.service.impl;
 import com.vihu.ganlu.entitys.TeamMediaEntity;
 import com.vihu.ganlu.mappers.TeamMediaMapper;
 import com.vihu.ganlu.mappers.TeamMediaQuotaMapper;
+import com.vihu.ganlu.mappers.TeamPageImageMapper;
+import com.vihu.ganlu.mappers.TeamPageWordMapper;
+import com.vihu.ganlu.entitys.TeamPageImageEntity;
+import com.vihu.ganlu.entitys.TeamPageWordEntity;
 import com.vihu.ganlu.service.TeamMediaService;
 import com.vihu.ganlu.utils.FileStorageUtil;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,6 +22,8 @@ import java.util.List;
 public class TeamMediaServiceImpl implements TeamMediaService {
     private final TeamMediaMapper teamMediaMapper;
     private final TeamMediaQuotaMapper quotaMapper;
+    private final TeamPageImageMapper teamPageImageMapper;
+    private final TeamPageWordMapper teamPageWordMapper;
     private final FileStorageUtil fileStorageUtil;
     private final TeamMediaCapacityService capacityService;
     private final FileDeletionTaskService deletionTaskService;
@@ -29,6 +35,8 @@ public class TeamMediaServiceImpl implements TeamMediaService {
     public TeamMediaServiceImpl(
             TeamMediaMapper teamMediaMapper,
             TeamMediaQuotaMapper quotaMapper,
+            TeamPageImageMapper teamPageImageMapper,
+            TeamPageWordMapper teamPageWordMapper,
             FileStorageUtil fileStorageUtil,
             TeamMediaCapacityService capacityService,
             FileDeletionTaskService deletionTaskService,
@@ -38,6 +46,8 @@ public class TeamMediaServiceImpl implements TeamMediaService {
             @Value("${team.media.global-max-total-mb:20480}") long globalMaxTotalMb) {
         this.teamMediaMapper = teamMediaMapper;
         this.quotaMapper = quotaMapper;
+        this.teamPageImageMapper = teamPageImageMapper;
+        this.teamPageWordMapper = teamPageWordMapper;
         this.fileStorageUtil = fileStorageUtil;
         this.capacityService = capacityService;
         this.deletionTaskService = deletionTaskService;
@@ -53,7 +63,8 @@ public class TeamMediaServiceImpl implements TeamMediaService {
                                        String relatedType, Integer relatedId) {
         FileStorageUtil.ValidatedFile validated = fileStorageUtil.validate(file, FileStorageUtil.MAX_VIDEO_SIZE);
         long fileSize = validated.getSize();
-        capacityService.ensureCapacity(fileSize);
+        lockAndValidateParent(relatedType, relatedId, teamId);
+        capacityService.ensureFormalCapacity(fileSize);
         reserveQuota(uploaderId, fileSize);
 
         String relativePath = fileStorageUtil.storeFile(file, "media/" + uploaderId, validated.getExtension());
@@ -155,6 +166,32 @@ public class TeamMediaServiceImpl implements TeamMediaService {
         quotaMapper.ensureOwnerQuotaRow(uploaderId);
         if (quotaMapper.reserveOwnerQuota(uploaderId, fileSize, ownerMaxFiles, ownerMaxBytes) != 1) {
             throw new IllegalStateException("当前账号附件数量或容量已达到上限，请先归档并申请清理");
+        }
+    }
+
+    private void lockAndValidateParent(String relatedType, Integer relatedId, int teamId) {
+        if ((relatedType == null) != (relatedId == null)) {
+            throw new IllegalArgumentException("relatedType 与 relatedId 必须同时提供或同时省略");
+        }
+        if (relatedType == null) return;
+        if (relatedId <= 0) throw new IllegalArgumentException("关联内容编号不正确");
+        if ("IMAGE".equals(relatedType)) {
+            TeamPageImageEntity parent = teamPageImageMapper.findByIdForUpdate(relatedId);
+            requireAvailableParent(parent == null ? null : parent.getTeamId(),
+                    parent == null ? null : parent.getStatus(), teamId);
+        } else if ("WORD".equals(relatedType)) {
+            TeamPageWordEntity parent = teamPageWordMapper.findByIdForUpdate(relatedId);
+            requireAvailableParent(parent == null ? null : parent.getTeamId(),
+                    parent == null ? null : parent.getStatus(), teamId);
+        } else {
+            throw new IllegalArgumentException("无效的关联类型: " + relatedType);
+        }
+    }
+
+    private void requireAvailableParent(Integer parentTeamId, String parentStatus, int teamId) {
+        if (parentTeamId == null || !Integer.valueOf(teamId).equals(parentTeamId)
+                || "ARCHIVED".equals(parentStatus)) {
+            throw new IllegalArgumentException("关联的父内容不存在、不属于当前团队或已归档");
         }
     }
 

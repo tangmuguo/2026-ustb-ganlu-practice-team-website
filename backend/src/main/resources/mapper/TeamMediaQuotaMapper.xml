@@ -10,6 +10,51 @@
         ON DUPLICATE KEY UPDATE singleton_id = VALUES(singleton_id)
     </insert>
 
+    <!-- 所有实例先锁同一个协调行，再统计并登记在途上传。 -->
+    <select id="lockGlobalQuotaRow" resultType="Integer">
+        SELECT singleton_id
+        FROM team_media_global_quota
+        WHERE singleton_id = 1
+        FOR UPDATE
+    </select>
+
+    <delete id="cleanupUploadReservations">
+        DELETE FROM team_media_upload_reservation
+        WHERE (status = 'ACTIVE' AND expires_at &lt;= CURRENT_TIMESTAMP)
+           OR (status = 'RELEASED' AND released_at &lt; #{releasedBefore})
+    </delete>
+
+    <select id="countActiveUploadReservations" resultType="Integer">
+        SELECT COUNT(*)
+        FROM team_media_upload_reservation
+        WHERE status = 'ACTIVE' AND expires_at &gt; CURRENT_TIMESTAMP
+    </select>
+
+    <select id="sumActiveUploadReservationBytes" resultType="Long">
+        SELECT COALESCE(SUM(reserved_bytes), 0)
+        FROM team_media_upload_reservation
+        WHERE status = 'ACTIVE' AND expires_at &gt; CURRENT_TIMESTAMP
+    </select>
+
+    <select id="countRecentUploadAttempts" resultType="Integer">
+        SELECT COUNT(*)
+        FROM team_media_upload_reservation
+        WHERE owner_user_id = #{ownerUserId}
+          AND created_at &gt;= #{windowStart}
+    </select>
+
+    <insert id="insertUploadReservation">
+        INSERT INTO team_media_upload_reservation(
+            reservation_id, owner_user_id, reserved_bytes, status, expires_at)
+        VALUES(#{reservationId}, #{ownerUserId}, #{reservedBytes}, 'ACTIVE', #{expiresAt})
+    </insert>
+
+    <update id="releaseUploadReservation">
+        UPDATE team_media_upload_reservation
+        SET status = 'RELEASED', released_at = CURRENT_TIMESTAMP
+        WHERE reservation_id = #{reservationId} AND status = 'ACTIVE'
+    </update>
+
     <!-- 全局行始终先于账号行更新，所有上传使用同一锁顺序以降低死锁风险。 -->
     <update id="reserveGlobalQuota">
         UPDATE team_media_global_quota

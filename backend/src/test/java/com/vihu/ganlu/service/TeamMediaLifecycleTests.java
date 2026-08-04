@@ -3,10 +3,14 @@ package com.vihu.ganlu.service;
 import com.vihu.ganlu.entitys.FileDeletionTaskEntity;
 import com.vihu.ganlu.entitys.PublicImageAssetEntity;
 import com.vihu.ganlu.entitys.TeamMediaEntity;
+import com.vihu.ganlu.entitys.TeamPageImageEntity;
+import com.vihu.ganlu.entitys.TeamPageWordEntity;
 import com.vihu.ganlu.mappers.FileDeletionTaskMapper;
 import com.vihu.ganlu.mappers.PublicImageQuotaMapper;
 import com.vihu.ganlu.mappers.TeamMediaMapper;
 import com.vihu.ganlu.mappers.TeamMediaQuotaMapper;
+import com.vihu.ganlu.mappers.TeamPageImageMapper;
+import com.vihu.ganlu.mappers.TeamPageWordMapper;
 import com.vihu.ganlu.service.impl.FileDeletionTaskFailureService;
 import com.vihu.ganlu.service.impl.FileDeletionTaskProcessor;
 import com.vihu.ganlu.service.impl.FileDeletionTaskService;
@@ -158,10 +162,75 @@ class TeamMediaLifecycleTests {
         assertTrue(service.retryNow(7));
     }
 
+    @Test
+    void imageParentIsLockedBeforeQuotaAndAttachmentInsert() {
+        TeamMediaMapper mediaMapper = mock(TeamMediaMapper.class);
+        TeamMediaQuotaMapper quota = mock(TeamMediaQuotaMapper.class);
+        TeamPageImageMapper images = mock(TeamPageImageMapper.class);
+        TeamPageWordMapper words = mock(TeamPageWordMapper.class);
+        FileStorageUtil storage = mock(FileStorageUtil.class);
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "lesson.pdf", "application/pdf", "%PDF-1.7".getBytes());
+        when(storage.validate(file, FileStorageUtil.MAX_VIDEO_SIZE)).thenReturn(validated(file, "pdf"));
+        TeamPageImageEntity parent = new TeamPageImageEntity();
+        parent.setId(31);
+        parent.setTeamId(9);
+        parent.setStatus("PUBLISHED");
+        when(images.findByIdForUpdate(31)).thenReturn(parent);
+        when(quota.reserveGlobalQuota(anyLong(), anyInt(), anyLong())).thenReturn(1);
+        when(quota.reserveOwnerQuota(eq(7), anyLong(), anyInt(), anyLong())).thenReturn(1);
+        when(storage.storeFile(file, "media/7", "pdf")).thenReturn("media/7/a.pdf");
+        when(mediaMapper.insertTeamMedia(any())).thenReturn(1);
+        TeamMediaServiceImpl service = new TeamMediaServiceImpl(
+                mediaMapper, quota, images, words, storage,
+                mock(TeamMediaCapacityService.class), mock(FileDeletionTaskService.class),
+                2, 400, 10, 2000);
+
+        service.uploadMedia(file, 7, 9, "IMAGE", 31);
+
+        org.mockito.InOrder order = inOrder(images, quota, storage, mediaMapper);
+        order.verify(images).findByIdForUpdate(31);
+        order.verify(quota).ensureGlobalQuotaRow();
+        order.verify(quota).reserveGlobalQuota(anyLong(), anyInt(), anyLong());
+        order.verify(storage).storeFile(file, "media/7", "pdf");
+        order.verify(mediaMapper).insertTeamMedia(any());
+        verifyNoInteractions(words);
+    }
+
+    @Test
+    void archivedWordParentIsRejectedBeforeQuotaOrPermanentDiskWrite() {
+        TeamMediaMapper mediaMapper = mock(TeamMediaMapper.class);
+        TeamMediaQuotaMapper quota = mock(TeamMediaQuotaMapper.class);
+        TeamPageImageMapper images = mock(TeamPageImageMapper.class);
+        TeamPageWordMapper words = mock(TeamPageWordMapper.class);
+        FileStorageUtil storage = mock(FileStorageUtil.class);
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "lesson.pdf", "application/pdf", "%PDF-1.7".getBytes());
+        when(storage.validate(file, FileStorageUtil.MAX_VIDEO_SIZE)).thenReturn(validated(file, "pdf"));
+        TeamPageWordEntity parent = new TeamPageWordEntity();
+        parent.setId(41);
+        parent.setTeamId(9);
+        parent.setStatus("ARCHIVED");
+        when(words.findByIdForUpdate(41)).thenReturn(parent);
+        TeamMediaServiceImpl service = new TeamMediaServiceImpl(
+                mediaMapper, quota, images, words, storage,
+                mock(TeamMediaCapacityService.class), mock(FileDeletionTaskService.class),
+                2, 400, 10, 2000);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.uploadMedia(file, 7, 9, "WORD", 41));
+
+        verify(words).findByIdForUpdate(41);
+        verifyNoInteractions(quota, mediaMapper, images);
+        verify(storage, never()).storeFile(any(), anyString(), anyString());
+    }
+
     private TeamMediaServiceImpl service(TeamMediaMapper mediaMapper, TeamMediaQuotaMapper quota,
                                          FileStorageUtil storage, TeamMediaCapacityService capacity,
                                          FileDeletionTaskService tasks) {
-        return new TeamMediaServiceImpl(mediaMapper, quota, storage, capacity, tasks,
+        return new TeamMediaServiceImpl(mediaMapper, quota,
+                mock(TeamPageImageMapper.class), mock(TeamPageWordMapper.class),
+                storage, capacity, tasks,
                 2, 400, 10, 2000);
     }
 

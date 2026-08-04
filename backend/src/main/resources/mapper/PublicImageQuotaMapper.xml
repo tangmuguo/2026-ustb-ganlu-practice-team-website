@@ -55,6 +55,19 @@
         FOR UPDATE
     </select>
 
+    <select id="findAllAssets" resultMap="assetMap">
+        SELECT asset_id, relative_path, owner_user_id, file_size
+        FROM public_image_asset
+        ORDER BY asset_id
+    </select>
+
+    <select id="findAllAssetsForUpdate" resultMap="assetMap">
+        SELECT asset_id, relative_path, owner_user_id, file_size
+        FROM public_image_asset
+        ORDER BY asset_id
+        FOR UPDATE
+    </select>
+
     <update id="updateAssetPath">
         UPDATE public_image_asset
         SET relative_path = #{relativePath}
@@ -65,6 +78,23 @@
         DELETE FROM public_image_asset
         WHERE asset_id = #{assetId}
     </delete>
+
+    <update id="updateAssetMetadata">
+        UPDATE public_image_asset
+        SET owner_user_id = #{ownerUserId}, file_size = #{fileSize}
+        WHERE asset_id = #{assetId}
+    </update>
+
+    <delete id="deleteAllQuotaRows">
+        DELETE FROM public_image_quota
+    </delete>
+
+    <insert id="rebuildQuotaRows">
+        INSERT INTO public_image_quota(owner_user_id, used_file_count, used_bytes)
+        SELECT owner_user_id, COUNT(*), COALESCE(SUM(file_size), 0)
+        FROM public_image_asset
+        GROUP BY owner_user_id
+    </insert>
 
     <update id="releasePermanentQuota">
         UPDATE public_image_quota

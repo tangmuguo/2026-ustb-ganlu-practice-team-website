@@ -44,6 +44,10 @@
         select * from team_page_word where id = #{id}
     </select>
 
+    <select id="findByIdForUpdate" parameterType="Integer" resultMap="teampagewordmap">
+        select * from team_page_word where id = #{id} for update
+    </select>
+
     <insert id="insertTeamWord" parameterType="com.vihu.ganlu.entitys.TeamPageWordEntity"
             useGeneratedKeys="true" keyProperty="id">
         insert into team_page_word(

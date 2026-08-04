@@ -129,6 +129,7 @@ public class UserServiceImpl implements UserService {
             user.setImageUrl(imageLifecycleService.promote(
                     user.getImageUploadUserId(), user.getImageUploadToken()));
         } else {
+            imageLifecycleService.requireManagedImageAsset(oldImagePath);
             user.setImageUrl(oldImagePath);
         }
         int updated = userMapper.updateUserById(user);

@@ -1,6 +1,7 @@
 -- Patch 13: 公共图片永久配额账本与稳定资源编号
 -- 执行顺序：12_team_owner_unique.sql 之后、20_message_board.sql 之前。
--- 仅创建账本并登记可识别的旧团队风采图片，不删除业务数据。
+-- 仅创建账本结构，不猜测旧图片大小、所有者或共享关系。
+-- 执行后必须先调用管理员预检/迁移程序，使用磁盘真实大小登记全部业务图片。
 
 SET NAMES utf8mb4;
 
@@ -18,7 +19,7 @@ CREATE TABLE IF NOT EXISTS public_image_asset (
     asset_id BIGINT NOT NULL AUTO_INCREMENT COMMENT '稳定资源编号；文件移动时保持不变',
     relative_path VARCHAR(512) NOT NULL COMMENT '相对上传根目录的文件路径',
     owner_user_id INT NOT NULL COMMENT '上传账号ID',
-    file_size BIGINT NOT NULL COMMENT '文件字节数；迁移前旧文件无法获知时为0',
+    file_size BIGINT NOT NULL COMMENT '文件真实字节数；禁止用0代替未知大小',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (asset_id),
     UNIQUE KEY uk_public_image_asset_path (relative_path),
@@ -41,18 +42,7 @@ SET @sql := IF(@asset_path_unique_exists = 0,
   'SELECT ''public_image_asset 路径唯一索引已存在，跳过'' AS msg');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
--- 旧入口保存的团队风采图片可确定所属账号，但 SQL 无法安全读取磁盘文件大小。
--- 迁移时至少把它们计入永久文件数量；后续新图片会记录真实字节数。
-INSERT IGNORE INTO public_image_asset(relative_path, owner_user_id, file_size)
-SELECT imageUrl, userId, 0
-FROM team_page_images
-WHERE userId IS NOT NULL
-  AND imageUrl REGEXP '^(images|images_pending)/([1-9][0-9]*/)?[0-9a-fA-F-]{36}\\.(jpg|png|webp)$';
-
-INSERT INTO public_image_quota(owner_user_id, used_file_count, used_bytes)
-SELECT owner_user_id, COUNT(*), COALESCE(SUM(file_size), 0)
-FROM public_image_asset
-GROUP BY owner_user_id
-ON DUPLICATE KEY UPDATE
-    used_file_count = GREATEST(used_file_count, VALUES(used_file_count)),
-    used_bytes = GREATEST(used_bytes, VALUES(used_bytes));
+SELECT CONCAT(
+    '账本结构已创建。请先调用 GET /admin/public-image-migration/preflight；',
+    '清零全部阻断项后，在维护窗口开启迁移开关并调用 POST /admin/public-image-migration/migrate。'
+) AS migration_required;

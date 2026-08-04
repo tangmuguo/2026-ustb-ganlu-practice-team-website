@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.vihu.ganlu.mappers.PublicImageMigrationMapper">
+    <resultMap id="referenceMap" type="com.vihu.ganlu.entitys.PublicImageReferenceEntity">
+        <result column="source_type" property="sourceType"/>
+        <result column="source_id" property="sourceId"/>
+        <result column="relative_path" property="relativePath"/>
+        <result column="owner_hint" property="ownerHint"/>
+    </resultMap>
+
+    <select id="findBusinessReferences" resultMap="referenceMap">
+        SELECT source_type, source_id, relative_path, owner_hint
+        FROM (
+            SELECT 'TEAM_IMAGE' AS source_type, id AS source_id,
+                   NULLIF(TRIM(imageUrl), '') AS relative_path, userId AS owner_hint
+            FROM team_page_images
+            WHERE imageUrl IS NOT NULL AND TRIM(imageUrl) &lt;&gt; ''
+            UNION ALL
+            SELECT 'BANNER', id, NULLIF(TRIM(imageUrl), ''), NULL
+            FROM banner
+            WHERE imageUrl IS NOT NULL AND TRIM(imageUrl) &lt;&gt; ''
+            UNION ALL
+            SELECT 'NEWS', id, NULLIF(TRIM(imageUrl), ''), NULL
+            FROM news
+            WHERE imageUrl IS NOT NULL AND TRIM(imageUrl) &lt;&gt; ''
+            UNION ALL
+            SELECT 'USER', id, NULLIF(TRIM(imageUrl), ''), id
+            FROM `user`
+            WHERE imageUrl IS NOT NULL AND TRIM(imageUrl) &lt;&gt; ''
+        ) references_to_images
+        ORDER BY source_type, source_id
+    </select>
+</mapper>

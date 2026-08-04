@@ -25,6 +25,21 @@ CREATE TABLE IF NOT EXISTS team_media_global_quota (
     CONSTRAINT chk_team_media_global_bytes CHECK (used_bytes >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='团队附件服务器级原子配额账本';
 
+CREATE TABLE IF NOT EXISTS team_media_upload_reservation (
+    reservation_id CHAR(36) NOT NULL,
+    owner_user_id INT NOT NULL COMMENT '已在读取请求体前完成认证的账号',
+    reserved_bytes BIGINT NOT NULL COMMENT '跨实例原子登记的在途请求字节数',
+    status VARCHAR(16) NOT NULL DEFAULT 'ACTIVE',
+    expires_at TIMESTAMP NOT NULL COMMENT '进程中断时的保守回收时间',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    released_at TIMESTAMP NULL,
+    PRIMARY KEY (reservation_id),
+    KEY idx_team_media_upload_active (status, expires_at),
+    KEY idx_team_media_upload_rate (owner_user_id, created_at),
+    CONSTRAINT chk_team_media_upload_bytes CHECK (reserved_bytes > 0),
+    CONSTRAINT chk_team_media_upload_status CHECK (status IN ('ACTIVE','RELEASED'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Multipart解析前跨实例在途容量与速率记录';
+
 CREATE TABLE IF NOT EXISTS file_deletion_task (
     id BIGINT NOT NULL AUTO_INCREMENT,
     asset_type VARCHAR(32) NOT NULL COMMENT 'PUBLIC_IMAGE / TEAM_MEDIA',
@@ -61,7 +76,7 @@ CREATE PROCEDURE check_team_media_quota_migration()
 BEGIN
     IF EXISTS (
         SELECT 1 FROM team_media
-        WHERE uploader_id IS NULL OR file_size &lt; 0
+        WHERE uploader_id IS NULL OR file_size < 0
         LIMIT 1
     ) THEN
         SIGNAL SQLSTATE '45000'

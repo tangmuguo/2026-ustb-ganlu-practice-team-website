@@ -36,6 +36,7 @@ class TeamContentActionTests {
     private com.vihu.ganlu.security.TokenService tokenService;
     private com.vihu.ganlu.service.UserService userService;
     private com.vihu.ganlu.service.impl.FileDeletionTaskService deletionTaskService;
+    private com.vihu.ganlu.service.impl.PublicImageMigrationService publicImageMigrationService;
 
     @BeforeEach
     void setUp() {
@@ -47,6 +48,7 @@ class TeamContentActionTests {
         tokenService = mock(com.vihu.ganlu.security.TokenService.class);
         userService = mock(com.vihu.ganlu.service.UserService.class);
         deletionTaskService = mock(com.vihu.ganlu.service.impl.FileDeletionTaskService.class);
+        publicImageMigrationService = mock(com.vihu.ganlu.service.impl.PublicImageMigrationService.class);
         action = new TeamContentAction();
         // 通过反射注入 @Resource 字段
         inject(action, "teamPageImageService", imageService);
@@ -57,6 +59,7 @@ class TeamContentActionTests {
         inject(action, "tokenService", tokenService);
         inject(action, "userService", userService);
         inject(action, "fileDeletionTaskService", deletionTaskService);
+        inject(action, "publicImageMigrationService", publicImageMigrationService);
     }
 
     /**
@@ -397,8 +400,8 @@ class TeamContentActionTests {
         mockTeamUser(5, 10);
         MockMultipartFile file = new MockMultipartFile("file", "test.mp4",
                 "video/mp4", new byte[]{0, 0, 0, 0, 'f', 't', 'y', 'p'});
-        when(fileStorageUtil.extractExtension("test.mp4")).thenReturn("mp4");
-        when(fileStorageUtil.isAllowedVideo(file)).thenReturn(null);
+        when(mediaService.uploadMedia(file, 5, 10, "INVALID", 1))
+                .thenThrow(new IllegalArgumentException("无效的关联类型: INVALID"));
 
         ResponseEntity<?> resp = action.uploadMedia(file, "INVALID", 1, req(user));
         assertEquals(400, resp.getStatusCodeValue());
@@ -411,18 +414,12 @@ class TeamContentActionTests {
         mockTeamUser(5, 10);
         MockMultipartFile file = new MockMultipartFile("file", "test.doc",
                 "application/msword", new byte[]{0, 0, 0, 0, 0, 0, 0, 0});
-        when(fileStorageUtil.extractExtension("test.doc")).thenReturn("doc");
-        when(fileStorageUtil.isAllowedDocument(file)).thenReturn(null);
-
-        // 父内容属于另一个 team
-        TeamPageWordEntity parent = new TeamPageWordEntity();
-        parent.setId(1);
-        parent.setTeamId(99); // 不是 10
-        parent.setStatus("PUBLISHED");
-        when(wordService.findById(1)).thenReturn(parent);
+        when(mediaService.uploadMedia(file, 5, 10, "WORD", 1))
+                .thenThrow(new IllegalArgumentException("关联的父内容不存在、不属于当前团队或已归档"));
 
         ResponseEntity<?> resp = action.uploadMedia(file, "WORD", 1, req(user));
         assertEquals(400, resp.getStatusCodeValue());
+        verify(wordService, never()).findById(anyInt());
     }
 
     @SuppressWarnings("unchecked")
@@ -433,8 +430,8 @@ class TeamContentActionTests {
         mockTeamUser(5, 10);
         MockMultipartFile file = new MockMultipartFile("file", "test.mp4",
                 "video/mp4", new byte[]{0, 0, 0, 0, 'f', 't', 'y', 'p'});
-        when(fileStorageUtil.extractExtension("test.mp4")).thenReturn("mp4");
-        when(fileStorageUtil.isAllowedVideo(file)).thenReturn(null);
+        when(mediaService.uploadMedia(file, 5, 10, "IMAGE", null))
+                .thenThrow(new IllegalArgumentException("relatedType 与 relatedId 必须同时提供或同时省略"));
 
         ResponseEntity<?> resp = action.uploadMedia(file, "IMAGE", null, req(user));
         assertEquals(400, resp.getStatusCodeValue());

@@ -58,6 +58,7 @@ public class NewsServiceImpl implements NewService {
             news.setImageUrl(imageLifecycleService.promote(
                     news.getImageUploadUserId(), news.getImageUploadToken()));
         } else {
+            imageLifecycleService.requireManagedImageAsset(oldPath);
             news.setImageUrl(oldPath);
         }
         int updated = newsMapper.update(news);

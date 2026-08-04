@@ -46,6 +46,8 @@
 | POST | `/admin/team-content/media/{id}/purge` | 已归档附件进入持久化物理删除队列 |
 | GET | `/admin/file-deletion-tasks` | 查询待处理/失败任务、次数和最后错误 |
 | POST | `/admin/file-deletion-tasks/{id}/retry` | 手动立即重试 |
+| GET | `/admin/public-image-migration/preflight` | 扫描四类业务引用、资产账本和磁盘，输出阻断清单 |
+| POST | `/admin/public-image-migration/migrate` | 仅维护窗口启用；按真实文件大小迁移并重建精确配额 |
 
 ---
 
@@ -126,12 +128,17 @@ ALTER TABLE `team_page_word`
 - `public_image_asset.asset_id` 是稳定资源编号。文件在私有和公开目录之间移动时只更新 `relative_path`，所有者、字节数和配额不会丢失。
 - 只有管理员彻底删除图片文件与记录时才释放配额；持久删除任务先确认物理文件已经删除，再删除资源记录并释放账本额度。磁盘删除或数据库清理失败时任务会保留并重试，普通“归档”也只隐藏内容、不删除文件。
 - 业务事务会先把稳定 `asset_id` 写入 `file_deletion_task`。提交后立即尝试，失败则保留任务、错误、次数和下次执行时间并自动退避重试；文件已经不存在按幂等成功继续清理账本。
+- 存量 Banner、News、User 和团队风采图片必须先经过应用侧预检。共享路径、磁盘缺失、非标准本地路径、未知所有者、越界链接、孤儿账本或孤儿文件都会形成阻断项；不允许再以 0 字节登记未知文件。
+- 旧本地图片未迁入账本时，替换、删除、纯文字更新和发布会被明确拒绝，不再静默遗漏物理文件。HTTP(S) 外部图片不属于本地文件生命周期。
 
 ## 附件生命周期、配额与磁盘保护
 
 - `team_media_quota` 按上传账号原子限制数量和累计字节，`team_media_global_quota` 使用单例行限制服务器总量；默认分别为 50 个/2GB 与 2000 个/20GB。
 - 所有上传事务固定先锁全局账本、再锁账号账本；条件更新在 InnoDB 中重新判断，多实例不能靠同时上传绕过上限。
-- Multipart 解析前的过滤器依据 `Content-Length` 检查临时目录和正式上传目录；Service 在正式复制前再次检查。两处默认都必须保留至少 1GB。
+- Multipart 解析前的过滤器先验证 Bearer Token 和 0/1 级角色，匿名、失效账号和学生请求不会进入请求体解析。
+- 过滤器先锁 `team_media_global_quota` 协调行，再把 `Content-Length` 写入 `team_media_upload_reservation`。所有实例共享在途字节、并发数和单账号分钟频率；检查与预留属于同一事务。请求结束在 `finally` 释放，进程中断由 TTL 回收。
+- 临时目录和正式目录按实际 `FileStore` 去重：同一设备只计算一次在途请求和较大的安全余量；不同设备分别保护。Service 在正式复制前还会进行第二次物理余量检查，两处默认至少保留 1GB。
+- 关联附件上传在最终登记事务内使用 `SELECT ... FOR UPDATE` 锁 IMAGE/WORD 父记录，再按“父记录 → 全局配额 → 账号配额 → 附件记录”顺序处理。父内容归档使用同一行锁，不能产生逃逸级联的非归档附件。
 - PENDING、PUBLISHED、REJECTED、ARCHIVED 全部占额度。归档只开始保留期，不释放空间；管理员 purge 或默认 30 天保留期结束后才创建 `TEAM_MEDIA` 删除任务。
 - 删除任务先确认物理文件消失，再删除 `team_media` 行并按“全局→账号”顺序释放额度。任一步失败都会保留任务并重试。
 
@@ -170,6 +177,17 @@ ALTER TABLE `team_page_word`
 
 **注意**：`team_page_word` 旧列名为小写 `userid`，SQL 中用反引号包裹。
 
+### 公共图片维护窗口迁移（补丁 13 后必做）
+
+1. 备份数据库和整个上传目录，停止外部写入；完整执行 `00 → 10 → 11 → 12 → 13 → 14 → 20 → 30 → 40`。
+2. 保持 `TEAM_PUBLIC_IMAGE_MIGRATION_ENABLED=false` 启动后端，以管理员调用 `GET /admin/public-image-migration/preflight`。
+3. 逐项清零报告：共享路径需复制或替换为独立文件；缺失文件需从备份恢复或更换；未知所有者/非标准路径需人工迁入账号目录；孤儿资产和文件需确认后处理。
+4. 关闭所有业务写入，临时设置 `TEAM_PUBLIC_IMAGE_MIGRATION_ENABLED=true` 并重启；调用 `POST /admin/public-image-migration/migrate`。
+5. 再次预检，必须同时得到 `migrationAllowed=true`、`consistent=true`，并确认业务引用数、账本数和磁盘文件数相等。
+6. 立即恢复 `TEAM_PUBLIC_IMAGE_MIGRATION_ENABLED=false` 并重启，再逐一验证旧 Banner、旧 News、旧头像和旧团队图片的不换图更新、换图更新、删除及失败重试。
+
+迁移接口不会自动删除或复制有歧义的文件；任何阻断项都会令迁移事务拒绝执行。这样可以避免删除共享文件破坏另一条业务记录。
+
 ---
 
 ## 8. 大文件上传配置
@@ -188,6 +206,10 @@ team.media.global-max-total-mb=20480
 team.media.upload-min-free-disk-mb=1024
 team.media.multipart-min-free-disk-mb=1024
 team.media.archived-retention-days=30
+team.media.max-concurrent-uploads=4
+team.media.max-requests-per-user-per-minute=12
+team.media.upload-reservation-ttl-minutes=120
+team.public-image.migration-enabled=false
 ```
 
 ### Nginx 运维提示
@@ -195,6 +217,8 @@ team.media.archived-retention-days=30
 ```nginx
 client_max_body_size 210M;
 proxy_request_buffering off;  # 关闭缓冲，实现真实前端上传进度
+client_body_timeout 60m;      # 必须小于应用的 120 分钟预留 TTL
+proxy_read_timeout 60m;
 ```
 
 ---
@@ -247,7 +271,9 @@ private Integer resolveTeamId(UserEntity user) {
 当前项目无 Flyway/Liquibase，手动执行。固定顺序为：
 `00 → 10 → 11 → 12 → 13 → 14 → 20 → 30 → 40`。
 
-`14_team_media_lifecycle.sql` 会回填旧附件账本；若旧附件无法确定上传账号会主动停止，必须先人工修复，不允许带着少算的额度继续上线。
+`13_public_image_quota.sql` 只创建结构，不能读取磁盘，因此禁止 SQL 直接按 0 字节回填；必须执行本页的应用侧预检/迁移。
+
+`14_team_media_lifecycle.sql` 会回填旧附件账本，并创建跨实例在途上传记录；若旧附件无法确定上传账号会主动停止，必须先人工修复，不允许带着少算的额度继续上线。
 
 需在本地和运维环境分别执行。
 

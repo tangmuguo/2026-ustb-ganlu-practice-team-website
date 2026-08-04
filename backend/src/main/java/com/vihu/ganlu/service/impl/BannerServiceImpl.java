@@ -55,6 +55,7 @@ public class BannerServiceImpl implements BannerService {
             banner.setImageUrl(imageLifecycleService.promote(
                     banner.getImageUploadUserId(), banner.getImageUploadToken()));
         } else {
+            imageLifecycleService.requireManagedImageAsset(oldPath);
             banner.setImageUrl(oldPath);
         }
         int updated = bannerMapper.update(banner);
@@ -83,6 +84,11 @@ public class BannerServiceImpl implements BannerService {
     @Override
     @Transactional
     public int updateBannerStatus(Integer id, Integer isVisible) {
+        BannerEntity existing = id == null ? null : bannerMapper.findByIdForUpdate(id);
+        if (existing == null) return 0;
+        if (Integer.valueOf(1).equals(isVisible)) {
+            imageLifecycleService.requireManagedImageAsset(existing.getImageUrl());
+        }
         return bannerMapper.updateStatus(id, isVisible);
     }
 

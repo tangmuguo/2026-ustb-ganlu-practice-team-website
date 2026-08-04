@@ -5,6 +5,7 @@ import com.vihu.ganlu.entitys.PublicImageAssetEntity;
 import com.vihu.ganlu.mappers.PublicImageQuotaMapper;
 import com.vihu.ganlu.utils.FileStorageUtil;
 import com.vihu.ganlu.utils.PublicImageValidator;
+import com.vihu.ganlu.utils.PublicImagePathPolicy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -131,10 +132,7 @@ public class PublicImageLifecycleService {
 
     @Transactional(propagation = Propagation.MANDATORY)
     public String moveManagedImage(String relativePath, boolean makePublic) {
-        String normalized = normalizeManagedImagePath(relativePath);
-        if (normalized == null) {
-            throw new IllegalArgumentException("图片路径不属于统一生命周期管理");
-        }
+        String normalized = requireManagedImagePath(relativePath);
         PublicImageAssetEntity asset = quotaMapper.findAsset(normalized);
         if (asset == null || asset.getAssetId() == null) {
             throw new IllegalStateException("图片资源账本缺失，禁止改变公开状态");
@@ -165,9 +163,22 @@ public class PublicImageLifecycleService {
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void deletePublicImageAfterCommit(String relativePath) {
-        String normalized = normalizeManagedImagePath(relativePath);
-        if (normalized == null) return;
+        if (relativePath == null || relativePath.trim().isEmpty()
+                || PublicImagePathPolicy.isExternalUrl(relativePath)) return;
+        String normalized = requireManagedImagePath(relativePath);
         deletionTaskService.enqueuePublicImage(normalized);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void requireManagedImageAsset(String relativePath) {
+        if (relativePath == null || relativePath.trim().isEmpty()
+                || PublicImagePathPolicy.isExternalUrl(relativePath)) return;
+        String normalized = requireManagedImagePath(relativePath);
+        PublicImageAssetEntity asset = quotaMapper.findAsset(normalized);
+        if (asset == null || asset.getAssetId() == null || asset.getFileSize() == null
+                || asset.getFileSize() <= 0 || !Files.isRegularFile(fileStorageUtil.loadFile(normalized))) {
+            throw new IllegalStateException("公共图片迁移未完成，禁止发布或修改该业务记录");
+        }
     }
 
     @Scheduled(fixedDelayString = "${team.public-image.cleanup-interval-ms:3600000}")
@@ -263,11 +274,12 @@ public class PublicImageLifecycleService {
         });
     }
 
-    private String normalizeManagedImagePath(String relativePath) {
-        if (relativePath == null) return null;
-        String normalized = relativePath.trim().replace('\\', '/').replaceFirst("^/+", "");
-        return normalized.matches("^(?:images|images_pending)/(?:[1-9][0-9]*/)?[0-9a-fA-F-]{36}\\.(jpg|png|webp)$")
-                ? normalized : null;
+    private String requireManagedImagePath(String relativePath) {
+        String normalized = PublicImagePathPolicy.normalizeManagedPath(relativePath);
+        if (normalized == null) {
+            throw new IllegalStateException("本地图片尚未迁入统一生命周期，禁止继续操作");
+        }
+        return normalized;
     }
 
     private String managedRoot(boolean makePublic) {

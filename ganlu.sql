@@ -180,7 +180,7 @@ CREATE TABLE `public_image_quota` (
     `asset_id` bigint NOT NULL AUTO_INCREMENT COMMENT '稳定资源编号；文件移动时保持不变',
     `relative_path` varchar(512) NOT NULL COMMENT '相对上传根目录的文件路径',
   `owner_user_id` int NOT NULL COMMENT '上传账号ID',
-  `file_size` bigint NOT NULL COMMENT '文件字节数',
+  `file_size` bigint NOT NULL COMMENT '文件真实字节数；禁止用0代替未知大小',
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`asset_id`),
     UNIQUE KEY `uk_public_image_asset_path` (`relative_path`),
@@ -232,6 +232,22 @@ CREATE TABLE `team_media_global_quota` (
   CONSTRAINT `chk_team_media_global_count` CHECK (`used_file_count` >= 0),
   CONSTRAINT `chk_team_media_global_bytes` CHECK (`used_bytes` >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='团队附件服务器级原子配额账本';
+
+DROP TABLE IF EXISTS `team_media_upload_reservation`;
+CREATE TABLE `team_media_upload_reservation` (
+  `reservation_id` char(36) NOT NULL,
+  `owner_user_id` int NOT NULL,
+  `reserved_bytes` bigint NOT NULL,
+  `status` varchar(16) NOT NULL DEFAULT 'ACTIVE',
+  `expires_at` timestamp NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `released_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`reservation_id`),
+  KEY `idx_team_media_upload_active` (`status`,`expires_at`),
+  KEY `idx_team_media_upload_rate` (`owner_user_id`,`created_at`),
+  CONSTRAINT `chk_team_media_upload_bytes` CHECK (`reserved_bytes` > 0),
+  CONSTRAINT `chk_team_media_upload_status` CHECK (`status` IN ('ACTIVE','RELEASED'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Multipart解析前跨实例在途容量与速率记录';
 
 DROP TABLE IF EXISTS `file_deletion_task`;
 CREATE TABLE `file_deletion_task` (

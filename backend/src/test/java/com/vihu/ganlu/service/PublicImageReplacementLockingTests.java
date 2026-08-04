@@ -31,6 +31,7 @@ class PublicImageReplacementLockingTests {
         assertForUpdate("mapper/BannerMapper.xml", "findByIdForUpdate");
         assertForUpdate("mapper/NewsMapper.xml", "findByIdForUpdate");
         assertForUpdate("mapper/UserMapper.xml", "findUserByIdForUpdate");
+        assertForUpdate("mapper/TeamPageWordMapper.xml", "findByIdForUpdate");
     }
 
     @Test
@@ -68,7 +69,7 @@ class PublicImageReplacementLockingTests {
         ArgumentCaptor<BannerEntity> saved = ArgumentCaptor.forClass(BannerEntity.class);
         verify(mapper).update(saved.capture());
         assertEquals("images/2/latest.jpg", saved.getValue().getImageUrl());
-        verifyNoInteractions(lifecycle);
+        verify(lifecycle).requireManagedImageAsset("images/2/latest.jpg");
     }
 
     @Test
@@ -169,6 +170,21 @@ class PublicImageReplacementLockingTests {
         order.verify(mapper).countTeamBindingsByUserIds(Arrays.asList(2, 5));
         order.verify(mapper).deleteUserByIds(Arrays.asList(2, 5));
         verify(mapper, never()).findUserById(anyInt());
+    }
+
+    @Test
+    void makingLegacyBannerVisibleIsBlockedUntilItsAssetIsMigrated() {
+        BannerMapper mapper = mock(BannerMapper.class);
+        PublicImageLifecycleService lifecycle = mock(PublicImageLifecycleService.class);
+        BannerEntity existing = banner(12, "legacy/shared-banner.jpg");
+        when(mapper.findByIdForUpdate(12)).thenReturn(existing);
+        doThrow(new IllegalStateException("公共图片迁移未完成"))
+                .when(lifecycle).requireManagedImageAsset(existing.getImageUrl());
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> new BannerServiceImpl(mapper, lifecycle).updateBannerStatus(12, 1));
+
+        verify(mapper, never()).updateStatus(anyInt(), anyInt());
     }
 
     private BannerEntity banner(int id, String imageUrl) {

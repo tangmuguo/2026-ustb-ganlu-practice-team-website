@@ -52,21 +52,23 @@ public class AuthInterceptor implements HandlerInterceptor {
             return true;
         }
 
-        String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
-        if (authorization == null || !authorization.startsWith("Bearer ")) {
-            return reject(response, HttpStatus.UNAUTHORIZED, "请先登录");
-        }
-
-        UserEntity currentUser;
-        try {
-            String token = authorization.substring("Bearer ".length()).trim();
-            if (token.isEmpty()) {
+        UserEntity currentUser = request.getAttribute(CURRENT_USER_ATTRIBUTE) instanceof UserEntity
+                ? (UserEntity) request.getAttribute(CURRENT_USER_ATTRIBUTE) : null;
+        if (currentUser == null) {
+            String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
+            if (authorization == null || !authorization.startsWith("Bearer ")) {
+                return reject(response, HttpStatus.UNAUTHORIZED, "请先登录");
+            }
+            try {
+                String token = authorization.substring("Bearer ".length()).trim();
+                if (token.isEmpty()) {
+                    return reject(response, HttpStatus.UNAUTHORIZED, "Token无效或已过期");
+                }
+                Integer userId = tokenService.verifyAndGetUserId(token);
+                currentUser = userService.findUserById(userId);
+            } catch (RuntimeException ex) {
                 return reject(response, HttpStatus.UNAUTHORIZED, "Token无效或已过期");
             }
-            Integer userId = tokenService.verifyAndGetUserId(token);
-            currentUser = userService.findUserById(userId);
-        } catch (RuntimeException ex) {
-            return reject(response, HttpStatus.UNAUTHORIZED, "Token无效或已过期");
         }
 
         if (currentUser == null || currentUser.getLevel() == null) {
@@ -74,8 +76,9 @@ public class AuthInterceptor implements HandlerInterceptor {
         }
 
         RequireRoles requireRoles = findAnnotation(handlerMethod, RequireRoles.class);
+        int currentLevel = currentUser.getLevel();
         if (requireRoles != null && Arrays.stream(requireRoles.value())
-                .noneMatch(level -> level == currentUser.getLevel())) {
+                .noneMatch(level -> level == currentLevel)) {
             return reject(response, HttpStatus.FORBIDDEN, "无访问权限");
         }
 

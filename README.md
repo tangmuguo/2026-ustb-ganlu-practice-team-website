@@ -105,7 +105,9 @@ Remove-Item Env:GANLU_BOOTSTRAP_ADMIN_PHONE
 
 公共图片默认每个上传账号最多保存 100 张、累计 500MB，并要求上传磁盘至少保留 1GB 可用空间。生产部署可通过 `TEAM_PUBLIC_IMAGE_MAX_PERMANENT_FILES`、`TEAM_PUBLIC_IMAGE_USER_PERMANENT_QUOTA_MB` 和 `TEAM_PUBLIC_IMAGE_MIN_FREE_DISK_MB` 调整；修改前需由孙木文结合服务器磁盘容量确认。
 
-团队视频/附件默认每个账号最多 50 个、累计 2GB，服务器总计最多 2000 个、20GB；正式上传目录和 Multipart 临时目录都必须至少保留 1GB。生产环境应把 `GANLU_MULTIPART_TEMP_DIR` 指向独立、有限额且不可公开访问的挂载目录。普通“归档”仍保留文件并占额度；管理员彻底清理或默认 30 天保留期结束后，系统才通过持久化删除任务释放空间和额度。
+团队视频/附件默认每个账号最多 50 个、累计 2GB，服务器总计最多 2000 个、20GB；正式上传目录和 Multipart 临时目录都必须至少保留 1GB。上传账号会在 Multipart 解析前认证，系统通过数据库跨实例登记在途字节，并默认限制全站同时 4 个上传、单账号每分钟 12 次。生产环境应把 `GANLU_MULTIPART_TEMP_DIR` 指向独立、有限额且不可公开访问的挂载目录。普通“归档”仍保留文件并占额度；管理员彻底清理或默认 30 天保留期结束后，系统才通过持久化删除任务释放空间和额度。
+
+旧公共图片不能由 SQL 猜测大小。执行补丁后必须在维护窗口调用管理员公共图片预检，处理共享路径、缺失文件、未知所有者和非标准路径；预检无阻断项后临时开启迁移开关，按磁盘真实字节登记 Banner、News、User 和团队风采图片，完成一致性断言后立即关闭开关。详见 `docs/integration/team-content.md`。
 
 不要关闭这个 PowerShell 窗口。后端默认运行在 `http://localhost:8080`。
 

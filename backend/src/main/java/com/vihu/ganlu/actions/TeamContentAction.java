@@ -5,6 +5,7 @@ import com.vihu.ganlu.entitys.TeamEntity;
 import com.vihu.ganlu.entitys.FileDeletionTaskEntity;
 import com.vihu.ganlu.entitys.TeamMediaEntity;
 import com.vihu.ganlu.entitys.PublicImageUploadInfo;
+import com.vihu.ganlu.entitys.PublicImageMigrationReport;
 import com.vihu.ganlu.entitys.TeamPageImageEntity;
 import com.vihu.ganlu.entitys.TeamPageWordEntity;
 import com.vihu.ganlu.entitys.UserEntity;
@@ -18,6 +19,7 @@ import com.vihu.ganlu.service.TeamPageImageService;
 import com.vihu.ganlu.service.TeamPageWordService;
 import com.vihu.ganlu.service.UserService;
 import com.vihu.ganlu.service.impl.FileDeletionTaskService;
+import com.vihu.ganlu.service.impl.PublicImageMigrationService;
 import com.vihu.ganlu.utils.FileStorageUtil;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -63,6 +65,8 @@ public class TeamContentAction {
     private UserService userService;
     @Resource
     private FileDeletionTaskService fileDeletionTaskService;
+    @Resource
+    private PublicImageMigrationService publicImageMigrationService;
 
     // =====================================================================
     // 团队端 @RequireRoles({0,1}) — teamId 从 Token 推导，不信任任何客户端输入
@@ -179,20 +183,6 @@ public class TeamContentAction {
         Integer teamId = resolveTeamId(u);
         if (teamId == null) {
             return badRequest("当前用户未绑定小队");
-        }
-
-        // 校验父内容归属：附件只能关联到当前团队的内容。
-        // relatedType 与 relatedId 必须同时为空或同时非空，避免产生半关联记录。
-        if ((relatedType == null) != (relatedId == null)) {
-            return badRequest("relatedType 与 relatedId 必须同时提供或同时省略");
-        }
-        if (relatedType != null && relatedId != null) {
-            if (!"IMAGE".equals(relatedType) && !"WORD".equals(relatedType)) {
-                return badRequest("无效的关联类型: " + relatedType);
-            }
-            if (!parentExistsAndBelongsToTeam(relatedType, relatedId, teamId)) {
-                return badRequest("关联的父内容不存在或不属于当前团队");
-            }
         }
 
         TeamMediaEntity media;
@@ -585,6 +575,31 @@ public class TeamContentAction {
                 : badRequest("本次重试仍失败，系统将继续自动重试");
     }
 
+    @RequireRoles({0})
+    @GetMapping("/admin/public-image-migration/preflight")
+    public ResponseEntity<?> adminPreflightPublicImages() {
+        PublicImageMigrationReport report = publicImageMigrationService.preflight();
+        return report.isMigrationAllowed()
+                ? ok(report.isConsistent() ? "公共图片账本已一致" : "预检通过，可以在维护窗口执行迁移", report)
+                : ResponseEntity.status(HttpStatus.CONFLICT).body(ImmutableMap.of(
+                        "code", HttpStatus.CONFLICT.value(),
+                        "message", "公共图片预检存在阻断项，禁止迁移和发布",
+                        "content", report));
+    }
+
+    @RequireRoles({0})
+    @PostMapping("/admin/public-image-migration/migrate")
+    public ResponseEntity<?> adminMigratePublicImages() {
+        try {
+            return ok("公共图片迁移完成并通过一致性断言", publicImageMigrationService.migrate());
+        } catch (PublicImageMigrationService.MigrationBlockedException error) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(ImmutableMap.of(
+                    "code", HttpStatus.CONFLICT.value(),
+                    "message", error.getMessage(),
+                    "content", error.getReport()));
+        }
+    }
+
     // =====================================================================
     // 私有辅助方法
     // =====================================================================
@@ -689,22 +704,6 @@ public class TeamContentAction {
             return ok("上传成功", entity);
         }
         return badRequest("上传失败");
-    }
-
-    /**
-     * 校验父内容存在且属于指定 team（用于上传附件的归属校验）。
-     */
-    private boolean parentExistsAndBelongsToTeam(String relatedType, int relatedId, int teamId) {
-        if ("IMAGE".equals(relatedType)) {
-            TeamPageImageEntity e = teamPageImageService.findById(relatedId);
-            return e != null && Integer.valueOf(teamId).equals(e.getTeamId())
-                    && !"ARCHIVED".equals(e.getStatus());
-        } else if ("WORD".equals(relatedType)) {
-            TeamPageWordEntity e = teamPageWordService.findById(relatedId);
-            return e != null && Integer.valueOf(teamId).equals(e.getTeamId())
-                    && !"ARCHIVED".equals(e.getStatus());
-        }
-        return false;
     }
 
     /**

@@ -20,6 +20,12 @@ team.media.global-max-total-mb=${TEAM_MEDIA_GLOBAL_MAX_TOTAL_MB:20480}
 team.media.upload-min-free-disk-mb=${TEAM_MEDIA_UPLOAD_MIN_FREE_DISK_MB:1024}
 team.media.multipart-min-free-disk-mb=${TEAM_MEDIA_MULTIPART_MIN_FREE_DISK_MB:1024}
 team.media.archived-retention-days=${TEAM_MEDIA_ARCHIVED_RETENTION_DAYS:30}
+team.media.max-concurrent-uploads=${TEAM_MEDIA_MAX_CONCURRENT_UPLOADS:4}
+team.media.max-requests-per-user-per-minute=${TEAM_MEDIA_MAX_REQUESTS_PER_USER_PER_MINUTE:12}
+# 反向代理读取请求体的超时必须小于此值，避免崩溃回收后旧请求继续写盘。
+team.media.upload-reservation-ttl-minutes=${TEAM_MEDIA_UPLOAD_RESERVATION_TTL_MINUTES:120}
+# 仅在维护窗口、预检无阻断项时临时设为 true；迁移完成后立即恢复 false。
+team.public-image.migration-enabled=${TEAM_PUBLIC_IMAGE_MIGRATION_ENABLED:false}
 file-deletion.retry-interval-ms=${FILE_DELETION_RETRY_INTERVAL_MS:60000}
 app.base-url=${GANLU_APP_BASE_URL}
 security.jwt.secret=${GANLU_JWT_SECRET}
