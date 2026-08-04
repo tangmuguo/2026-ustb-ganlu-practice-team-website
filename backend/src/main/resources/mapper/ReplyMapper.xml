@@ -56,8 +56,8 @@
           AND
             r.status = 1
         ORDER BY
-            r.create_time ASC,
-            r.id ASC
+            r.create_time DESC,
+            r.id DESC
     </select>
 
     <!-- 获取当前页留言的所有回复 -->
@@ -85,8 +85,8 @@
             </foreach>
         ORDER BY
             r.message_id ASC,
-            r.create_time ASC,
-            r.id ASC
+            r.create_time DESC,
+            r.id DESC
     </select>
 
     <!-- 根据ID获取回复 -->

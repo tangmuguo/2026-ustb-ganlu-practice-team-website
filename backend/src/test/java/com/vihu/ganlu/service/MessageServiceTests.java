@@ -95,6 +95,8 @@ class MessageServiceTests {
         MessageEntity first = message(11);
         MessageEntity second = message(10);
         ReplyEntity reply = reply(21, 11);
+        first.setUsername(null);
+        reply.setUsername(null);
         when(messageMapper.selectMessages(0, 10)).thenReturn(Arrays.asList(first, second));
         when(replyMapper.selectRepliesByMessageIds(Arrays.asList(11, 10))).thenReturn(Collections.singletonList(reply));
         when(messageMapper.countMessages()).thenReturn(11);
@@ -106,6 +108,8 @@ class MessageServiceTests {
         assertEquals(10, result.get("pageSize"));
         assertEquals(1, first.getReplies().size());
         assertEquals(0, second.getReplies().size());
+        assertEquals("用户#1", first.getUsername());
+        assertEquals("用户#2", reply.getUsername());
         verify(replyMapper).selectRepliesByMessageIds(Arrays.asList(11, 10));
         verify(replyMapper, never()).selectRepliesByMessageId(any());
         verify(userMapper, never()).findUserById(eq(11));

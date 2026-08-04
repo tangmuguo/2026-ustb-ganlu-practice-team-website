@@ -61,8 +61,14 @@ public class MessageServiceImpl {
             Map<Integer, List<ReplyEntity>> repliesByMessageId = replies.stream()
                     .collect(Collectors.groupingBy(ReplyEntity::getMessageId));
             for (MessageEntity message : messages) {
+                fillUserFallback(message);
                 List<ReplyEntity> messageReplies = repliesByMessageId.get(message.getId());
-                message.setReplies(messageReplies == null ? Collections.emptyList() : messageReplies);
+                if (messageReplies == null) {
+                    message.setReplies(Collections.emptyList());
+                } else {
+                    messageReplies.forEach(this::fillReplyUserFallback);
+                    message.setReplies(messageReplies);
+                }
             }
         }
 
@@ -161,5 +167,16 @@ public class MessageServiceImpl {
     private RuntimeException forbidden(String message) {
         return new SecurityException(message);
     }
-}
 
+    private void fillUserFallback(MessageEntity message) {
+        if (message.getUsername() == null || message.getUsername().trim().isEmpty()) {
+            message.setUsername("用户#" + message.getUserId());
+        }
+    }
+
+    private void fillReplyUserFallback(ReplyEntity reply) {
+        if (reply.getUsername() == null || reply.getUsername().trim().isEmpty()) {
+            reply.setUsername("用户#" + reply.getUserId());
+        }
+    }
+}
