@@ -18,8 +18,10 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -95,8 +97,18 @@ public class PublicImageMigrationService {
         PublicImageMigrationReport report = plan.report;
         List<PublicImageReferenceEntity> references = migrationMapper.findBusinessReferences();
         if (references == null) references = Collections.emptyList();
+        List<PublicImageReferenceEntity> courseCoverReferences = migrationMapper.findCourseCoverReferences();
+        if (courseCoverReferences == null) courseCoverReferences = Collections.emptyList();
         report.setReferenceCount(references.size());
+        report.setCourseCoverReferenceCount(courseCoverReferences.size());
         report.setRegisteredAssetCount(assets.size());
+
+        Set<String> protectedCourseCoverPaths = new LinkedHashSet<>();
+        for (PublicImageReferenceEntity reference : courseCoverReferences) {
+            if (PublicImagePathPolicy.isExternalUrl(reference.getRelativePath())) continue;
+            String normalized = PublicImagePathPolicy.normalizeCourseCoverReference(reference.getRelativePath());
+            if (normalized != null) protectedCourseCoverPaths.add(normalized);
+        }
 
         Map<String, PublicImageAssetEntity> assetsByPath = new LinkedHashMap<>();
         for (PublicImageAssetEntity asset : assets) {
@@ -129,6 +141,15 @@ public class PublicImageMigrationService {
             report.setManagedReferenceCount(report.getManagedReferenceCount() + 1);
             referencesByPath.computeIfAbsent(normalized, ignored -> new ArrayList<>()).add(reference);
         }
+
+        for (PublicImageReferenceEntity reference : courseCoverReferences) {
+            String normalized = PublicImagePathPolicy.normalizeCourseCoverReference(reference.getRelativePath());
+            if (normalized != null && referencesByPath.containsKey(normalized)) {
+                issue(report, "CROSS_DOMAIN_SHARED_PATH", source(reference), normalized,
+                        "课件封面与公共图片账本业务共享同一物理文件；必须先复制为独立文件");
+            }
+        }
+        protectedCourseCoverPaths.removeAll(referencesByPath.keySet());
 
         for (Map.Entry<String, List<PublicImageReferenceEntity>> entry : referencesByPath.entrySet()) {
             String path = entry.getKey();
@@ -170,7 +191,7 @@ public class PublicImageMigrationService {
             }
         }
 
-        List<String> diskFiles = managedDiskFiles(report);
+        List<String> diskFiles = managedDiskFiles(report, protectedCourseCoverPaths);
         report.setDiskFileCount(diskFiles.size());
         for (String diskFile : diskFiles) {
             if (!referencesByPath.containsKey(diskFile)) {
@@ -237,7 +258,8 @@ public class PublicImageMigrationService {
         return false;
     }
 
-    private List<String> managedDiskFiles(PublicImageMigrationReport report) {
+    private List<String> managedDiskFiles(
+            PublicImageMigrationReport report, Set<String> protectedCourseCoverPaths) {
         List<String> files = new ArrayList<>();
         for (String rootName : new String[]{"images", "images_pending"}) {
             Path root = fileStorageUtil.getUploadRoot().resolve(rootName).normalize();
@@ -247,6 +269,19 @@ public class PublicImageMigrationService {
                         .sorted()
                         .forEach(file -> {
                             String path = fileStorageUtil.toRelativePath(file);
+                            if (PublicImagePathPolicy.isCourseCoverNamespace(path)
+                                    || protectedCourseCoverPaths.contains(path)) {
+                                report.setExcludedCourseCoverFileCount(
+                                        report.getExcludedCourseCoverFileCount() + 1);
+                                try {
+                                    report.setExcludedCourseCoverBytes(safeByteSum(
+                                            report.getExcludedCourseCoverBytes(), Files.size(file)));
+                                } catch (IOException error) {
+                                    issue(report, "FILE_INSPECTION_FAILED", "COURSE_COVER", path,
+                                            "读取课件封面文件大小失败: " + safeMessage(error));
+                                }
+                                return;
+                            }
                             String normalized = PublicImagePathPolicy.normalizeManagedPath(path);
                             if (normalized == null) {
                                 issue(report, "UNSUPPORTED_DISK_FILE", "DISK", path,

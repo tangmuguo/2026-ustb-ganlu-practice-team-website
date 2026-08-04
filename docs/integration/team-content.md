@@ -46,7 +46,7 @@
 | POST | `/admin/team-content/media/{id}/purge` | 已归档附件进入持久化物理删除队列 |
 | GET | `/admin/file-deletion-tasks` | 查询待处理/失败任务、次数和最后错误 |
 | POST | `/admin/file-deletion-tasks/{id}/retry` | 手动立即重试 |
-| GET | `/admin/public-image-migration/preflight` | 扫描四类业务引用、资产账本和磁盘，输出阻断清单 |
+| GET | `/admin/public-image-migration/preflight` | 扫描四类业务引用、课件封面保护边界、资产账本和磁盘，输出阻断清单 |
 | POST | `/admin/public-image-migration/migrate` | 仅维护窗口启用；按真实文件大小迁移并重建精确配额 |
 
 ---
@@ -129,6 +129,7 @@ ALTER TABLE `team_page_word`
 - 只有管理员彻底删除图片文件与记录时才释放配额；持久删除任务先确认物理文件已经删除，再删除资源记录并释放账本额度。磁盘删除或数据库清理失败时任务会保留并重试，普通“归档”也只隐藏内容、不删除文件。
 - 业务事务会先把稳定 `asset_id` 写入 `file_deletion_task`。提交后立即尝试，失败则保留任务、错误、次数和下次执行时间并自动退避重试；文件已经不存在按幂等成功继续清理账本。
 - 存量 Banner、News、User 和团队风采图片必须先经过应用侧预检。共享路径、磁盘缺失、非标准本地路径、未知所有者、越界链接、孤儿账本或孤儿文件都会形成阻断项；不允许再以 0 字节登记未知文件。
+- 课件封面由课件模块独立管理，不进入 `public_image_asset` 或四类公共图片配额。预检会排除整个 `images/materials/` 命名空间，并读取有效 `course_detail.cover_path`（兼容 `thumbnail_url` 回填）保护位于 `images/` 根目录的历史封面；这些文件只显示在 `courseCoverReferenceCount`、`excludedCourseCoverFileCount/Bytes`，不进入四类数量和字节一致性断言。若课件与四类业务共享同一物理路径，仍会以 `CROSS_DOMAIN_SHARED_PATH` 阻断。
 - 旧本地图片未迁入账本时，替换、删除、纯文字更新和发布会被明确拒绝，不再静默遗漏物理文件。HTTP(S) 外部图片不属于本地文件生命周期。
 
 ## 附件生命周期、配额与磁盘保护
@@ -181,10 +182,10 @@ ALTER TABLE `team_page_word`
 
 1. 备份数据库和整个上传目录，停止外部写入；完整执行 `00 → 10 → 11 → 12 → 13 → 14 → 20 → 30 → 40`。
 2. 保持 `TEAM_PUBLIC_IMAGE_MIGRATION_ENABLED=false` 启动后端，以管理员调用 `GET /admin/public-image-migration/preflight`。
-3. 逐项清零报告：共享路径需复制或替换为独立文件；缺失文件需从备份恢复或更换；未知所有者/非标准路径需人工迁入账号目录；孤儿资产和文件需确认后处理。
+3. 逐项清零报告：共享路径需复制或替换为独立文件；缺失文件需从备份恢复或更换；未知所有者/非标准路径需人工迁入账号目录；孤儿资产和文件必须同时与有效课件的 `cover_path`/`thumbnail_url` 交叉核对后再处理，禁止把课件封面当孤儿删除。
 4. 关闭所有业务写入，临时设置 `TEAM_PUBLIC_IMAGE_MIGRATION_ENABLED=true` 并重启；调用 `POST /admin/public-image-migration/migrate`。
-5. 再次预检，必须同时得到 `migrationAllowed=true`、`consistent=true`，并确认业务引用数、账本数和磁盘文件数相等。
-6. 立即恢复 `TEAM_PUBLIC_IMAGE_MIGRATION_ENABLED=false` 并重启，再逐一验证旧 Banner、旧 News、旧头像和旧团队图片的不换图更新、换图更新、删除及失败重试。
+5. 再次预检，必须同时得到 `migrationAllowed=true`、`consistent=true`，并确认四类业务引用数、账本数和受管磁盘文件数相等；课件封面的排除数量/字节只作边界审计，不得混入该等式。
+6. 立即恢复 `TEAM_PUBLIC_IMAGE_MIGRATION_ENABLED=false` 并重启，再逐一验证旧 Banner、旧 News、旧头像和旧团队图片的不换图更新、换图更新、删除及失败重试，同时打开现行及历史课件封面确认仍可显示。
 
 迁移接口不会自动删除或复制有歧义的文件；任何阻断项都会令迁移事务拒绝执行。这样可以避免删除共享文件破坏另一条业务记录。
 

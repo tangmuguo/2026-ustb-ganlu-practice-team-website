@@ -14,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -113,6 +114,82 @@ class PublicImageMigrationServiceTests {
         assertFalse(report.isMigrationAllowed());
         assertEquals("UNSUPPORTED_LOCAL_PATH", report.getIssues().get(0).getCode());
         assertThrows(IllegalStateException.class, service::migrate);
+    }
+
+    @Test
+    void currentMaterialCoverNamespaceIsProtectedButExcludedFromPublicImageLedger() throws Exception {
+        String coverPath = "images/materials/55555555-5555-5555-5555-555555555555.jpg";
+        write(coverPath, new byte[]{1, 2, 3, 4, 5});
+        PublicImageMigrationMapper references = mock(PublicImageMigrationMapper.class);
+        when(references.findBusinessReferences()).thenReturn(Collections.emptyList());
+        when(references.findCourseCoverReferences()).thenReturn(Collections.singletonList(
+                reference("COURSE_COVER", 50, coverPath, 7)));
+        PublicImageQuotaMapper quota = mock(PublicImageQuotaMapper.class);
+        when(quota.findAllAssets()).thenReturn(Collections.emptyList());
+        PublicImageMigrationService service = new PublicImageMigrationService(
+                references, quota, new FileStorageUtil(uploadRoot.toString(), "test"), false);
+
+        PublicImageMigrationReport report = service.preflight();
+
+        assertTrue(report.isMigrationAllowed(), report.getIssues().toString());
+        assertTrue(report.isConsistent());
+        assertEquals(1, report.getCourseCoverReferenceCount());
+        assertEquals(1, report.getExcludedCourseCoverFileCount());
+        assertEquals(5L, report.getExcludedCourseCoverBytes());
+        assertEquals(0, report.getManagedReferenceCount());
+        assertEquals(0, report.getRegisteredAssetCount());
+        assertEquals(0, report.getDiskFileCount());
+        assertEquals(0L, report.getDiskBytes());
+        assertEquals(0, report.getCandidateCount());
+    }
+
+    @Test
+    void historicalMaterialCoverInImagesRootIsProtectedByExactDatabaseReference() throws Exception {
+        String coverPath = "images/66666666-6666-6666-6666-666666666666.png";
+        write(coverPath, new byte[]{1, 2, 3});
+        PublicImageMigrationMapper references = mock(PublicImageMigrationMapper.class);
+        when(references.findBusinessReferences()).thenReturn(Collections.emptyList());
+        when(references.findCourseCoverReferences()).thenReturn(Collections.singletonList(
+                reference("COURSE_COVER", 60, coverPath, null)));
+        PublicImageQuotaMapper quota = mock(PublicImageQuotaMapper.class);
+        when(quota.findAllAssets()).thenReturn(Collections.emptyList());
+        PublicImageMigrationService service = new PublicImageMigrationService(
+                references, quota, new FileStorageUtil(uploadRoot.toString(), "test"), false);
+
+        PublicImageMigrationReport report = service.preflight();
+
+        assertTrue(report.isMigrationAllowed(), report.getIssues().toString());
+        assertTrue(report.isConsistent());
+        assertEquals(1, report.getCourseCoverReferenceCount());
+        assertEquals(1, report.getExcludedCourseCoverFileCount());
+        assertEquals(0, report.getManagedReferenceCount());
+        assertEquals(0, report.getRegisteredAssetCount());
+        assertEquals(0, report.getDiskFileCount());
+        assertEquals(0L, report.getDiskBytes());
+        assertEquals(0, report.getCandidateCount());
+    }
+
+    @Test
+    void materialCoverCannotSharePhysicalFileWithManagedPublicImage() throws Exception {
+        String sharedPath = "images/77777777-7777-7777-7777-777777777777.jpg";
+        write(sharedPath, new byte[]{1});
+        PublicImageMigrationMapper references = mock(PublicImageMigrationMapper.class);
+        when(references.findBusinessReferences()).thenReturn(Collections.singletonList(
+                reference("TEAM_IMAGE", 70, sharedPath, 7)));
+        when(references.findCourseCoverReferences()).thenReturn(Collections.singletonList(
+                reference("COURSE_COVER", 71, sharedPath, 7)));
+        PublicImageQuotaMapper quota = mock(PublicImageQuotaMapper.class);
+        when(quota.findAllAssets()).thenReturn(Collections.emptyList());
+        PublicImageMigrationService service = new PublicImageMigrationService(
+                references, quota, new FileStorageUtil(uploadRoot.toString(), "test"), false);
+
+        PublicImageMigrationReport report = service.preflight();
+
+        assertFalse(report.isMigrationAllowed());
+        assertTrue(report.getIssues().stream()
+                .anyMatch(issue -> "CROSS_DOMAIN_SHARED_PATH".equals(issue.getCode())));
+        assertEquals(0, report.getExcludedCourseCoverFileCount());
+        assertEquals(1, report.getDiskFileCount());
     }
 
     private void write(String relativePath, byte[] content) throws Exception {

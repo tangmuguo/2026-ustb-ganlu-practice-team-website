@@ -33,4 +33,18 @@
         ) references_to_images
         ORDER BY source_type, source_id
     </select>
+
+    <!-- 课件封面由课件模块独立管理；这里只读取有效引用，供公共图片迁移排除保护。 -->
+    <select id="findCourseCoverReferences" resultMap="referenceMap">
+        SELECT 'COURSE_COVER' AS source_type,
+               id AS source_id,
+               COALESCE(NULLIF(TRIM(cover_path), ''),
+                        NULLIF(TRIM(thumbnail_url), '')) AS relative_path,
+               uploader_user_id AS owner_hint
+        FROM course_detail
+        WHERE status = 1
+          AND COALESCE(NULLIF(TRIM(cover_path), ''),
+                       NULLIF(TRIM(thumbnail_url), '')) IS NOT NULL
+        ORDER BY id
+    </select>
 </mapper>

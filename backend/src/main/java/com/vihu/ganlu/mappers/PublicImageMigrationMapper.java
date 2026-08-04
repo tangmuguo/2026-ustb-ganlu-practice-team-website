@@ -6,4 +6,6 @@ import java.util.List;
 
 public interface PublicImageMigrationMapper {
     List<PublicImageReferenceEntity> findBusinessReferences();
+
+    List<PublicImageReferenceEntity> findCourseCoverReferences();
 }
