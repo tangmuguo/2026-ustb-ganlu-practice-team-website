@@ -6,10 +6,20 @@ security.jwt.expiration-seconds=${GANLU_JWT_EXPIRATION_SECONDS:28800}
 spring.servlet.multipart.max-file-size=${GANLU_MAX_UPLOAD_FILE_SIZE:200MB}
 spring.servlet.multipart.max-request-size=${GANLU_MAX_UPLOAD_REQUEST_SIZE:210MB}
 spring.servlet.multipart.file-size-threshold=${GANLU_UPLOAD_MEMORY_THRESHOLD:10MB}
+spring.servlet.multipart.location=${GANLU_MULTIPART_TEMP_DIR:${java.io.tmpdir}/ganlu-multipart}
 
 team.public-image.user-permanent-quota-mb=${TEAM_PUBLIC_IMAGE_USER_PERMANENT_QUOTA_MB:500}
 team.public-image.max-permanent-files-per-user=${TEAM_PUBLIC_IMAGE_MAX_PERMANENT_FILES:100}
 team.public-image.min-free-disk-mb=${TEAM_PUBLIC_IMAGE_MIN_FREE_DISK_MB:1024}
+
+team.media.owner-max-files=${TEAM_MEDIA_OWNER_MAX_FILES:50}
+team.media.owner-max-total-mb=${TEAM_MEDIA_OWNER_MAX_TOTAL_MB:2048}
+team.media.global-max-files=${TEAM_MEDIA_GLOBAL_MAX_FILES:2000}
+team.media.global-max-total-mb=${TEAM_MEDIA_GLOBAL_MAX_TOTAL_MB:20480}
+team.media.upload-min-free-disk-mb=${TEAM_MEDIA_UPLOAD_MIN_FREE_DISK_MB:1024}
+team.media.multipart-min-free-disk-mb=${TEAM_MEDIA_MULTIPART_MIN_FREE_DISK_MB:1024}
+team.media.archived-retention-days=${TEAM_MEDIA_ARCHIVED_RETENTION_DAYS:30}
+file-deletion.retry-interval-ms=${FILE_DELETION_RETRY_INTERVAL_MS:60000}
 
 ai.enabled=${AI_ENABLED:false}
 ai.base-url=${DEEPSEEK_BASE_URL:https://api.deepseek.com}

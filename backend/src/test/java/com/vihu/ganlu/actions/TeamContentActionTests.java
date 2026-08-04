@@ -35,6 +35,7 @@ class TeamContentActionTests {
     private TeamMapper teamMapper;
     private com.vihu.ganlu.security.TokenService tokenService;
     private com.vihu.ganlu.service.UserService userService;
+    private com.vihu.ganlu.service.impl.FileDeletionTaskService deletionTaskService;
 
     @BeforeEach
     void setUp() {
@@ -45,6 +46,7 @@ class TeamContentActionTests {
         teamMapper = mock(TeamMapper.class);
         tokenService = mock(com.vihu.ganlu.security.TokenService.class);
         userService = mock(com.vihu.ganlu.service.UserService.class);
+        deletionTaskService = mock(com.vihu.ganlu.service.impl.FileDeletionTaskService.class);
         action = new TeamContentAction();
         // 通过反射注入 @Resource 字段
         inject(action, "teamPageImageService", imageService);
@@ -54,6 +56,7 @@ class TeamContentActionTests {
         inject(action, "teamMapper", teamMapper);
         inject(action, "tokenService", tokenService);
         inject(action, "userService", userService);
+        inject(action, "fileDeletionTaskService", deletionTaskService);
     }
 
     /**
@@ -334,6 +337,16 @@ class TeamContentActionTests {
     }
 
     @Test
+    void adminPurgeMedia_enqueuesDurableDeletion() {
+        when(mediaService.purgeById(12)).thenReturn(true);
+
+        ResponseEntity<?> response = action.adminPurgeMedia(12);
+
+        assertEquals(200, response.getStatusCodeValue());
+        verify(mediaService).purgeById(12);
+    }
+
+    @Test
     void uploadMember_usesLifecycleStageThenBusinessInsert() {
         UserEntity user = user(5, 1);
         mockTeamUser(5, 10);
@@ -543,7 +556,7 @@ class TeamContentActionTests {
         when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
         when(fileStorageUtil.loadFile("images_pending/x.jpg")).thenReturn(tmp);
 
-        ResponseEntity<?> resp = action.serveImage(10, null, req(admin));
+        ResponseEntity<?> resp = action.serveImage(10, req(admin));
         assertEquals(200, resp.getStatusCodeValue());
         java.nio.file.Files.delete(tmp);
     }
@@ -557,7 +570,7 @@ class TeamContentActionTests {
         when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
         when(fileStorageUtil.loadFile("images_pending/x.jpg")).thenReturn(tmp);
 
-        ResponseEntity<?> resp = action.serveImage(10, null, req(owner));
+        ResponseEntity<?> resp = action.serveImage(10, req(owner));
         assertEquals(200, resp.getStatusCodeValue());
         java.nio.file.Files.delete(tmp);
     }
@@ -569,7 +582,7 @@ class TeamContentActionTests {
         mockTeamUser(5, 5);
         when(imageService.findById(10)).thenReturn(image(10, "PENDING", 99, "images_pending/x.jpg"));
 
-        ResponseEntity<?> resp = action.serveImage(10, null, req(owner));
+        ResponseEntity<?> resp = action.serveImage(10, req(owner));
         assertEquals(404, resp.getStatusCodeValue());
     }
 
@@ -585,7 +598,7 @@ class TeamContentActionTests {
         when(teamMapper.findById(5)).thenReturn(team);
         when(fileStorageUtil.loadFile("images/x.jpg")).thenReturn(tmp);
 
-        ResponseEntity<?> resp = action.serveImage(10, null, request);
+        ResponseEntity<?> resp = action.serveImage(10, request);
         assertEquals(200, resp.getStatusCodeValue());
         java.nio.file.Files.delete(tmp);
     }
@@ -596,41 +609,41 @@ class TeamContentActionTests {
         MockHttpServletRequest request = new MockHttpServletRequest();
         when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
 
-        ResponseEntity<?> resp = action.serveImage(10, null, request);
+        ResponseEntity<?> resp = action.serveImage(10, request);
         assertEquals(404, resp.getStatusCodeValue());
     }
 
     @Test
-    void serveImage_queryToken_admin_canView() throws Exception {
-        // query token 场景（<img src="...?token=xxx">）：管理员 token 可看 PENDING
+    void serveImage_authorizationHeader_adminCanView() throws Exception {
         java.nio.file.Path tmp = java.nio.file.Files.createTempFile("test-img", ".jpg");
-        MockHttpServletRequest request = new MockHttpServletRequest(); // 无 header user attribute
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(org.springframework.http.HttpHeaders.AUTHORIZATION, "Bearer admin-token");
         UserEntity admin = user(1, 0);
         when(tokenService.verifyAndGetUserId("admin-token")).thenReturn(1);
         when(userService.findUserById(1)).thenReturn(admin);
         when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
         when(fileStorageUtil.loadFile("images_pending/x.jpg")).thenReturn(tmp);
 
-        ResponseEntity<?> resp = action.serveImage(10, "admin-token", request);
+        ResponseEntity<?> resp = action.serveImage(10, request);
         assertEquals(200, resp.getStatusCodeValue());
         java.nio.file.Files.delete(tmp);
     }
 
     @Test
-    void serveImage_invalidQueryToken_treatedAsAnonymous() {
-        // 无效 query token 当匿名处理 → PENDING 拒绝
+    void serveImage_queryTokenIsIgnoredAndCannotAuthorizePrivateImage() {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        when(tokenService.verifyAndGetUserId("bad-token")).thenThrow(new RuntimeException("invalid"));
+        request.setParameter("token", "admin-token");
         when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
 
-        ResponseEntity<?> resp = action.serveImage(10, "bad-token", request);
+        ResponseEntity<?> resp = action.serveImage(10, request);
         assertEquals(404, resp.getStatusCodeValue());
+        verifyNoInteractions(tokenService, userService);
     }
 
     @Test
     void serveImage_imageNotFound_returns404() {
         when(imageService.findById(999)).thenReturn(null);
-        ResponseEntity<?> resp = action.serveImage(999, null, new MockHttpServletRequest());
+        ResponseEntity<?> resp = action.serveImage(999, new MockHttpServletRequest());
         assertEquals(404, resp.getStatusCodeValue());
     }
 

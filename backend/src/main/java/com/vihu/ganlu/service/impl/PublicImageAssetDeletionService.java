@@ -4,7 +4,6 @@ import com.vihu.ganlu.entitys.PublicImageAssetEntity;
 import com.vihu.ganlu.mappers.PublicImageQuotaMapper;
 import com.vihu.ganlu.utils.FileStorageUtil;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.file.Files;
@@ -21,16 +20,17 @@ public class PublicImageAssetDeletionService {
         this.quotaMapper = quotaMapper;
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void deletePhysicalFileThenReleaseQuota(String relativePath) {
-        PublicImageAssetEntity asset = quotaMapper.findAsset(relativePath);
+    @Transactional
+    public void deletePhysicalFileThenReleaseQuota(long assetId) {
+        PublicImageAssetEntity asset = quotaMapper.findAssetByIdForUpdate(assetId);
+        if (asset == null) return;
+        String relativePath = asset.getRelativePath();
         if (Files.exists(fileStorageUtil.loadFile(relativePath))) {
             fileStorageUtil.deleteFile(relativePath);
         }
         if (Files.exists(fileStorageUtil.loadFile(relativePath))) {
             throw new IllegalStateException("图片物理文件删除失败，配额未释放");
         }
-        if (asset == null || asset.getAssetId() == null) return;
         if (quotaMapper.deleteAsset(asset.getAssetId()) != 1) {
             throw new IllegalStateException("删除公共图片资源账本失败");
         }

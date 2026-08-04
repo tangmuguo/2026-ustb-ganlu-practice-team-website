@@ -54,10 +54,11 @@ E:\github\zhaoyouwei\2026-ustb-ganlu-practice-team-website
    - `database/patches/11_team_content.sql`
    - `database/patches/12_team_owner_unique.sql`
    - `database/patches/13_public_image_quota.sql`
+   - `database/patches/14_team_media_lifecycle.sql`
    - `database/patches/20_message_board.sql`
    - `database/patches/30_material_center.sql`
    - `database/patches/40_volunteer_application.sql`
-5. 最终固定顺序是 `00 → 10 → 11 → 12 → 13 → 20 → 30 → 40`。仍须在数据库备份副本中用真实 MySQL 完整重跑；本轮没有数据库凭据，不能把静态检查写成实测通过。
+5. 最终固定顺序是 `00 → 10 → 11 → 12 → 13 → 14 → 20 → 30 → 40`。仍须在数据库备份副本中用真实 MySQL 完整重跑；本轮没有数据库凭据，不能把静态检查写成实测通过。
 
 补丁的完整说明和注意事项见 `database/patches/README.md`。不要在已有正式数据库上直接试脚本。
 
@@ -103,6 +104,8 @@ Remove-Item Env:GANLU_BOOTSTRAP_ADMIN_PHONE
 密码会由后端使用 BCrypt 加密后写入数据库，日志不会打印密码。数据库中已经有 level=0 管理员时，初始化程序也不会创建第二个管理员。
 
 公共图片默认每个上传账号最多保存 100 张、累计 500MB，并要求上传磁盘至少保留 1GB 可用空间。生产部署可通过 `TEAM_PUBLIC_IMAGE_MAX_PERMANENT_FILES`、`TEAM_PUBLIC_IMAGE_USER_PERMANENT_QUOTA_MB` 和 `TEAM_PUBLIC_IMAGE_MIN_FREE_DISK_MB` 调整；修改前需由孙木文结合服务器磁盘容量确认。
+
+团队视频/附件默认每个账号最多 50 个、累计 2GB，服务器总计最多 2000 个、20GB；正式上传目录和 Multipart 临时目录都必须至少保留 1GB。生产环境应把 `GANLU_MULTIPART_TEMP_DIR` 指向独立、有限额且不可公开访问的挂载目录。普通“归档”仍保留文件并占额度；管理员彻底清理或默认 30 天保留期结束后，系统才通过持久化删除任务释放空间和额度。
 
 不要关闭这个 PowerShell 窗口。后端默认运行在 `http://localhost:8080`。
 

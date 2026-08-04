@@ -140,17 +140,23 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public Integer deleteUserByIds(List<Integer> ids) {
         if (ids == null || ids.isEmpty()) throw new IllegalArgumentException("用户编号不能为空");
-        if (userMapper.countTeamBindingsByUserIds(ids) > 0) {
-            throw new ConflictException("所选团队账号已绑定团队内容，请先归档、迁移或解绑团队后再删除");
-        }
+        List<Integer> lockedIds = ids.stream()
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .sorted()
+                .collect(java.util.stream.Collectors.toList());
+        if (lockedIds.isEmpty()) throw new IllegalArgumentException("用户编号不能为空");
         List<UserEntity> existingUsers = new java.util.ArrayList<>();
-        for (Integer id : ids) {
-            UserEntity existing = userMapper.findUserById(id);
+        for (Integer id : lockedIds) {
+            UserEntity existing = userMapper.findUserByIdForUpdate(id);
             if (existing != null) existingUsers.add(existing);
+        }
+        if (userMapper.countTeamBindingsByUserIds(lockedIds) > 0) {
+            throw new ConflictException("所选团队账号已绑定团队内容，请先归档、迁移或解绑团队后再删除");
         }
         final int deleted;
         try {
-            deleted = userMapper.deleteUserByIds(ids);
+            deleted = userMapper.deleteUserByIds(lockedIds);
         } catch (DataIntegrityViolationException ex) {
             throw new ConflictException("所选账号仍被业务数据引用，请先归档、迁移或解绑后再删除");
         }

@@ -9,6 +9,17 @@ file.upload-dir=${UPLOAD_DIR:/usr/share/ganlu/uploads}
 spring.servlet.multipart.max-file-size=${GANLU_MAX_UPLOAD_FILE_SIZE:200MB}
 spring.servlet.multipart.max-request-size=${GANLU_MAX_UPLOAD_REQUEST_SIZE:210MB}
 spring.servlet.multipart.file-size-threshold=${GANLU_UPLOAD_MEMORY_THRESHOLD:10MB}
+spring.servlet.multipart.location=${GANLU_MULTIPART_TEMP_DIR:/var/tmp/ganlu-multipart}
 app.allowed-origins=${GANLU_ALLOWED_ORIGINS}
+
+# 生产环境建议把 GANLU_MULTIPART_TEMP_DIR 挂载到独立、有限额且不可公开访问的文件系统。
+team.media.owner-max-files=${TEAM_MEDIA_OWNER_MAX_FILES:50}
+team.media.owner-max-total-mb=${TEAM_MEDIA_OWNER_MAX_TOTAL_MB:2048}
+team.media.global-max-files=${TEAM_MEDIA_GLOBAL_MAX_FILES:2000}
+team.media.global-max-total-mb=${TEAM_MEDIA_GLOBAL_MAX_TOTAL_MB:20480}
+team.media.upload-min-free-disk-mb=${TEAM_MEDIA_UPLOAD_MIN_FREE_DISK_MB:1024}
+team.media.multipart-min-free-disk-mb=${TEAM_MEDIA_MULTIPART_MIN_FREE_DISK_MB:1024}
+team.media.archived-retention-days=${TEAM_MEDIA_ARCHIVED_RETENTION_DAYS:30}
+file-deletion.retry-interval-ms=${FILE_DELETION_RETRY_INTERVAL_MS:60000}
 app.base-url=${GANLU_APP_BASE_URL}
 security.jwt.secret=${GANLU_JWT_SECRET}

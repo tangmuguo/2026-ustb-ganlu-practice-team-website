@@ -37,7 +37,7 @@ public class PublicImageLifecycleService {
     private final FileStorageUtil fileStorageUtil;
     private final PublicImageValidator validator;
     private final PublicImageQuotaMapper quotaMapper;
-    private final PublicImageAssetDeletionService assetDeletionService;
+    private final FileDeletionTaskService deletionTaskService;
     private final long stagingTtlMillis;
     private final long userQuotaBytes;
     private final int maxStagedFilesPerUser;
@@ -50,7 +50,7 @@ public class PublicImageLifecycleService {
             FileStorageUtil fileStorageUtil,
             PublicImageValidator validator,
             PublicImageQuotaMapper quotaMapper,
-            PublicImageAssetDeletionService assetDeletionService,
+            FileDeletionTaskService deletionTaskService,
             @Value("${team.public-image.staging-ttl-hours:24}") long stagingTtlHours,
             @Value("${team.public-image.user-temp-quota-mb:50}") long userQuotaMegabytes,
             @Value("${team.public-image.max-staged-files-per-user:10}") int maxStagedFilesPerUser,
@@ -60,7 +60,7 @@ public class PublicImageLifecycleService {
         this.fileStorageUtil = fileStorageUtil;
         this.validator = validator;
         this.quotaMapper = quotaMapper;
-        this.assetDeletionService = assetDeletionService;
+        this.deletionTaskService = deletionTaskService;
         this.stagingTtlMillis = Duration.ofHours(Math.max(1L, stagingTtlHours)).toMillis();
         this.userQuotaBytes = Math.max(5L, userQuotaMegabytes) * 1024L * 1024L;
         this.maxStagedFilesPerUser = Math.max(1, maxStagedFilesPerUser);
@@ -167,20 +167,7 @@ public class PublicImageLifecycleService {
     public void deletePublicImageAfterCommit(String relativePath) {
         String normalized = normalizeManagedImagePath(relativePath);
         if (normalized == null) return;
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    try {
-                        assetDeletionService.deletePhysicalFileThenReleaseQuota(normalized);
-                    } catch (RuntimeException error) {
-                        log.error("公共图片删除失败，配额保持占用以便重试: {}", normalized, error);
-                    }
-                }
-            });
-        } else {
-            assetDeletionService.deletePhysicalFileThenReleaseQuota(normalized);
-        }
+        deletionTaskService.enqueuePublicImage(normalized);
     }
 
     @Scheduled(fixedDelayString = "${team.public-image.cleanup-interval-ms:3600000}")

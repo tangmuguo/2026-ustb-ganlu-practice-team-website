@@ -1,7 +1,7 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getMyTeamContent, deleteContent, adminListContent, adminListTeams, adminPublish, adminReject, adminArchive, downloadMediaOwner, downloadMediaAdmin } from '@/apis/fengcaiAPI'
+import { getMyTeamContent, getTeamContentImage, deleteContent, adminListContent, adminListTeams, adminPublish, adminReject, adminArchive, adminPurgeMedia, downloadMediaOwner, downloadMediaAdmin } from '@/apis/fengcaiAPI'
 import { userinfoStore } from '@/stores/userStore'
 import ContentStatusTag from '@/components/fengcai/ContentStatusTag.vue'
 import TeamAttachmentUpload from '@/components/fengcai/TeamAttachmentUpload.vue'
@@ -10,15 +10,38 @@ import UploadLogHonor from '@/components/UploadLogHonor.vue'
 
 const userStore = userinfoStore()
 const isAdmin = computed(() => userStore.currentUser?.level === 0)
-// 受控图片预览接口：后端 /team-content/image/{id}?token=xxx
-//   - 管理员/owner 可看任意状态（含 PENDING/REJECTED，解决 Item 4 后管理员盲审问题）
-//   - 匿名仅 PUBLISHED 可见
-//   <img src> 无法带 header，故用 query token 兜底鉴权
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL
-const imageBaseUrl = import.meta.env.VITE_API_BASE_URL.replace(/\/$/, '')
+// Axios 拦截器通过 Authorization header 请求 Blob；对象 URL 只在当前页面内存中存在。
+const imagePreviewUrls = ref({})
+let previewGeneration = 0
+
 function imagePreviewUrl(row) {
-  const token = userStore.token || ''
-  return `${imageBaseUrl}/team-content/image/${row.id}?token=${encodeURIComponent(token)}`
+  return imagePreviewUrls.value[row.id] || ''
+}
+
+function revokePreviewUrls(urls = imagePreviewUrls.value) {
+  Object.values(urls).forEach((url) => URL.revokeObjectURL(url))
+}
+
+async function refreshImagePreviews(rows) {
+  const generation = ++previewGeneration
+  const nextUrls = {}
+  await Promise.all((rows || []).map(async (row) => {
+    try {
+      const response = await getTeamContentImage(row.id)
+      const url = URL.createObjectURL(response.data)
+      if (generation === previewGeneration) nextUrls[row.id] = url
+      else URL.revokeObjectURL(url)
+    } catch {
+      // 单张预览失败不影响列表，其位置显示“无预览”。
+    }
+  }))
+  if (generation !== previewGeneration) {
+    revokePreviewUrls(nextUrls)
+    return
+  }
+  const previous = imagePreviewUrls.value
+  imagePreviewUrls.value = nextUrls
+  revokePreviewUrls(previous)
 }
 
 const activeTab = ref('images')
@@ -70,6 +93,7 @@ async function loadMyContent() {
       images.value = res.data.content.images || []
       words.value = res.data.content.words || []
       media.value = res.data.content.media || []
+      await refreshImagePreviews(images.value)
     } else {
       ElMessage.error(res.data.message || '加载失败')
     }
@@ -95,6 +119,7 @@ async function loadAdminContent() {
       images.value = res.data.content.images || []
       words.value = res.data.content.words || []
       media.value = res.data.content.media || []
+      await refreshImagePreviews(images.value)
     } else {
       ElMessage.error(res.data.message || '加载失败')
     }
@@ -180,6 +205,25 @@ async function handleArchive(type, id) {
   }
 }
 
+async function handlePurgeMedia(id) {
+  try {
+    await ElMessageBox.confirm('彻底清理会删除物理文件并释放额度，确定继续吗？', '彻底清理附件', {
+      confirmButtonText: '确定清理',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    const res = await adminPurgeMedia(id)
+    if (res.data.code === 200) {
+      ElMessage.success('附件已进入持久化删除队列')
+      await loadAdminContent()
+    } else {
+      ElMessage.error(res.data.message || '清理失败')
+    }
+  } catch (error) {
+    if (error !== 'cancel') ElMessage.error('清理失败: ' + error.message)
+  }
+}
+
 function convertImageType(type) {
   return { 1: '队员照片', 2: '支教照片', 3: '地区照片' }[type] || '未知'
 }
@@ -194,6 +238,12 @@ onMounted(() => {
   } else {
     loadMyContent()
   }
+})
+
+onBeforeUnmount(() => {
+  previewGeneration++
+  revokePreviewUrls()
+  imagePreviewUrls.value = {}
 })
 </script>
 
@@ -235,7 +285,7 @@ onMounted(() => {
             <template #default="{ row }">
               <el-image
                 :src="imagePreviewUrl(row)"
-                :preview-src-list="[imagePreviewUrl(row)]"
+                :preview-src-list="imagePreviewUrl(row) ? [imagePreviewUrl(row)] : []"
                 :preview-teleported="true"
                 fit="cover"
                 style="width: 80px; height: 60px; border-radius: 4px;"
@@ -354,11 +404,12 @@ onMounted(() => {
             </template>
           </el-table-column>
           <el-table-column prop="createdAt" label="上传时间" width="180" />
-          <el-table-column label="操作" width="200">
+          <el-table-column label="操作" width="300">
             <template #default="{ row }">
               <el-button size="small" type="primary" @click="handleDownload(row)">下载</el-button>
               <el-button v-if="isAdmin" size="small" type="success" @click="handlePublish('media', row.id)">发布</el-button>
               <el-button size="small" type="danger" @click="handleDelete('media', row.id)">删除</el-button>
+              <el-button v-if="isAdmin && row.status === 'ARCHIVED'" size="small" type="danger" plain @click="handlePurgeMedia(row.id)">彻底清理</el-button>
             </template>
           </el-table-column>
         </el-table>

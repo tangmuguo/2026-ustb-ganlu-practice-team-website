@@ -41,6 +41,20 @@
         WHERE relative_path = #{relativePath}
     </select>
 
+    <select id="findAssetForUpdate" resultMap="assetMap">
+        SELECT asset_id, relative_path, owner_user_id, file_size
+        FROM public_image_asset
+        WHERE relative_path = #{relativePath}
+        FOR UPDATE
+    </select>
+
+    <select id="findAssetByIdForUpdate" resultMap="assetMap">
+        SELECT asset_id, relative_path, owner_user_id, file_size
+        FROM public_image_asset
+        WHERE asset_id = #{assetId}
+        FOR UPDATE
+    </select>
+
     <update id="updateAssetPath">
         UPDATE public_image_asset
         SET relative_path = #{relativePath}

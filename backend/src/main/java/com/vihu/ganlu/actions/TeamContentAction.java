@@ -2,6 +2,7 @@ package com.vihu.ganlu.actions;
 
 import com.google.common.collect.ImmutableMap;
 import com.vihu.ganlu.entitys.TeamEntity;
+import com.vihu.ganlu.entitys.FileDeletionTaskEntity;
 import com.vihu.ganlu.entitys.TeamMediaEntity;
 import com.vihu.ganlu.entitys.PublicImageUploadInfo;
 import com.vihu.ganlu.entitys.TeamPageImageEntity;
@@ -16,6 +17,7 @@ import com.vihu.ganlu.service.TeamMediaService;
 import com.vihu.ganlu.service.TeamPageImageService;
 import com.vihu.ganlu.service.TeamPageWordService;
 import com.vihu.ganlu.service.UserService;
+import com.vihu.ganlu.service.impl.FileDeletionTaskService;
 import com.vihu.ganlu.utils.FileStorageUtil;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -59,6 +61,8 @@ public class TeamContentAction {
     private TokenService tokenService;
     @Resource
     private UserService userService;
+    @Resource
+    private FileDeletionTaskService fileDeletionTaskService;
 
     // =====================================================================
     // 团队端 @RequireRoles({0,1}) — teamId 从 Token 推导，不信任任何客户端输入
@@ -193,18 +197,6 @@ public class TeamContentAction {
 
         TeamMediaEntity media;
         try {
-            if (file.getSize() > FileStorageUtil.MAX_VIDEO_SIZE) {
-                return badRequest("文件大小超过限制");
-            }
-            // 服务端文件类型校验（扩展名 + 魔数，防伪装）
-            String ext = fileStorageUtil.extractExtension(file.getOriginalFilename());
-            if (FileStorageUtil.VIDEO_EXT.contains(ext)) {
-                fileStorageUtil.isAllowedVideo(file);
-            } else if (FileStorageUtil.DOC_EXT.contains(ext)) {
-                fileStorageUtil.isAllowedDocument(file);
-            } else {
-                return badRequest("不支持的文件类型: " + ext);
-            }
             media = teamMediaService.uploadMedia(file, u.getId(), teamId, relatedType, relatedId);
         } catch (IllegalArgumentException e) {
             return badRequest(e.getMessage());
@@ -318,21 +310,20 @@ public class TeamContentAction {
      * - 管理员（level=0）→ 任意状态可看
      * - 团队负责人（level=1）→ 仅自己 teamId 的图片可看（任意状态）
      *
-     * 鉴权方式：@PublicEndpoint 让 <img src> 能过拦截器，方法内自行解析 token
-     * （支持 Authorization header 或 ?token= query 参数，后者方便 <img> 直接拼 URL）。
+     * 鉴权方式：@PublicEndpoint 保留公开 PUBLISHED 图片能力；私有图片只接受
+     * Authorization header。完整登录 JWT 禁止进入查询字符串。
      * 返回 inline（非 attachment），浏览器可直接渲染。
      */
     @PublicEndpoint
     @GetMapping("/team-content/image/{imageId}")
     public ResponseEntity<?> serveImage(@PathVariable int imageId,
-                                        @RequestParam(value = "token", required = false) String queryToken,
                                         HttpServletRequest request) {
         TeamPageImageEntity img = teamPageImageService.findById(imageId);
         if (img == null || img.getTeamId() == null || img.getImageUrl() == null) {
             return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "资源不存在"));
         }
 
-        UserEntity u = resolveUserFromToken(request, queryToken);
+        UserEntity u = resolveUserFromAuthorization(request);
         boolean isAdmin = u != null && u.getLevel() != null && u.getLevel() == 0;
         boolean isOwner = false;
         if (u != null && u.getLevel() != null && u.getLevel() == 1) {
@@ -371,23 +362,19 @@ public class TeamContentAction {
     }
 
     /**
-     * 从 Authorization header 或 ?token= query 参数解析当前用户（兼容 <img src> 无法带 header 的场景）。
+     * 只从 Authorization header 解析当前用户。查询参数中的 token 永不读取。
      * 解析失败返回 null（调用方按匿名处理）。
      */
-    private UserEntity resolveUserFromToken(HttpServletRequest request, String queryToken) {
-        // 1. 优先用拦截器已解析的用户（带 header 的正常请求）
+    private UserEntity resolveUserFromAuthorization(HttpServletRequest request) {
         UserEntity attr = (UserEntity) request.getAttribute(AuthInterceptor.CURRENT_USER_ATTRIBUTE);
         if (attr != null) {
             return attr;
         }
-        // 2. 尝试 query token（<img src="...?token=xxx"> 场景）
-        String token = queryToken;
-        if (token == null || token.isEmpty()) {
-            String auth = request.getHeader(HttpHeaders.AUTHORIZATION);
-            if (auth != null && auth.startsWith("Bearer ")) {
-                token = auth.substring("Bearer ".length()).trim();
-            }
+        String auth = request.getHeader(HttpHeaders.AUTHORIZATION);
+        if (auth == null || !auth.startsWith("Bearer ")) {
+            return null;
         }
+        String token = auth.substring("Bearer ".length()).trim();
         if (token == null || token.isEmpty()) {
             return null;
         }
@@ -570,8 +557,32 @@ public class TeamContentAction {
     @PostMapping("/admin/team-content/image/{id}/purge")
     public ResponseEntity<?> adminPurgeImage(@PathVariable int id) {
         return teamPageImageService.purgeById(id)
-                ? ok("图片文件和记录已彻底删除")
+                ? ok("图片已进入持久化删除队列")
                 : badRequest("图片不存在");
+    }
+
+    @RequireRoles({0})
+    @PostMapping("/admin/team-content/media/{id}/purge")
+    public ResponseEntity<?> adminPurgeMedia(@PathVariable int id) {
+        return teamMediaService.purgeById(id)
+                ? ok("附件已进入持久化删除队列")
+                : badRequest("附件不存在");
+    }
+
+    @RequireRoles({0})
+    @GetMapping("/admin/file-deletion-tasks")
+    public ResponseEntity<?> adminListDeletionTasks(
+            @RequestParam(value = "limit", defaultValue = "100") int limit) {
+        List<FileDeletionTaskEntity> tasks = fileDeletionTaskService.listTasks(limit);
+        return ok("查询成功", tasks);
+    }
+
+    @RequireRoles({0})
+    @PostMapping("/admin/file-deletion-tasks/{id}/retry")
+    public ResponseEntity<?> adminRetryDeletionTask(@PathVariable long id) {
+        return fileDeletionTaskService.retryNow(id)
+                ? ok("删除任务已完成或不存在")
+                : badRequest("本次重试仍失败，系统将继续自动重试");
     }
 
     // =====================================================================

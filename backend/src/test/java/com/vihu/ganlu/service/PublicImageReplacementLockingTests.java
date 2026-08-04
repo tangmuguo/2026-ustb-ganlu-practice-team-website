@@ -17,6 +17,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.io.InputStream;
 import java.util.Scanner;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -111,6 +112,63 @@ class PublicImageReplacementLockingTests {
         assertEquals(1, new UserServiceImpl(mapper, encoder, lifecycle).updateUserById(update));
         verify(mapper).findUserByIdForUpdate(7);
         verify(mapper, never()).findUserById(7);
+    }
+
+    @Test
+    void bannerDeletionLocksAndUsesLatestImagePath() {
+        BannerMapper mapper = mock(BannerMapper.class);
+        PublicImageLifecycleService lifecycle = mock(PublicImageLifecycleService.class);
+        BannerEntity latest = banner(8, "images/8/latest.jpg");
+        when(mapper.findByIdForUpdate(8)).thenReturn(latest);
+        when(mapper.delete(8)).thenReturn(1);
+
+        assertEquals(1, new BannerServiceImpl(mapper, lifecycle).deleteBanner(8));
+
+        InOrder order = inOrder(mapper, lifecycle);
+        order.verify(mapper).findByIdForUpdate(8);
+        order.verify(mapper).delete(8);
+        order.verify(lifecycle).deletePublicImageAfterCommit("images/8/latest.jpg");
+        verify(mapper, never()).findById(8);
+    }
+
+    @Test
+    void newsDeletionUsesSameRowLockAsReplacement() {
+        NewsMapper mapper = mock(NewsMapper.class);
+        PublicImageLifecycleService lifecycle = mock(PublicImageLifecycleService.class);
+        NewsEntity latest = new NewsEntity();
+        latest.setId(9);
+        latest.setImageUrl("images/9/latest.jpg");
+        when(mapper.findByIdForUpdate(9)).thenReturn(latest);
+        when(mapper.delete(9)).thenReturn(1);
+
+        assertEquals(1, new NewsServiceImpl(mapper, lifecycle).deleteNews(9));
+        verify(mapper).findByIdForUpdate(9);
+        verify(mapper, never()).findById(9);
+        verify(lifecycle).deletePublicImageAfterCommit("images/9/latest.jpg");
+    }
+
+    @Test
+    void userBatchDeletionLocksDistinctIdsInStableOrder() {
+        UserMapper mapper = mock(UserMapper.class);
+        PasswordEncoder encoder = mock(PasswordEncoder.class);
+        PublicImageLifecycleService lifecycle = mock(PublicImageLifecycleService.class);
+        UserEntity two = new UserEntity();
+        two.setId(2);
+        UserEntity five = new UserEntity();
+        five.setId(5);
+        when(mapper.findUserByIdForUpdate(2)).thenReturn(two);
+        when(mapper.findUserByIdForUpdate(5)).thenReturn(five);
+        when(mapper.deleteUserByIds(Arrays.asList(2, 5))).thenReturn(2);
+
+        assertEquals(2, new UserServiceImpl(mapper, encoder, lifecycle)
+                .deleteUserByIds(Arrays.asList(5, 2, 5)));
+
+        InOrder order = inOrder(mapper);
+        order.verify(mapper).findUserByIdForUpdate(2);
+        order.verify(mapper).findUserByIdForUpdate(5);
+        order.verify(mapper).countTeamBindingsByUserIds(Arrays.asList(2, 5));
+        order.verify(mapper).deleteUserByIds(Arrays.asList(2, 5));
+        verify(mapper, never()).findUserById(anyInt());
     }
 
     private BannerEntity banner(int id, String imageUrl) {

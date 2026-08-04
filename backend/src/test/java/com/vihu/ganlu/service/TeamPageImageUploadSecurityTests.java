@@ -8,6 +8,7 @@ import com.vihu.ganlu.mappers.TeamMediaMapper;
 import com.vihu.ganlu.mappers.TeamPageImageMapper;
 import com.vihu.ganlu.service.impl.PublicImageLifecycleService;
 import com.vihu.ganlu.service.impl.PublicImageAssetDeletionService;
+import com.vihu.ganlu.service.impl.FileDeletionTaskService;
 import com.vihu.ganlu.service.impl.TeamPageImageServiceImpl;
 import com.vihu.ganlu.utils.FileStorageUtil;
 import com.vihu.ganlu.utils.PublicImageValidator;
@@ -50,6 +51,7 @@ class TeamPageImageUploadSecurityTests {
     private PublicImageQuotaMapper quotaMapper;
     private FileStorageUtil fileStorageUtil;
     private PublicImageLifecycleService lifecycleService;
+    private FileDeletionTaskService deletionTaskService;
     private TeamPageImageServiceImpl service;
     private AtomicInteger permanentFileCount;
     private AtomicLong permanentBytes;
@@ -164,10 +166,16 @@ class TeamPageImageUploadSecurityTests {
         TeamPageImageEntity firstImage = new TeamPageImageEntity();
         firstImage.setId(41);
         firstImage.setImageUrl(firstPath);
-        when(mapper.findByIds(Collections.singletonList(41))).thenReturn(Collections.singletonList(firstImage));
+        when(mapper.findByIdsForUpdate(Collections.singletonList(41))).thenReturn(Collections.singletonList(firstImage));
         when(mapper.deleteTeamPageImageByIds(Collections.singletonList(41))).thenReturn(1);
         assertEquals(1, service.deleteTeamPageImageByIds(Collections.singletonList(41)));
 
+        // 业务删除只创建持久化任务；任务真正删除物理文件后才释放额度。
+        assertEquals(1, permanentFileCount.get());
+        assertTrue(Files.exists(uploadRoot.resolve(firstPath)));
+        verify(deletionTaskService).enqueuePublicImage(firstPath);
+        new PublicImageAssetDeletionService(fileStorageUtil, quotaMapper)
+                .deletePhysicalFileThenReleaseQuota(permanentAssets.get(firstPath).getAssetId());
         assertEquals(0, permanentFileCount.get());
         assertFalse(Files.exists(uploadRoot.resolve(firstPath)));
         assertEquals(1, service.insertTeamImage(secondImage));
@@ -221,7 +229,8 @@ class TeamPageImageUploadSecurityTests {
                 new PublicImageAssetDeletionService(failingStorage, quotaMapper);
 
         assertThrows(FileStorageUtil.StorageException.class,
-                () -> deletionService.deletePhysicalFileThenReleaseQuota(imagePath));
+                () -> deletionService.deletePhysicalFileThenReleaseQuota(
+                        permanentAssets.get(imagePath).getAssetId()));
 
         assertTrue(Files.exists(uploadRoot.resolve(imagePath)));
         assertTrue(permanentAssets.containsKey(imagePath));
@@ -229,18 +238,18 @@ class TeamPageImageUploadSecurityTests {
     }
 
     @Test
-    void deletesPhysicalImageAfterRecordDeletion() throws Exception {
+    void recordDeletionEnqueuesPersistentAssetDeletionTask() throws Exception {
         String imageUrl = fileStorageUtil.storeFile(
                 file("saved.png", "image/png", imageBytes("png")), "images", "png");
         TeamPageImageEntity image = new TeamPageImageEntity();
         image.setId(31);
         image.setImageUrl(imageUrl);
-        when(mapper.findByIds(Collections.singletonList(31))).thenReturn(Collections.singletonList(image));
+        when(mapper.findByIdsForUpdate(Collections.singletonList(31))).thenReturn(Collections.singletonList(image));
         when(mapper.deleteTeamPageImageByIds(Collections.singletonList(31))).thenReturn(1);
 
         assertEquals(1, service.deleteTeamPageImageByIds(Collections.singletonList(31)));
 
-        assertFalse(Files.exists(uploadRoot.resolve(imageUrl)));
+        verify(deletionTaskService).enqueuePublicImage(imageUrl);
     }
 
     private String stageAndSave(MockMultipartFile file) throws Exception {
@@ -277,6 +286,7 @@ class TeamPageImageUploadSecurityTests {
         mapper = mock(TeamPageImageMapper.class);
         TeamMediaMapper mediaMapper = mock(TeamMediaMapper.class);
         quotaMapper = mock(PublicImageQuotaMapper.class);
+        deletionTaskService = mock(FileDeletionTaskService.class);
         fileStorageUtil = storage;
         configureInMemoryPermanentQuota();
         PublicImageValidator validator = new PublicImageValidator(maxBytes, 20_000_000);
@@ -284,7 +294,7 @@ class TeamPageImageUploadSecurityTests {
                 fileStorageUtil,
                 validator,
                 quotaMapper,
-                new PublicImageAssetDeletionService(fileStorageUtil, quotaMapper),
+                deletionTaskService,
                 1,
                 50,
                 maxStagedFiles,
@@ -325,6 +335,13 @@ class TeamPageImageUploadSecurityTests {
                 });
         when(quotaMapper.findAsset(anyString()))
                 .thenAnswer(invocation -> permanentAssets.get(invocation.getArgument(0)));
+        when(quotaMapper.findAssetByIdForUpdate(anyLong()))
+                .thenAnswer(invocation -> {
+                    long assetId = invocation.getArgument(0);
+                    return permanentAssets.values().stream()
+                            .filter(asset -> asset.getAssetId() == assetId)
+                            .findFirst().orElse(null);
+                });
         when(quotaMapper.updateAssetPath(anyLong(), anyString()))
                 .thenAnswer(invocation -> {
                     long assetId = invocation.getArgument(0);

@@ -68,9 +68,10 @@ public class NewsServiceImpl implements NewService {
     @Override
     @Transactional
     public int deleteNews(int id) {
-        NewsEntity existing = newsMapper.findById(id);
+        NewsEntity existing = newsMapper.findByIdForUpdate(id);
+        if (existing == null) return 0;
         int deleted = newsMapper.delete(id);
-        if (deleted == 1 && existing != null) {
+        if (deleted == 1) {
             imageLifecycleService.deletePublicImageAfterCommit(existing.getImageUrl());
         }
         return deleted;

@@ -9,6 +9,7 @@ const formRef = ref(null)
 const submitting = ref(false)
 const userinfo=userinfoStore()
 const uploadWidgetRef=ref(null)
+const emit = defineEmits(['uploaded'])
 
 const form = ref({
   userId:'',
@@ -54,13 +55,17 @@ const submitForm = async () => {
     submitting.value = true
     form.value.type=datatype_value.value
     form.value.userId=userinfo.user.content.id
-    await uploadWholeImage(form.value)
+    const response = await uploadWholeImage(form.value)
+    if (response.data?.code !== 200) {
+      throw new Error(response.data?.message || '提交失败')
+    }
     
     // 重置表单
     uploadWidgetRef.value.markConsumed()
     formRef.value.resetFields()
     await uploadWidgetRef.value.clearFile({ cancelRemote: false })
     ElMessage.success('提交成功')
+    emit('uploaded')
   } catch (error) {
     ElMessage.error('提交失败: ' + error.message)
   } finally {

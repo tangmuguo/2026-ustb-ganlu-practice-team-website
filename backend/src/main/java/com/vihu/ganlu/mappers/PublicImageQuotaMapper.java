@@ -16,6 +16,10 @@ public interface PublicImageQuotaMapper {
 
     PublicImageAssetEntity findAsset(@Param("relativePath") String relativePath);
 
+    PublicImageAssetEntity findAssetForUpdate(@Param("relativePath") String relativePath);
+
+    PublicImageAssetEntity findAssetByIdForUpdate(@Param("assetId") long assetId);
+
     int updateAssetPath(
             @Param("assetId") long assetId,
             @Param("relativePath") String relativePath);

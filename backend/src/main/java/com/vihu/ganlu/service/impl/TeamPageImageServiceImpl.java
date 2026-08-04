@@ -48,8 +48,9 @@ public class TeamPageImageServiceImpl implements TeamPageImageService {
     @Override
     @Transactional
     public int deleteTeamPageImageByIds(List<Integer> ids) {
-        List<TeamPageImageEntity> existing = teamPageImageMapper.findByIds(ids);
-        int deleted = teamPageImageMapper.deleteTeamPageImageByIds(ids);
+        List<Integer> lockedIds = normalizedIds(ids);
+        List<TeamPageImageEntity> existing = teamPageImageMapper.findByIdsForUpdate(lockedIds);
+        int deleted = teamPageImageMapper.deleteTeamPageImageByIds(lockedIds);
         if (deleted > 0) deleteFilesAfterCommit(existing);
         return deleted;
     }
@@ -57,8 +58,9 @@ public class TeamPageImageServiceImpl implements TeamPageImageService {
     @Override
     @Transactional
     public int deleteTeamPageImageByIdsAndUserId(List<Integer> ids, Integer userId) {
-        List<TeamPageImageEntity> existing = teamPageImageMapper.findByIdsAndUserId(ids, userId);
-        int deleted = teamPageImageMapper.deleteTeamPageImageByIdsAndUserId(ids, userId);
+        List<Integer> lockedIds = normalizedIds(ids);
+        List<TeamPageImageEntity> existing = teamPageImageMapper.findByIdsAndUserIdForUpdate(lockedIds, userId);
+        int deleted = teamPageImageMapper.deleteTeamPageImageByIdsAndUserId(lockedIds, userId);
         if (deleted > 0) deleteFilesAfterCommit(existing);
         return deleted;
     }
@@ -176,5 +178,16 @@ public class TeamPageImageServiceImpl implements TeamPageImageService {
         if (!java.util.Arrays.asList("PENDING", "PUBLISHED", "REJECTED", "ARCHIVED").contains(status)) {
             throw new IllegalArgumentException("无效的团队图片状态");
         }
+    }
+
+    private List<Integer> normalizedIds(List<Integer> ids) {
+        if (ids == null || ids.isEmpty()) throw new IllegalArgumentException("图片编号不能为空");
+        List<Integer> normalized = ids.stream()
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .sorted()
+                .collect(java.util.stream.Collectors.toList());
+        if (normalized.isEmpty()) throw new IllegalArgumentException("图片编号不能为空");
+        return normalized;
     }
 }

@@ -46,21 +46,25 @@
         select * from team_page_images where id = #{id} for update
     </select>
 
-    <select id="findByIds" resultMap="teampageimagemap">
+    <select id="findByIdsForUpdate" resultMap="teampageimagemap">
         select * from team_page_images
         where id in
         <foreach collection="ids" item="id" separator="," open="(" close=")">
             #{id}
         </foreach>
+        order by id
+        for update
     </select>
 
-    <select id="findByIdsAndUserId" resultMap="teampageimagemap">
+    <select id="findByIdsAndUserIdForUpdate" resultMap="teampageimagemap">
         select * from team_page_images
         where userId = #{userId}
           and id in
         <foreach collection="ids" item="id" separator="," open="(" close=")">
             #{id}
         </foreach>
+        order by id
+        for update
     </select>
 
     <insert id="insertTeamImage" parameterType="com.vihu.ganlu.entitys.TeamPageImageEntity"

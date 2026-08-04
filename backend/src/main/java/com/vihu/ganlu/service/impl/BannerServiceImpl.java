@@ -65,9 +65,10 @@ public class BannerServiceImpl implements BannerService {
     @Override
     @Transactional
     public int deleteBanner(Integer id) {
-        BannerEntity existing = id == null ? null : bannerMapper.findById(id);
+        BannerEntity existing = id == null ? null : bannerMapper.findByIdForUpdate(id);
+        if (existing == null) return 0;
         int deleted = bannerMapper.delete(id);
-        if (deleted == 1 && existing != null) {
+        if (deleted == 1) {
             imageLifecycleService.deletePublicImageAfterCommit(existing.getImageUrl());
         }
         return deleted;

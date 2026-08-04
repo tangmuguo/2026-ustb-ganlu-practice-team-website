@@ -67,10 +67,14 @@ public class FileStorageUtil {
     }
 
     public long getUsableSpace() {
+        return getUsableSpace(uploadRoot);
+    }
+
+    public long getUsableSpace(Path directory) {
         try {
-            return Files.getFileStore(uploadRoot).getUsableSpace();
+            return Files.getFileStore(directory.toAbsolutePath().normalize()).getUsableSpace();
         } catch (IOException e) {
-            throw new StorageException("无法读取上传磁盘剩余空间", e);
+            throw new StorageException("无法读取磁盘剩余空间: " + directory, e);
         }
     }
 

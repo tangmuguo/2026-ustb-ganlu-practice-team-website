@@ -37,6 +37,10 @@
         select * from team_media where id = #{id}
     </select>
 
+    <select id="findByIdForUpdate" parameterType="Integer" resultMap="teammediamap">
+        select * from team_media where id = #{id} for update
+    </select>
+
     <select id="findByTeamId" parameterType="Integer" resultMap="teammediamap">
         select * from team_media where team_id = #{teamId} and status &lt;&gt; 'ARCHIVED'
     </select>
@@ -141,4 +145,12 @@
     <delete id="purgeById">
         delete from team_media where id = #{id}
     </delete>
+
+    <select id="findArchivedIdsForRetention" resultType="int">
+        select id from team_media
+        where status = 'ARCHIVED'
+          and updated_at &lt; DATE_SUB(CURRENT_TIMESTAMP, INTERVAL #{retentionDays} DAY)
+        order by updated_at asc, id asc
+        limit #{limit}
+    </select>
 </mapper>

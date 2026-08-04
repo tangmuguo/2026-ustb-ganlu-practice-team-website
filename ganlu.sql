@@ -188,6 +188,74 @@ CREATE TABLE `public_image_quota` (
   CONSTRAINT `chk_public_image_asset_size` CHECK (`file_size` >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='已转正公共图片所有者与大小';
 
+DROP TABLE IF EXISTS `team_media`;
+CREATE TABLE `team_media` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `filename` varchar(255) NOT NULL,
+  `relative_path` varchar(512) NOT NULL,
+  `mime_type` varchar(100) DEFAULT NULL,
+  `file_size` bigint NOT NULL DEFAULT 0,
+  `uploader_id` int DEFAULT NULL,
+  `team_id` int DEFAULT NULL,
+  `related_type` varchar(20) DEFAULT NULL,
+  `related_id` int DEFAULT NULL,
+  `status` enum('PENDING','PUBLISHED','REJECTED','ARCHIVED') DEFAULT 'PENDING',
+  `reject_reason` varchar(512) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_team_id` (`team_id`),
+  KEY `idx_uploader_id` (`uploader_id`),
+  KEY `idx_related` (`related_type`,`related_id`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='团队风采视频/附件表';
+
+DROP TABLE IF EXISTS `team_media_quota`;
+CREATE TABLE `team_media_quota` (
+  `owner_user_id` int NOT NULL,
+  `used_file_count` int NOT NULL DEFAULT 0,
+  `used_bytes` bigint NOT NULL DEFAULT 0,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`owner_user_id`),
+  CONSTRAINT `chk_team_media_quota_count` CHECK (`used_file_count` >= 0),
+  CONSTRAINT `chk_team_media_quota_bytes` CHECK (`used_bytes` >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='团队附件账号级原子配额账本';
+
+DROP TABLE IF EXISTS `team_media_global_quota`;
+CREATE TABLE `team_media_global_quota` (
+  `singleton_id` tinyint NOT NULL,
+  `used_file_count` int NOT NULL DEFAULT 0,
+  `used_bytes` bigint NOT NULL DEFAULT 0,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`singleton_id`),
+  CONSTRAINT `chk_team_media_global_singleton` CHECK (`singleton_id` = 1),
+  CONSTRAINT `chk_team_media_global_count` CHECK (`used_file_count` >= 0),
+  CONSTRAINT `chk_team_media_global_bytes` CHECK (`used_bytes` >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='团队附件服务器级原子配额账本';
+
+DROP TABLE IF EXISTS `file_deletion_task`;
+CREATE TABLE `file_deletion_task` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `asset_type` varchar(32) NOT NULL,
+  `asset_id` bigint NOT NULL,
+  `relative_path` varchar(512) NOT NULL,
+  `owner_user_id` int NOT NULL,
+  `file_size` bigint NOT NULL,
+  `status` varchar(16) NOT NULL DEFAULT 'PENDING',
+  `retry_count` int NOT NULL DEFAULT 0,
+  `last_error` varchar(1000) DEFAULT NULL,
+  `next_retry_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_file_deletion_asset` (`asset_type`,`asset_id`),
+  KEY `idx_file_deletion_retry` (`status`,`next_retry_at`),
+  CONSTRAINT `chk_file_deletion_size` CHECK (`file_size` >= 0),
+  CONSTRAINT `chk_file_deletion_retry_count` CHECK (`retry_count` >= 0),
+  CONSTRAINT `chk_file_deletion_status` CHECK (`status` IN ('PENDING','FAILED')),
+  CONSTRAINT `chk_file_deletion_type` CHECK (`asset_type` IN ('PUBLIC_IMAGE','TEAM_MEDIA'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='可审计、可重试的文件删除 outbox';
+
 -- ----------------------------
 -- Table structure for team_page_word
 -- ----------------------------

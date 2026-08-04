@@ -62,6 +62,15 @@ export function getMyTeamContent () {
   return instance({ url: AllPATH.teamContentMinePath, method: 'GET' })
 }
 
+// 私有图片必须通过 Authorization header 获取 Blob，禁止把完整登录 JWT 拼进 URL。
+export function getTeamContentImage (imageId) {
+  return instance({
+    url: `/team-content/image/${encodeURIComponent(imageId)}`,
+    method: 'GET',
+    responseType: 'blob'
+  })
+}
+
 export function uploadMember (file, extra = {}) {
   return uploadImageMultipart(AllPATH.teamContentMembersPath, file, extra)
 }
@@ -120,6 +129,18 @@ export function adminReject (type, id, reason) {
 
 export function adminArchive (type, id) {
   return instance({ url: AllPATH.adminTeamContentArchivePath(type, id), method: 'POST' })
+}
+
+export function adminPurgeMedia (id) {
+  return instance({ url: `/admin/team-content/media/${encodeURIComponent(id)}/purge`, method: 'POST' })
+}
+
+export function adminListFileDeletionTasks (limit = 100) {
+  return instance({ url: '/admin/file-deletion-tasks', method: 'GET', params: { limit } })
+}
+
+export function adminRetryFileDeletionTask (id) {
+  return instance({ url: `/admin/file-deletion-tasks/${encodeURIComponent(id)}/retry`, method: 'POST' })
 }
 
 export const getPublishedYears = getTeamYears

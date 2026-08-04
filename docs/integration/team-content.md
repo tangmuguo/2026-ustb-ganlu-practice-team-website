@@ -7,7 +7,7 @@
 **核心设计原则：**
 - 不 DROP 旧表，增量 patch 新增列
 - 团队端接口不含 teamId，从 Token 推导（防越权）
-- 删除 = 逻辑删除（status=ARCHIVED），保留审计追溯
+- 普通删除 = 逻辑归档（status=ARCHIVED），保留审计且继续占用文件额度；物理 purge 走持久化任务
 - 视频/附件强制下载（Content-Disposition: attachment），不在网页在线播放
 
 ---
@@ -32,6 +32,7 @@
 |--------|------|------|
 | GET | `/team-content/public/{teamId}` | 仅 PUBLISHED 内容 |
 | GET | `/team-content/media/{mediaId}/download` | 视频/附件下载（强制 attachment） |
+| GET | `/team-content/image/{imageId}` | PUBLISHED 可公开读取；私有状态必须用 Authorization 获取 Blob |
 
 ### 管理员端 @RequireRoles({0})
 
@@ -41,6 +42,10 @@
 | POST | `/admin/team-content/{type}/{id}/publish` | 发布 |
 | POST | `/admin/team-content/{type}/{id}/reject?reason=` | 驳回（reason 必填） |
 | POST | `/admin/team-content/{type}/{id}/archive` | 归档 |
+| POST | `/admin/team-content/image/{id}/purge` | 图片进入持久化物理删除队列 |
+| POST | `/admin/team-content/media/{id}/purge` | 已归档附件进入持久化物理删除队列 |
+| GET | `/admin/file-deletion-tasks` | 查询待处理/失败任务、次数和最后错误 |
+| POST | `/admin/file-deletion-tasks/{id}/retry` | 手动立即重试 |
 
 ---
 
@@ -119,7 +124,16 @@ ALTER TABLE `team_page_word`
 - 新图片保存为 `PENDING`，物理文件位于 `images_pending/<userId>/`；只有 `PUBLISHED` 位于 `images/<userId>/`。`REJECTED`、`ARCHIVED` 仍在私有目录。
 - PENDING、PUBLISHED、REJECTED、ARCHIVED 只要物理文件仍存在，就都占用账号的永久文件数和容量；审核状态切换不释放配额。
 - `public_image_asset.asset_id` 是稳定资源编号。文件在私有和公开目录之间移动时只更新 `relative_path`，所有者、字节数和配额不会丢失。
-- 只有管理员彻底删除图片文件与记录时才释放配额；系统先确认物理文件已经删除，再在独立事务中释放账本额度。磁盘删除失败时配额继续占用，普通“归档”也只隐藏内容、不删除文件。
+- 只有管理员彻底删除图片文件与记录时才释放配额；持久删除任务先确认物理文件已经删除，再删除资源记录并释放账本额度。磁盘删除或数据库清理失败时任务会保留并重试，普通“归档”也只隐藏内容、不删除文件。
+- 业务事务会先把稳定 `asset_id` 写入 `file_deletion_task`。提交后立即尝试，失败则保留任务、错误、次数和下次执行时间并自动退避重试；文件已经不存在按幂等成功继续清理账本。
+
+## 附件生命周期、配额与磁盘保护
+
+- `team_media_quota` 按上传账号原子限制数量和累计字节，`team_media_global_quota` 使用单例行限制服务器总量；默认分别为 50 个/2GB 与 2000 个/20GB。
+- 所有上传事务固定先锁全局账本、再锁账号账本；条件更新在 InnoDB 中重新判断，多实例不能靠同时上传绕过上限。
+- Multipart 解析前的过滤器依据 `Content-Length` 检查临时目录和正式上传目录；Service 在正式复制前再次检查。两处默认都必须保留至少 1GB。
+- PENDING、PUBLISHED、REJECTED、ARCHIVED 全部占额度。归档只开始保留期，不释放空间；管理员 purge 或默认 30 天保留期结束后才创建 `TEAM_MEDIA` 删除任务。
+- 删除任务先确认物理文件消失，再删除 `team_media` 行并按“全局→账号”顺序释放额度。任一步失败都会保留任务并重试。
 
 ---
 
@@ -166,7 +180,14 @@ ALTER TABLE `team_page_word`
 spring.servlet.multipart.max-file-size=200MB
 spring.servlet.multipart.max-request-size=210MB
 spring.servlet.multipart.file-size-threshold=10MB
-spring.servlet.multipart.location=${java.io.tmpdir}/ganlu-uploads
+spring.servlet.multipart.location=${GANLU_MULTIPART_TEMP_DIR:${java.io.tmpdir}/ganlu-multipart}
+team.media.owner-max-files=50
+team.media.owner-max-total-mb=2048
+team.media.global-max-files=2000
+team.media.global-max-total-mb=20480
+team.media.upload-min-free-disk-mb=1024
+team.media.multipart-min-free-disk-mb=1024
+team.media.archived-retention-days=30
 ```
 
 ### Nginx 运维提示
@@ -192,8 +213,8 @@ proxy_request_buffering off;  # 关闭缓冲，实现真实前端上传进度
 
 ## 11. 视频下载接口鉴权限制
 
-HTML `<a download>` 无法携带自定义 Authorization 请求头。若未来需要限制下载权限：
-- 方案 A：后端签发一次性临时 Token 放在 URL Query 参数中（`?token=xxx`，有效期 5 分钟）
+HTML `<a download>` 无法携带自定义 Authorization 请求头。管理页当前通过 Axios Blob 下载。若未来必须支持普通链接：
+- 方案 A：后端签发仅限单个附件的一次性票据（不可使用完整登录 JWT，有效期不超过 5 分钟）
 - 方案 B：使用 Cookie 鉴权（`<a>` 自动携带 Cookie）
 
 ---
@@ -223,9 +244,10 @@ private Integer resolveTeamId(UserEntity user) {
 
 ## 14. 数据库 patch 应用机制
 
-当前项目无 Flyway/Liquibase，手动执行。执行顺序：
-1. `ganlu.sql`（初始 schema）
-2. `database/patches/11_team_content.sql`（本 patch）
+当前项目无 Flyway/Liquibase，手动执行。固定顺序为：
+`00 → 10 → 11 → 12 → 13 → 14 → 20 → 30 → 40`。
+
+`14_team_media_lifecycle.sql` 会回填旧附件账本；若旧附件无法确定上传账号会主动停止，必须先人工修复，不允许带着少算的额度继续上线。
 
 需在本地和运维环境分别执行。
 
@@ -233,7 +255,7 @@ private Integer resolveTeamId(UserEntity user) {
 
 ## 15. 孤儿 Media 清理说明
 
-用户中途取消上传附件时可能产生无关联父内容的 media 记录。当前可接受（团队端可见并手动删除），后续可考虑定时清理任务。
+无关联父内容的附件仍是合法的独立附件，同样计入个人和服务器配额。团队端可逻辑归档；管理员可立即 purge。归档超过默认 30 天后，定时任务会自动送入持久化删除队列。
 
 ---
 

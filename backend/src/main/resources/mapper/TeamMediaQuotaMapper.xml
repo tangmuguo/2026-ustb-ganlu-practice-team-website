@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.vihu.ganlu.mappers.TeamMediaQuotaMapper">
+    <insert id="ensureGlobalQuotaRow">
+        INSERT INTO team_media_global_quota(singleton_id, used_file_count, used_bytes)
+        VALUES(1, 0, 0)
+        ON DUPLICATE KEY UPDATE singleton_id = VALUES(singleton_id)
+    </insert>
+
+    <!-- 全局行始终先于账号行更新，所有上传使用同一锁顺序以降低死锁风险。 -->
+    <update id="reserveGlobalQuota">
+        UPDATE team_media_global_quota
+        SET used_file_count = used_file_count + 1,
+            used_bytes = used_bytes + #{fileSize},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE singleton_id = 1
+          AND used_file_count &lt; #{maxFiles}
+          AND #{fileSize} &lt;= #{maxBytes}
+          AND used_bytes &lt;= #{maxBytes} - #{fileSize}
+    </update>
+
+    <insert id="ensureOwnerQuotaRow">
+        INSERT INTO team_media_quota(owner_user_id, used_file_count, used_bytes)
+        VALUES(#{ownerUserId}, 0, 0)
+        ON DUPLICATE KEY UPDATE owner_user_id = VALUES(owner_user_id)
+    </insert>
+
+    <update id="reserveOwnerQuota">
+        UPDATE team_media_quota
+        SET used_file_count = used_file_count + 1,
+            used_bytes = used_bytes + #{fileSize},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE owner_user_id = #{ownerUserId}
+          AND used_file_count &lt; #{maxFiles}
+          AND #{fileSize} &lt;= #{maxBytes}
+          AND used_bytes &lt;= #{maxBytes} - #{fileSize}
+    </update>
+
+    <update id="releaseGlobalQuota">
+        UPDATE team_media_global_quota
+        SET used_file_count = GREATEST(used_file_count - 1, 0),
+            used_bytes = GREATEST(used_bytes - #{fileSize}, 0),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE singleton_id = 1
+    </update>
+
+    <update id="releaseOwnerQuota">
+        UPDATE team_media_quota
+        SET used_file_count = GREATEST(used_file_count - 1, 0),
+            used_bytes = GREATEST(used_bytes - #{fileSize}, 0),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE owner_user_id = #{ownerUserId}
+    </update>
+</mapper>

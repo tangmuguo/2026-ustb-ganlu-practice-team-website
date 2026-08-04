@@ -13,8 +13,8 @@ public interface TeamPageImageMapper {
             @Param("teamId") int teamId, @Param("status") String status);
     TeamPageImageEntity findById(@Param("id") int id);
     TeamPageImageEntity findByIdForUpdate(@Param("id") int id);
-    List<TeamPageImageEntity> findByIds(@Param("ids") List<Integer> ids);
-    List<TeamPageImageEntity> findByIdsAndUserId(
+    List<TeamPageImageEntity> findByIdsForUpdate(@Param("ids") List<Integer> ids);
+    List<TeamPageImageEntity> findByIdsAndUserIdForUpdate(
             @Param("ids") List<Integer> ids, @Param("userId") Integer userId);
     int deleteTeamPageImageByIds(List<Integer> ids);
     int deleteTeamPageImageByIdsAndUserId(@Param("ids") List<Integer> ids, @Param("userId") Integer userId);

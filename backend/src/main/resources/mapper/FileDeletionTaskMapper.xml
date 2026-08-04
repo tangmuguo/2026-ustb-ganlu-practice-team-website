@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.vihu.ganlu.mappers.FileDeletionTaskMapper">
+    <resultMap id="taskMap" type="com.vihu.ganlu.entitys.FileDeletionTaskEntity">
+        <id column="id" property="id"/>
+        <result column="asset_type" property="assetType"/>
+        <result column="asset_id" property="assetId"/>
+        <result column="relative_path" property="relativePath"/>
+        <result column="owner_user_id" property="ownerUserId"/>
+        <result column="file_size" property="fileSize"/>
+        <result column="status" property="status"/>
+        <result column="retry_count" property="retryCount"/>
+        <result column="last_error" property="lastError"/>
+        <result column="next_retry_at" property="nextRetryAt"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insertTask" parameterType="com.vihu.ganlu.entitys.FileDeletionTaskEntity"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO file_deletion_task(
+            asset_type, asset_id, relative_path, owner_user_id, file_size,
+            status, retry_count, next_retry_at, created_at, updated_at
+        ) VALUES (
+            #{assetType}, #{assetId}, #{relativePath}, #{ownerUserId}, #{fileSize},
+            'PENDING', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+        ON DUPLICATE KEY UPDATE
+            relative_path = VALUES(relative_path),
+            owner_user_id = VALUES(owner_user_id),
+            file_size = VALUES(file_size),
+            status = 'PENDING',
+            next_retry_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP,
+            id = LAST_INSERT_ID(id)
+    </insert>
+
+    <select id="findByAsset" resultMap="taskMap">
+        SELECT * FROM file_deletion_task
+        WHERE asset_type = #{assetType} AND asset_id = #{assetId}
+    </select>
+
+    <select id="findById" resultMap="taskMap">
+        SELECT * FROM file_deletion_task WHERE id = #{id}
+    </select>
+
+    <select id="findByIdForUpdate" resultMap="taskMap">
+        SELECT * FROM file_deletion_task WHERE id = #{id} FOR UPDATE
+    </select>
+
+    <select id="findRetryable" resultMap="taskMap">
+        SELECT * FROM file_deletion_task
+        WHERE status IN ('PENDING', 'FAILED')
+          AND next_retry_at &lt;= CURRENT_TIMESTAMP
+        ORDER BY next_retry_at ASC, id ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findAll" resultMap="taskMap">
+        SELECT * FROM file_deletion_task
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
+    <update id="markFailure">
+        UPDATE file_deletion_task
+        SET status = 'FAILED',
+            retry_count = retry_count + 1,
+            last_error = #{lastError},
+            next_retry_at = DATE_ADD(CURRENT_TIMESTAMP, INTERVAL #{delaySeconds} SECOND),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteTask">
+        DELETE FROM file_deletion_task WHERE id = #{id}
+    </delete>
+</mapper>
