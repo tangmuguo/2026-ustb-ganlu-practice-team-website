@@ -267,15 +267,135 @@ class FileStorageUtilTests {
         assertEquals("zip", vf.getExtension());
     }
 
-    /** 构造合法 OOXML ZIP 字节：含 [Content_Types].xml 和 <prefix> 条目 */
-    private byte[] buildOoxmlZip(String prefix) throws Exception {
+    // =====================================================================
+    // Item 6 exy v4 反向用例：伪造最小 ZIP 必须被拒（堵住旧版"只查条目名"的漏洞）
+    // =====================================================================
+
+    @Test
+    void validate_emptyContentTypesAndFakeWord_rejected() throws Exception {
+        // 旧版漏洞载荷：空 [Content_Types].xml + word/fake → 旧版只查条目名会放行，
+        // 新版校验 XML 内容，空 <Types></Types> 无 ContentType 声明 → 拒绝
         java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
         try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
             zos.putNextEntry(new java.util.zip.ZipEntry("[Content_Types].xml"));
-            zos.write("<Types/>".getBytes());
+            zos.write("<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"></Types>".getBytes("UTF-8"));
             zos.closeEntry();
-            zos.putNextEntry(new java.util.zip.ZipEntry(prefix + "document.xml"));
-            zos.write("<doc/>".getBytes());
+            zos.putNextEntry(new java.util.zip.ZipEntry("word/fake"));
+            zos.write(new byte[0]);
+            zos.closeEntry();
+        }
+        MockMultipartFile file = new MockMultipartFile("file", "fake.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document", baos.toByteArray());
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE));
+        assertTrue(ex.getMessage().contains("OOXML"));
+    }
+
+    @Test
+    void validate_malformedContentTypesXml_rejected() throws Exception {
+        // [Content_Types].xml 非良构 XML → 解析失败 → 拒绝
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
+            zos.putNextEntry(new java.util.zip.ZipEntry("[Content_Types].xml"));
+            zos.write("<<<not xml>>>".getBytes("UTF-8"));
+            zos.closeEntry();
+            zos.putNextEntry(new java.util.zip.ZipEntry("word/document.xml"));
+            zos.write("<document xmlns=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"/>".getBytes("UTF-8"));
+            zos.closeEntry();
+        }
+        MockMultipartFile file = new MockMultipartFile("file", "bad.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document", baos.toByteArray());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE));
+    }
+
+    @Test
+    void validate_missingMainPart_rejected() throws Exception {
+        // 有合法 [Content_Types].xml（含 ContentType 声明）但缺主部件 word/document.xml → 拒绝
+        String contentTypesXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
+                + "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
+                + "</Types>";
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
+            zos.putNextEntry(new java.util.zip.ZipEntry("[Content_Types].xml"));
+            zos.write(contentTypesXml.getBytes("UTF-8"));
+            zos.closeEntry();
+            // 故意不放 word/document.xml
+        }
+        MockMultipartFile file = new MockMultipartFile("file", "no-main.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document", baos.toByteArray());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE));
+    }
+
+    @Test
+    void validate_largeMainPartDocx_passes() throws Exception {
+        // F2 回归：主部件超过单条目读取上限（64KB）的合法 docx 应通过。
+        // 校验只读根元素前缀（readBoundedBytes 返回前缀而非超限拒绝），
+        // 条目过大时剩余字节由 closeEntry 跳过，不得误拒合法大文档。
+        String contentTypesXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
+                + "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
+                + "<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>"
+                + "</Types>";
+        StringBuilder mainXml = new StringBuilder(72 * 1024);
+        mainXml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+                .append("<document xmlns=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><body>");
+        char[] pad = new char[70 * 1024]; // 填充正文，使主部件超过 64KB 读取上限
+        java.util.Arrays.fill(pad, 'x');
+        mainXml.append(pad).append("</body></document>");
+
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
+            zos.putNextEntry(new java.util.zip.ZipEntry("[Content_Types].xml"));
+            zos.write(contentTypesXml.getBytes("UTF-8"));
+            zos.closeEntry();
+            zos.putNextEntry(new java.util.zip.ZipEntry("word/document.xml"));
+            zos.write(mainXml.toString().getBytes("UTF-8"));
+            zos.closeEntry();
+        }
+        MockMultipartFile file = new MockMultipartFile("file", "large.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document", baos.toByteArray());
+
+        FileStorageUtil.ValidatedFile vf = util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE);
+        assertEquals(FileStorageUtil.FileCategory.DOCUMENT, vf.getCategory());
+        assertEquals("docx", vf.getExtension());
+    }
+
+    /** 构造合法 OOXML ZIP 字节：含符合 schema 的 [Content_Types].xml 和主部件。
+     *  prefix = "word/"（docx）或 "ppt/"（pptx），对应 mainPart/ContentType/命名空间不同。 */
+    private byte[] buildOoxmlZip(String prefix) throws Exception {
+        boolean isDocx = "word/".equals(prefix);
+        String mainPart = isDocx ? "word/document.xml" : "ppt/presentation.xml";
+        String partName = isDocx ? "/word/document.xml" : "/ppt/presentation.xml";
+        String mainContentType = isDocx
+                ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+                : "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml";
+        String mainNs = isDocx
+                ? "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                : "http://schemas.openxmlformats.org/presentationml/2006/main";
+        String mainRoot = isDocx ? "document" : "presentation";
+
+        String contentTypesXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<Types xmlns=\"" + "http://schemas.openxmlformats.org/package/2006/content-types" + "\">"
+                + "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
+                + "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
+                + "<Override PartName=\"" + partName + "\" ContentType=\"" + mainContentType + "\"/>"
+                + "</Types>";
+        String mainXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<" + mainRoot + " xmlns=\"" + mainNs + "\"><body/></" + mainRoot + ">";
+
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
+            zos.putNextEntry(new java.util.zip.ZipEntry("[Content_Types].xml"));
+            zos.write(contentTypesXml.getBytes("UTF-8"));
+            zos.closeEntry();
+            zos.putNextEntry(new java.util.zip.ZipEntry(mainPart));
+            zos.write(mainXml.getBytes("UTF-8"));
             zos.closeEntry();
         }
         return baos.toByteArray();

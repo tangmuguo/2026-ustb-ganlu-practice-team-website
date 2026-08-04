@@ -6,18 +6,46 @@
 -- 幂等性说明：
 --   - DDL 段（CREATE TABLE / ALTER TABLE / ADD INDEX）通过 INFORMATION_SCHEMA
 --     条件判断，可安全重入。
---   - DML 段（数据回填）是一次性历史数据迁移，仅在本次新建 status 列时执行，
---     重跑时自动跳过，避免上线后把真正等待审核的 PENDING 内容批量公开。
+--   - DML 历史回填（第 6 节）基于历史 ID 快照表（_patch11_hist_images / _patch11_hist_word）
+--     JOIN 完成。快照在脚本最顶部、任何 DDL 之前一次性采集（表不存在才 CREATE AS SELECT），
+--     保证失败重跑时仍能按原历史 ID 清单完成回填，且上线后新插入的 PENDING 内容
+--     不在快照中、永不被误公开（满足 exy v4 "完成且只完成历史回填" 的要求）。
+--   - ⚠️ 快照表 _patch11_hist_* 为常驻表，禁止 DROP——DROP 后重跑会重新采集
+--     （含上线后新行），破坏"只完成历史回填"语义。
+--   - ⚠️ 本脚本仅一次性手工执行；上线后不建议重跑（第 5 节 orphan 校验会挡住
+--     上线后应用产生的 team_id IS NULL 新行）。
 -- =====================================================================
 
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
--- 记录本次执行前 status 列是否已存在，用于第 6 节判断是否需要历史回填
-SET @images_status_existed_before := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
-  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'team_page_images' AND COLUMN_NAME = 'status');
-SET @word_status_existed_before := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
-  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'team_page_word' AND COLUMN_NAME = 'status');
+-- ---------------------------------------------------------------------
+-- 0. 历史 ID 快照采集 — 必须在任何 DDL 之前执行
+--    仅首次执行时采集（快照表不存在才 CREATE AS SELECT）；之后无论失败重跑多少次，
+--    只回填快照里的历史行。上线后新插入的 PENDING 行不在快照中，永不被误公开。
+--    快照表为常驻表，禁止 DROP（见头注释）。
+--
+--    额外守卫（F1 review）：快照采集还要满足 team_media 表不存在。team_media 是本 patch
+--    第 1 节创建的，它存在 = patch 已完整跑过一次（含快照）。这样即使 _patch11_hist_*
+--    被误删（当临时表清理、逻辑备份遗漏），只要 team_media 还在，就不会重建快照——
+--    堵住"快照丢失 + status 列已存在 → 重跑重建快照（含上线后 PENDING）→ 批量误公开"。
+--    （team_media 不存在 = patch 从未跑完整，此时即使重建快照也只含迁移前历史行，安全。）
+-- ---------------------------------------------------------------------
+SET @team_media_exists := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'team_media');
+SET @snap_images_exists := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '_patch11_hist_images');
+SET @sql := IF(@snap_images_exists = 0 AND @team_media_exists = 0,
+  'CREATE TABLE `_patch11_hist_images` (PRIMARY KEY (`id`)) ENGINE = InnoDB AS SELECT `id` FROM `team_page_images`',
+  'SELECT ''_patch11_hist_images 已存在或 patch 已完整执行过，跳过采集'' AS msg');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @snap_word_exists := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '_patch11_hist_word');
+SET @sql := IF(@snap_word_exists = 0 AND @team_media_exists = 0,
+  'CREATE TABLE `_patch11_hist_word` (PRIMARY KEY (`id`)) ENGINE = InnoDB AS SELECT `id` FROM `team_page_word`',
+  'SELECT ''_patch11_hist_word 已存在或 patch 已完整执行过，跳过采集'' AS msg');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ---------------------------------------------------------------------
 -- 1. CREATE TABLE team_media — 视频/附件表
@@ -149,6 +177,37 @@ SET @sql := IF(@idx_exists = 0,
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ---------------------------------------------------------------------
+-- 3.5 owner 正向重复预检 — 必须在任何内容回填之前执行
+--     Patch 10 只校验"一个 team 多 user"，没校验"一个 user 多 team"。
+--     若同一 owner_user_id 绑了多个 team，第 4b 节兜底回填的 JOIN team t ON
+--     t.owner_user_id = img.userId 会多匹配并任选其一写入 team_id，造成历史内容
+--     错误归属且无法通过重跑修复（team_id 已非 NULL，4b 的 IS NULL 条件不再命中）。
+--     因此必须在回填前 SIGNAL 中止，要求人工合并/解绑重复 owner。
+--     （Patch 12 才补 UNIQUE(owner_user_id) 约束，此预检把检测时机提前。）
+-- ---------------------------------------------------------------------
+DELIMITER $$
+DROP PROCEDURE IF EXISTS check_team_owner_unique_before_backfill$$
+CREATE PROCEDURE check_team_owner_unique_before_backfill()
+BEGIN
+    DECLARE duplicate_owner INT DEFAULT 0;
+    SELECT COUNT(1) INTO duplicate_owner
+      FROM (
+          SELECT owner_user_id, COUNT(1) AS c
+            FROM team
+           WHERE owner_user_id IS NOT NULL
+           GROUP BY owner_user_id
+          HAVING c > 1
+      ) dup;
+    IF duplicate_owner > 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = '存在同一负责人账号(owner_user_id)绑定多个小队，请先合并/解绑后再执行 11_team_content.sql';
+    END IF;
+END$$
+CALL check_team_owner_unique_before_backfill()$$
+DROP PROCEDURE IF EXISTS check_team_owner_unique_before_backfill$$
+DELIMITER ;
+
+-- ---------------------------------------------------------------------
 -- 4. 数据回填 — 主路径：通过 pageId 关联 team_page.team_id
 --    Patch 10 已把 team_page.userId 迁移为真实 team_page.team_id（team.id），
 --    因此这里直接使用 page.team_id，确保内容表 team_id 与 team.id 语义一致。
@@ -211,20 +270,22 @@ DROP PROCEDURE IF EXISTS check_team_content_orphans$$
 DELIMITER ;
 
 -- ---------------------------------------------------------------------
--- 6. 历史内容回填 PUBLISHED — 一次性操作
---    仅在本次确实新建 status 列时执行（@*_status_existed_before = 0），
---    重跑时 status 列已存在，直接跳过，避免上线后把真正等待审核的 PENDING 内容批量公开。
---    新建 status 列时，历史记录因 ADD COLUMN DEFAULT 'PENDING' 落到 PENDING，
---    此处统一调整为 PUBLISHED，表示迁移前已存在的老数据视为已发布。
+-- 6. 历史内容回填 PUBLISHED — 基于第 0 节的历史 ID 快照
+--    只回填快照表（_patch11_hist_*）里记录的历史行，且仅当它们仍处于 PENDING。
+--    这样满足 exy v4 "完成且只完成历史回填" 的要求：
+--      - 失败重跑：快照在脚本顶部采集（orphan 校验之前），首次失败重跑后历史 ID 齐全，
+--        回填照常完成。
+--      - 上线后重跑：新插入的 PENDING 内容不在快照中，永不被误公开。
+--      - 已回填的行 status 已是 PUBLISHED，WHERE status='PENDING' 不再命中，天然幂等。
 -- ---------------------------------------------------------------------
-SET @sql := IF(@images_status_existed_before = 0,
-  'UPDATE team_page_images SET status = ''PUBLISHED'' WHERE team_id IS NOT NULL AND status = ''PENDING''',
-  'SELECT ''team_page_images.status 列已存在，历史回填跳过'' AS msg');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+UPDATE team_page_images img
+  JOIN `_patch11_hist_images` h ON h.id = img.id
+   SET img.status = 'PUBLISHED'
+ WHERE img.status = 'PENDING' AND img.team_id IS NOT NULL;
 
-SET @sql := IF(@word_status_existed_before = 0,
-  'UPDATE team_page_word SET status = ''PUBLISHED'' WHERE team_id IS NOT NULL AND status = ''PENDING''',
-  'SELECT ''team_page_word.status 列已存在，历史回填跳过'' AS msg');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+UPDATE team_page_word wrd
+  JOIN `_patch11_hist_word` h ON h.id = wrd.id
+   SET wrd.status = 'PUBLISHED'
+ WHERE wrd.status = 'PENDING' AND wrd.team_id IS NOT NULL;
 
 SET FOREIGN_KEY_CHECKS = 1;

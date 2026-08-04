@@ -276,21 +276,21 @@ public class TeamContentAction {
      * - 管理员（level=0）→ 任意状态可看
      * - 团队负责人（level=1）→ 仅自己 teamId 的图片可看（任意状态）
      *
-     * 鉴权方式：@PublicEndpoint 让 <img src> 能过拦截器，方法内自行解析 token
-     * （支持 Authorization header 或 ?token= query 参数，后者方便 <img> 直接拼 URL）。
-     * 返回 inline（非 attachment），浏览器可直接渲染。
+     * 鉴权方式（Item 2 exy v4）：@PublicEndpoint 保留匿名看公开图能力；
+     * 但私有图片预览只接受 Authorization header，禁止从 URL query 读取登录 JWT——
+     * query 会进入浏览器历史/日志/Referer，泄露可直接当 Bearer 用的长期凭证。
+     * 前端用带 header 的 axios 请求 Blob，再 URL.createObjectURL 交给 el-image。
      */
     @PublicEndpoint
     @GetMapping("/team-content/image/{imageId}")
     public ResponseEntity<?> serveImage(@PathVariable int imageId,
-                                        @RequestParam(value = "token", required = false) String queryToken,
                                         HttpServletRequest request) {
         TeamPageImageEntity img = teamPageImageService.findById(imageId);
         if (img == null || img.getTeamId() == null || img.getImageUrl() == null) {
             return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "资源不存在"));
         }
 
-        UserEntity u = resolveUserFromToken(request, queryToken);
+        UserEntity u = resolveUserFromAuthorization(request);
         boolean isAdmin = u != null && u.getLevel() != null && u.getLevel() == 0;
         boolean isOwner = false;
         if (u != null && u.getLevel() != null && u.getLevel() == 1) {
@@ -329,32 +329,16 @@ public class TeamContentAction {
     }
 
     /**
-     * 从 Authorization header 或 ?token= query 参数解析当前用户（兼容 <img src> 无法带 header 的场景）。
+     * 只从 Authorization header 解析当前用户（Item 2 exy v4）。
+     * 查询参数中的 token 永不读取——避免登录 JWT 通过 URL 泄露到日志/历史/Referer。
+     * 前端改用 axios 带 header 请求 Blob。
      * 解析失败返回 null（调用方按匿名处理）。
+     *
+     * 本端点 @PublicEndpoint，拦截器不预处理（不设置 CURRENT_USER_ATTRIBUTE），
+     * 直接复用 AuthInterceptor 的解析实现（单一实现，避免鉴权逻辑漂移）。
      */
-    private UserEntity resolveUserFromToken(HttpServletRequest request, String queryToken) {
-        // 1. 优先用拦截器已解析的用户（带 header 的正常请求）
-        UserEntity attr = (UserEntity) request.getAttribute(AuthInterceptor.CURRENT_USER_ATTRIBUTE);
-        if (attr != null) {
-            return attr;
-        }
-        // 2. 尝试 query token（<img src="...?token=xxx"> 场景）
-        String token = queryToken;
-        if (token == null || token.isEmpty()) {
-            String auth = request.getHeader(HttpHeaders.AUTHORIZATION);
-            if (auth != null && auth.startsWith("Bearer ")) {
-                token = auth.substring("Bearer ".length()).trim();
-            }
-        }
-        if (token == null || token.isEmpty()) {
-            return null;
-        }
-        try {
-            Integer userId = tokenService.verifyAndGetUserId(token);
-            return userService.findUserById(userId);
-        } catch (RuntimeException ex) {
-            return null;
-        }
+    private UserEntity resolveUserFromAuthorization(HttpServletRequest request) {
+        return AuthInterceptor.resolveUserFromRequest(request, tokenService, userService);
     }
 
     private String guessImageContentType(String imageUrl) {
@@ -668,6 +652,17 @@ public class TeamContentAction {
     private ResponseEntity<?> badRequest(String message) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ImmutableMap.of("code", 400, "message", message));
+    }
+
+    /**
+     * F8 review: service 层抛 IllegalStateException（如 F1 文件搬运失败、DB 同步失败）
+     * 在本控制器兜底为结构化 500，而非 Spring 默认空响应——管理员能得到可操作的错误提示。
+     * （之前这类异常会冒泡成裸 500，管理员看不到原因。）
+     */
+    @org.springframework.web.bind.annotation.ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<?> handleIllegalState(IllegalStateException e) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ImmutableMap.of("code", 500, "message", "操作失败：" + e.getMessage()));
     }
 
     /**

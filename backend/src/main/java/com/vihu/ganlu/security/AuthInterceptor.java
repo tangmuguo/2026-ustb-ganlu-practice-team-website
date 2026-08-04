@@ -49,19 +49,12 @@ public class AuthInterceptor implements HandlerInterceptor {
             return reject(response, HttpStatus.UNAUTHORIZED, "请先登录");
         }
 
-        UserEntity currentUser;
-        try {
-            String token = authorization.substring("Bearer ".length()).trim();
-            if (token.isEmpty()) {
-                return reject(response, HttpStatus.UNAUTHORIZED, "Token无效或已过期");
-            }
-            Integer userId = tokenService.verifyAndGetUserId(token);
-            currentUser = userService.findUserById(userId);
-        } catch (RuntimeException ex) {
+        UserEntity currentUser = resolveUserFromRequest(request, tokenService, userService);
+        if (currentUser == null) {
             return reject(response, HttpStatus.UNAUTHORIZED, "Token无效或已过期");
         }
 
-        if (currentUser == null || currentUser.getLevel() == null) {
+        if (currentUser.getLevel() == null) {
             return reject(response, HttpStatus.UNAUTHORIZED, "账号不存在或已失效");
         }
 
@@ -73,6 +66,32 @@ public class AuthInterceptor implements HandlerInterceptor {
 
         request.setAttribute(CURRENT_USER_ATTRIBUTE, currentUser);
         return true;
+    }
+
+    /**
+     * 从 Authorization header 解析当前用户（Bearer 校验 + 查库），失败返回 null。
+     * 拦截器（强校验：失败 401）与 @PublicEndpoint 端点内自行解析（弱校验：匿名兜底）
+     * 共用同一实现，避免鉴权逻辑出现第二份副本而漂移（如 token 吊销/账号停用规则变更时
+     * 只改拦截器、遗漏端点内解析）。解析规则：无 header / 非 Bearer / token 空 /
+     * 校验失败 / 用户不存在 → null。
+     */
+    public static UserEntity resolveUserFromRequest(HttpServletRequest request,
+                                                    TokenService tokenService,
+                                                    UserService userService) {
+        String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
+        if (authorization == null || !authorization.startsWith("Bearer ")) {
+            return null;
+        }
+        String token = authorization.substring("Bearer ".length()).trim();
+        if (token.isEmpty()) {
+            return null;
+        }
+        try {
+            Integer userId = tokenService.verifyAndGetUserId(token);
+            return userService.findUserById(userId);
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 
     private boolean reject(HttpServletResponse response, HttpStatus status, String message) throws IOException {

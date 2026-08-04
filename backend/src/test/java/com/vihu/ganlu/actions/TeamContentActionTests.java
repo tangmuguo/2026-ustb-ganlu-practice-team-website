@@ -134,6 +134,22 @@ class TeamContentActionTests {
         assertEquals(200, resp.getStatusCodeValue());
     }
 
+    @Test
+    void adminPublish_moveFailure_returnsStructured500() {
+        // F8 review: service 层 move 失败抛 IllegalStateException，本控制器应有 handler 兜底，
+        // 返回结构化 ResultEntity（而非 Spring 默认裸 500 空响应）
+        when(imageService.updateStatus(10, "PUBLISHED", null))
+                .thenThrow(new IllegalStateException("图片文件搬运失败: from -> to"));
+
+        ResponseEntity<?> resp = action.handleIllegalState(
+                new IllegalStateException("图片文件搬运失败: from -> to"));
+        assertEquals(500, resp.getStatusCodeValue());
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, Object> body = (java.util.Map<String, Object>) resp.getBody();
+        assertEquals(500, body.get("code"));
+        assertEquals("操作失败：图片文件搬运失败: from -> to", body.get("message"));
+    }
+
     @SuppressWarnings("unchecked")
     @Test
     void adminReject_emptyReason_returns400() {
@@ -516,39 +532,52 @@ class TeamContentActionTests {
 
     @Test
     void serveImage_admin_canViewPending() throws Exception {
-        // 管理员可查看任意状态图片
+        // 管理员可查看任意状态图片（@PublicEndpoint：拦截器不预处理、不设 CURRENT_USER_ATTRIBUTE，
+        // 经 Authorization header 由 AuthInterceptor.resolveUserFromRequest 解析）
         java.nio.file.Path tmp = java.nio.file.Files.createTempFile("test-img", ".jpg");
         UserEntity admin = user(1, 0);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("Authorization", "Bearer admin-token");
+        when(tokenService.verifyAndGetUserId("admin-token")).thenReturn(1);
+        when(userService.findUserById(1)).thenReturn(admin);
         when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
         when(fileStorageUtil.loadFile("images_pending/x.jpg")).thenReturn(tmp);
 
-        ResponseEntity<?> resp = action.serveImage(10, null, req(admin));
+        ResponseEntity<?> resp = action.serveImage(10, request);
         assertEquals(200, resp.getStatusCodeValue());
         java.nio.file.Files.delete(tmp);
     }
 
     @Test
     void serveImage_owner_canViewOwnPending() throws Exception {
-        // 团队负责人可查看自己 team 的 PENDING 图片
+        // 团队负责人可查看自己 team 的 PENDING 图片（经 Authorization header 解析）
         java.nio.file.Path tmp = java.nio.file.Files.createTempFile("test-img", ".jpg");
         UserEntity owner = user(5, 1);
         mockTeamUser(5, 5); // user 5 → team 5
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("Authorization", "Bearer owner-token");
+        when(tokenService.verifyAndGetUserId("owner-token")).thenReturn(5);
+        when(userService.findUserById(5)).thenReturn(owner);
         when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
         when(fileStorageUtil.loadFile("images_pending/x.jpg")).thenReturn(tmp);
 
-        ResponseEntity<?> resp = action.serveImage(10, null, req(owner));
+        ResponseEntity<?> resp = action.serveImage(10, request);
         assertEquals(200, resp.getStatusCodeValue());
         java.nio.file.Files.delete(tmp);
     }
 
     @Test
     void serveImage_otherTeam_returns404() {
-        // user 5 属于 team 5，但图片属于 team 99 → 视为匿名 → 非 PUBLISHED 返回 404
+        // user 5 属于 team 5，但图片属于 team 99 → 非所属负责人 → 视为匿名 → 非 PUBLISHED 返回 404
         UserEntity owner = user(5, 1);
         mockTeamUser(5, 5);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("Authorization", "Bearer owner-token");
+        when(tokenService.verifyAndGetUserId("owner-token")).thenReturn(5);
+        when(userService.findUserById(5)).thenReturn(owner);
         when(imageService.findById(10)).thenReturn(image(10, "PENDING", 99, "images_pending/x.jpg"));
 
-        ResponseEntity<?> resp = action.serveImage(10, null, req(owner));
+        ResponseEntity<?> resp = action.serveImage(10, request);
         assertEquals(404, resp.getStatusCodeValue());
     }
 
@@ -564,7 +593,7 @@ class TeamContentActionTests {
         when(teamMapper.findById(5)).thenReturn(team);
         when(fileStorageUtil.loadFile("images/x.jpg")).thenReturn(tmp);
 
-        ResponseEntity<?> resp = action.serveImage(10, null, request);
+        ResponseEntity<?> resp = action.serveImage(10, request);
         assertEquals(200, resp.getStatusCodeValue());
         java.nio.file.Files.delete(tmp);
     }
@@ -575,41 +604,44 @@ class TeamContentActionTests {
         MockHttpServletRequest request = new MockHttpServletRequest();
         when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
 
-        ResponseEntity<?> resp = action.serveImage(10, null, request);
+        ResponseEntity<?> resp = action.serveImage(10, request);
         assertEquals(404, resp.getStatusCodeValue());
     }
 
     @Test
-    void serveImage_queryToken_admin_canView() throws Exception {
-        // query token 场景（<img src="...?token=xxx">）：管理员 token 可看 PENDING
+    void serveImage_authorizationHeader_admin_canView() throws Exception {
+        // Item 2 exy v4：query token 已移除，私有图片只接受 Authorization header。
+        // 此测试模拟 @PublicEndpoint（拦截器不预处理），后端自行从 header 解析 token。
         java.nio.file.Path tmp = java.nio.file.Files.createTempFile("test-img", ".jpg");
-        MockHttpServletRequest request = new MockHttpServletRequest(); // 无 header user attribute
+        MockHttpServletRequest request = new MockHttpServletRequest(); // 无 CURRENT_USER_ATTRIBUTE
+        request.addHeader("Authorization", "Bearer admin-token");
         UserEntity admin = user(1, 0);
         when(tokenService.verifyAndGetUserId("admin-token")).thenReturn(1);
         when(userService.findUserById(1)).thenReturn(admin);
         when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
         when(fileStorageUtil.loadFile("images_pending/x.jpg")).thenReturn(tmp);
 
-        ResponseEntity<?> resp = action.serveImage(10, "admin-token", request);
+        ResponseEntity<?> resp = action.serveImage(10, request);
         assertEquals(200, resp.getStatusCodeValue());
         java.nio.file.Files.delete(tmp);
     }
 
     @Test
-    void serveImage_invalidQueryToken_treatedAsAnonymous() {
-        // 无效 query token 当匿名处理 → PENDING 拒绝
+    void serveImage_invalidHeaderToken_treatedAsAnonymous() {
+        // 无效 Authorization header token 当匿名处理 → PENDING 拒绝
         MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("Authorization", "Bearer bad-token");
         when(tokenService.verifyAndGetUserId("bad-token")).thenThrow(new RuntimeException("invalid"));
         when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
 
-        ResponseEntity<?> resp = action.serveImage(10, "bad-token", request);
+        ResponseEntity<?> resp = action.serveImage(10, request);
         assertEquals(404, resp.getStatusCodeValue());
     }
 
     @Test
     void serveImage_imageNotFound_returns404() {
         when(imageService.findById(999)).thenReturn(null);
-        ResponseEntity<?> resp = action.serveImage(999, null, new MockHttpServletRequest());
+        ResponseEntity<?> resp = action.serveImage(999, new MockHttpServletRequest());
         assertEquals(404, resp.getStatusCodeValue());
     }
 

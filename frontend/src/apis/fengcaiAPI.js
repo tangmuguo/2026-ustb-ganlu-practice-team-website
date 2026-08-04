@@ -133,6 +133,21 @@ export function downloadMedia (mediaId) {
 }
 
 /**
+ * 受控图片预览（Item 2 exy v4：改 Blob，不再用 URL query token）。
+ * 带 Authorization header（由 axios 拦截器自动附加），响应为 Blob → URL.createObjectURL 给 el-image。
+ * - 管理员/owner 可看任意状态（含 PENDING/REJECTED）
+ * - 匿名仅 PUBLISHED 可见
+ * @param {Number} imageId
+ */
+export function getTeamContentImage (imageId) {
+  return instance({
+    url: `/team-content/image/${encodeURIComponent(imageId)}`,
+    method: 'GET',
+    responseType: 'blob'
+  })
+}
+
+/**
  * 团队端下载附件（含 PENDING/REJECTED/ARCHIVED，用于团队负责人确认上传内容）
  * @param {Number} mediaId
  */

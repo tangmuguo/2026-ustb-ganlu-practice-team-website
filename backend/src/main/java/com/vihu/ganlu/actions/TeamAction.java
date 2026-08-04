@@ -80,7 +80,45 @@ public class TeamAction {
 
     @ExceptionHandler(DuplicateKeyException.class)
     public ResponseEntity<ResultEntity> handleDuplicate(DuplicateKeyException exception) {
-        return error(HttpStatus.CONFLICT, "同一年份下已存在同名小队");
+        return error(HttpStatus.CONFLICT, resolveConflictMessage(exception));
+    }
+
+    /**
+     * 解析唯一约束冲突的友好提示。
+     * - service 层 COUNT 预检抛的 DuplicateKeyException 已带中文 message（重名/负责人占用），直接透传。
+     * - 并发漏过预检命中 DB 约束时，MyBatis 包装的是底层技术文本（含约束名），
+     *   按 cause + 顶层 message 里的约束名映射回对应中文，避免给前端泄露技术细节。
+     *   顶层 message 也参与判断，防个别驱动把约束文本放在顶层而 getMostSpecificCause() 拿不到。
+     * - F3 review: 未命中约束名映射时绝不返回原始技术文本——只信任 service 层抛的中文 message，
+     *   非中文（驱动/MyBatis 原始 SQL 文本）一律通用中文兜底，避免泄露技术细节。
+     */
+    private String resolveConflictMessage(DuplicateKeyException exception) {
+        String msg = safeMessage(exception, "");
+        Throwable cause = exception.getMostSpecificCause();
+        String causeText = cause == null ? "" : String.valueOf(cause.getMessage());
+        String searchText = msg + "\n" + causeText;
+        if (searchText.contains("uk_team_owner_user")) {
+            return "该负责人账号已绑定其他小队";
+        }
+        if (searchText.contains("uk_team_year_name")) {
+            return "同一年份下已存在同名小队";
+        }
+        // F3: 只信任 service 层抛的中文 message；非中文（技术文本）走通用兜底，不透传
+        if (msg != null && !msg.trim().isEmpty() && containsChinese(msg)) {
+            return msg;
+        }
+        return "数据冲突，请刷新后重试";
+    }
+
+    /** 粗判字符串是否含中文字符（用于区分中文业务 message 和英文技术文本） */
+    private boolean containsChinese(String text) {
+        if (text == null) return false;
+        for (int i = 0; i < text.length(); i++) {
+            if (text.charAt(i) >= '\u4e00' && text.charAt(i) <= '\u9fff') {
+                return true;
+            }
+        }
+        return false;
     }
 
     @ExceptionHandler(NoSuchElementException.class)

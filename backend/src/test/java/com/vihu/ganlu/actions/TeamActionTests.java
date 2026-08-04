@@ -127,6 +127,68 @@ class TeamActionTests {
                 .andExpect(jsonPath("$.message").value("同一年份下已存在同名小队"));
     }
 
+    @Test
+    void ownerAlreadyBoundReturnsCorrectMessage() throws Exception {
+        // service 层预检抛"负责人占用"中文 message，应原样透传（不再被误报为"重名"）
+        UserEntity administrator = user(1, 0);
+        when(userService.findUserById(1)).thenReturn(administrator);
+        when(teamServie.createTeam(any(TeamSaveRequest.class)))
+                .thenThrow(new DuplicateKeyException("该负责人账号已绑定其他小队"));
+
+        mockMvc.perform(post("/admin/teams")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(administrator))
+                        .contentType("application/json")
+                        .content(validRequestJson()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(409))
+                .andExpect(jsonPath("$.message").value("该负责人账号已绑定其他小队"));
+    }
+
+    @Test
+    void dbUniqueConstraintMappedToChinese() throws Exception {
+        // 并发漏过 service 预检命中 DB uk_team_owner_user 时，MyBatis 抛底层技术文本
+        // （含约束名），handler 应按约束名映射回中文，不泄露技术细节
+        UserEntity administrator = user(1, 0);
+        when(userService.findUserById(1)).thenReturn(administrator);
+        Throwable dbCause = new RuntimeException(
+                "### Error updating database; Duplicate entry '5' for key 'team.uk_team_owner_user'");
+        when(teamServie.createTeam(any(TeamSaveRequest.class)))
+                .thenThrow(new DuplicateKeyException("MyBatis 重抛", dbCause));
+
+        mockMvc.perform(post("/admin/teams")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(administrator))
+                        .contentType("application/json")
+                        .content(validRequestJson()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(409))
+                .andExpect(jsonPath("$.message").value("该负责人账号已绑定其他小队"));
+    }
+
+    @Test
+    void unknownConstraintReturnsGenericChineseNotRawSql() throws Exception {
+        // F3 review: 命中未知约束（非 uk_team_owner_user/uk_team_year_name）且 message 是
+        // 技术文本时，绝不返回原始 SQL，走通用中文兜底
+        UserEntity administrator = user(1, 0);
+        when(userService.findUserById(1)).thenReturn(administrator);
+        Throwable dbCause = new RuntimeException(
+                "### Error updating database; Duplicate entry 'x' for key 'team.uk_team_page_team_id'");
+        when(teamServie.createTeam(any(TeamSaveRequest.class)))
+                .thenThrow(new DuplicateKeyException("### Error updating database", dbCause));
+
+        String message = mockMvc.perform(post("/admin/teams")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(administrator))
+                        .contentType("application/json")
+                        .content(validRequestJson()))
+                .andExpect(status().isConflict())
+                .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        // 断言返回通用中文，不含 "### Error" / "Duplicate entry" 等技术文本
+        org.junit.jupiter.api.Assertions.assertTrue(
+                !message.contains("### Error") && !message.contains("Duplicate entry"),
+                "不应泄露技术 SQL 文本: " + message);
+        org.junit.jupiter.api.Assertions.assertTrue(message.contains("数据冲突"),
+                "应返回通用中文兜底: " + message);
+    }
+
     private UserEntity user(int id, int level) {
         UserEntity user = new UserEntity();
         user.setId(id);
