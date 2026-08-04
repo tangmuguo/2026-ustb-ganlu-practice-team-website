@@ -1,13 +1,14 @@
 package com.vihu.ganlu;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+
 class GanluApplicationTests {
 
     @Test
-    void contextLoads() {
+    void applicationClassCanBeConstructedWithoutDatabaseConfiguration() {
+        assertDoesNotThrow(GanluApplication::new);
     }
 
 }

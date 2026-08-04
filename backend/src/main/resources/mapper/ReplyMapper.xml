@@ -56,7 +56,37 @@
           AND
             r.status = 1
         ORDER BY
-            r.create_time ASC
+            r.create_time ASC,
+            r.id ASC
+    </select>
+
+    <!-- 获取当前页留言的所有回复 -->
+    <select id="selectRepliesByMessageIds" resultMap="replymap">
+        SELECT
+            r.id,
+            r.message_id,
+            r.user_id,
+            r.content,
+            r.create_time,
+            r.update_time,
+            r.status,
+            u.username,
+            u.teamname
+        FROM
+            reply r
+                LEFT JOIN
+            user u ON r.user_id = u.id
+        WHERE
+            r.status = 1
+          AND
+            r.message_id IN
+            <foreach collection="messageIds" item="messageId" open="(" separator="," close=")">
+                #{messageId}
+            </foreach>
+        ORDER BY
+            r.message_id ASC,
+            r.create_time ASC,
+            r.id ASC
     </select>
 
     <!-- 根据ID获取回复 -->
@@ -80,6 +110,8 @@
             update_time = NOW()
         WHERE
             id = #{id}
+          AND
+            status = 1
     </update>
 
     <!-- 获取用户回复 -->
@@ -103,7 +135,8 @@
           AND
             r.status = 1
         ORDER BY
-            r.create_time DESC
+            r.create_time DESC,
+            r.id DESC
     </select>
 
 </mapper>

@@ -51,8 +51,9 @@
         WHERE
             m.status = 1
         ORDER BY
-            m.create_time DESC
-            LIMIT #{offset}, #{pageSize}
+            m.create_time DESC,
+            m.id DESC
+        LIMIT #{offset}, #{pageSize}
     </select>
 
     <!-- 获取留言总数 -->
@@ -86,6 +87,8 @@
             update_time = NOW()
         WHERE
             id = #{id}
+          AND
+            status = 1
     </update>
 
     <!-- 获取用户留言 -->
@@ -108,7 +111,8 @@
           AND
             m.status = 1
         ORDER BY
-            m.create_time DESC
+            m.create_time DESC,
+            m.id DESC
     </select>
 
 </mapper>
