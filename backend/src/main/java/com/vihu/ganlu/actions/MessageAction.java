@@ -13,6 +13,11 @@ import com.vihu.ganlu.service.impl.MessageServiceImpl;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
@@ -22,6 +27,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/message")
 public class MessageAction {
+    private static final Logger LOGGER = LoggerFactory.getLogger(MessageAction.class);
+
     @Autowired
     private MessageServiceImpl messageService;
 
@@ -102,18 +109,40 @@ public class MessageAction {
 
     private ResponseEntity<?> error(RuntimeException ex) {
         HttpStatus status;
+        String message;
         if (ex instanceof IllegalArgumentException) {
             status = HttpStatus.BAD_REQUEST;
+            message = ex.getMessage();
         } else if (ex instanceof NoSuchElementException) {
             status = HttpStatus.NOT_FOUND;
+            message = ex.getMessage();
         } else if (ex instanceof SecurityException) {
             status = HttpStatus.FORBIDDEN;
+            message = ex.getMessage();
         } else {
             status = HttpStatus.INTERNAL_SERVER_ERROR;
+            message = "服务器内部错误";
+            LOGGER.error("Message board request failed", ex);
+        }
+        if (message == null || message.trim().isEmpty()) {
+            message = status == HttpStatus.INTERNAL_SERVER_ERROR ? "服务器内部错误" : status.getReasonPhrase();
         }
         return ResponseEntity.status(status).body(ImmutableMap.of(
                 "code", status.value(),
-                "message", ex.getMessage(),
+                "message", message,
+                "content", ImmutableMap.of()
+        ));
+    }
+
+    @ExceptionHandler({
+            HttpMessageNotReadableException.class,
+            MethodArgumentTypeMismatchException.class,
+            HttpMediaTypeNotSupportedException.class
+    })
+    public ResponseEntity<?> handleBadRequest(Exception ex) {
+        return ResponseEntity.badRequest().body(ImmutableMap.of(
+                "code", HttpStatus.BAD_REQUEST.value(),
+                "message", "请求参数格式错误",
                 "content", ImmutableMap.of()
         ));
     }

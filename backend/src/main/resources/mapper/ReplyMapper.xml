@@ -92,7 +92,13 @@
     <!-- 根据ID获取回复 -->
     <select id="selectReplyById" parameterType="int" resultMap="replymap">
         SELECT
-            *
+            id,
+            message_id,
+            user_id,
+            content,
+            create_time,
+            update_time,
+            status
         FROM
             reply
         WHERE

@@ -101,7 +101,41 @@ class MessageActionTests {
 
         mockMvc.perform(get("/message/list?page=0&pageSize=10"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code", is(400)));
+                .andExpect(jsonPath("$.code", is(400)))
+                .andExpect(jsonPath("$.message", is("page必须大于等于1")))
+                .andExpect(jsonPath("$.content").exists());
+    }
+
+    @Test
+    void list_nonNumericPage_shouldReturn400ResponseBody() throws Exception {
+        mockMvc.perform(get("/message/list?page=abc&pageSize=10"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code", is(400)))
+                .andExpect(jsonPath("$.message", is("请求参数格式错误")))
+                .andExpect(jsonPath("$.content").exists());
+    }
+
+    @Test
+    void addMessage_malformedJson_shouldReturn400ResponseBody() throws Exception {
+        mockMvc.perform(post("/message/add")
+                        .contentType("application/json")
+                        .content("{")
+                        .requestAttr(AuthInterceptor.CURRENT_USER_ATTRIBUTE, user(2, 2)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code", is(400)))
+                .andExpect(jsonPath("$.message", is("请求参数格式错误")))
+                .andExpect(jsonPath("$.content").exists());
+    }
+
+    @Test
+    void list_unexpectedExceptionWithoutMessage_shouldReturnStable500() throws Exception {
+        when(messageService.getMessages(1, 10)).thenThrow(new RuntimeException());
+
+        mockMvc.perform(get("/message/list"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code", is(500)))
+                .andExpect(jsonPath("$.message", is("服务器内部错误")))
+                .andExpect(jsonPath("$.content").exists());
     }
 
     @Test
@@ -136,4 +170,3 @@ class MessageActionTests {
         return standaloneSetup(action).addInterceptors(interceptor).build();
     }
 }
-

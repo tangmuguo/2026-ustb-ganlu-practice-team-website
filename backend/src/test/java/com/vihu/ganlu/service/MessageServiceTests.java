@@ -119,6 +119,7 @@ class MessageServiceTests {
     void listRejectsIllegalPageParams() {
         assertThrows(IllegalArgumentException.class, () -> service.getMessages(0, 10));
         assertThrows(IllegalArgumentException.class, () -> service.getMessages(1, 1000));
+        assertThrows(IllegalArgumentException.class, () -> service.getMessages(Integer.MAX_VALUE, 50));
         verify(messageMapper, never()).selectMessages(any(Integer.class), any(Integer.class));
     }
 

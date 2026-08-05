@@ -22,6 +22,7 @@ import java.util.stream.Collectors;
 @Service
 public class MessageServiceImpl {
     private static final int MAX_PAGE_SIZE = 50;
+    private static final int MAX_OFFSET = Integer.MAX_VALUE;
     private static final int MAX_MESSAGE_LENGTH = 500;
     private static final int MAX_REPLY_LENGTH = 300;
 
@@ -50,7 +51,7 @@ public class MessageServiceImpl {
     // 获取留言列表（分页）
     public Map<String, Object> getMessages(int page, int pageSize) {
         validatePage(page, pageSize);
-        int offset = (page - 1) * pageSize;
+        int offset = calculateOffset(page, pageSize);
         List<MessageEntity> messages = messageMapper.selectMessages(offset, pageSize);
 
         if (!messages.isEmpty()) {
@@ -145,6 +146,14 @@ public class MessageServiceImpl {
         if (pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
             throw new IllegalArgumentException("pageSize必须在1到50之间");
         }
+    }
+
+    private int calculateOffset(int page, int pageSize) {
+        long offset = ((long) page - 1L) * (long) pageSize;
+        if (offset > MAX_OFFSET) {
+            throw new IllegalArgumentException("page过大");
+        }
+        return (int) offset;
     }
 
     private void validateId(Integer id, String name) {

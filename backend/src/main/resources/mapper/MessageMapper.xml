@@ -69,7 +69,12 @@
     <!-- 根据ID获取留言 -->
     <select id="selectMessageById" parameterType="int" resultMap="messagemap">
         SELECT
-            *
+            id,
+            user_id,
+            content,
+            create_time,
+            update_time,
+            status
         FROM
             message
         WHERE
