@@ -23,7 +23,7 @@
 - 同一留言下回复按 `create_time DESC, id DESC` 稳定排序。
 - 当前页回复使用 `WHERE message_id IN (...)` 批量查询，避免逐条查询回复。
 - 留言和回复用户名通过 SQL JOIN 带回；用户缺失时返回 `用户#<userId>` 占位。
-- `MessageAction` 局部处理畸形 JSON、分页参数类型错误和不支持的 Content-Type，返回统一 `{code,message,content}`；没有新增接管全站的异常处理器。
+- `MessageAction` 局部处理畸形 JSON、分页参数类型错误和不支持的 Content-Type，返回统一 `{code,message,content}`；不支持的 Content-Type 返回 `415`，没有新增接管全站的异常处理器。
 - 非预期内部异常只向客户端返回通用 `服务器内部错误`，详细异常写入后端日志，不回传 SQL 或连接错误文本。
 
 ## 修改文件
@@ -170,7 +170,8 @@
 ## 错误码
 
 - `400`：空白正文、超长正文、非法 id、`page=0`、`pageSize>50` 等参数错误。
-- `400`：畸形 JSON、`page=abc`、不支持的 Content-Type 等框架级客户端错误。
+- `400`：畸形 JSON、`page=abc` 等框架级客户端错误。
+- `415`：不支持的 Content-Type。
 - `401`：未登录或 token 无效。
 - `403`：当前角色无删除权限。
 - `404`：留言或回复不存在，或已被逻辑删除。
@@ -181,14 +182,14 @@
 1. 先导入根目录 `ganlu.sql`。
 2. 执行 `database/patches/20_message_board.sql` 中的孤儿数据诊断 `SELECT`。
 3. 如果 `reply.message_id` 指向不存在的留言，先修复对应历史数据，再添加 `fk_reply_message`。
-4. 执行索引和 `reply -> message` 外键 `ALTER TABLE`。
-5. 如果脚本中途失败，先用脚本内的 `SHOW INDEX` 和 `information_schema` 检查已经创建的对象，重试时跳过已完成的 `ALTER`。
+4. 执行索引和 `reply -> message` 外键迁移。脚本会通过 `information_schema` 判断索引/外键是否已存在，已存在则跳过。
+5. 如果脚本中途失败，修复导致失败的历史数据后可以重新执行整份 `20_message_board.sql`，已完成的索引/外键不会重复添加。
 
 本补丁不添加 `message.user_id -> user.id` 或 `reply.user_id -> user.id` 外键。原因是当前共享用户模块仍使用物理删除用户；如果添加用户 RESTRICT 外键，发过留言或回复的账号会删除失败并可能把数据库异常暴露成 500。历史内容保留数字 `user_id`，用户记录不存在时由后端返回 `用户#<userId>`。
 
 `reply.message_id -> message.id` 外键使用 `ON DELETE RESTRICT`。留言板删除留言走逻辑删除，不会物理删除留言审计数据。
 
-`20_message_board.sql` 不包含 `DROP TABLE`，不清空现有留言、回复或用户数据。
+`20_message_board.sql` 不包含 `DROP TABLE`，不清空现有留言、回复或用户数据。MySQL 8.0 复验建议覆盖三种场景：首次执行成功、第二次整文件执行不失败、手工预先创建部分索引后仍能补齐剩余对象。
 
 ## 测试账号建议
 
@@ -204,7 +205,7 @@
 
 已新增三组留言板测试：
 
-- `MessageActionTests`：覆盖游客列表、游客新增/回复 401、伪造 `userId` 新增、非法分页、`page=abc`、畸形 JSON、无 message 的内部异常、学生伪造管理员删除仍 403。
+- `MessageActionTests`：覆盖游客列表、游客新增/回复 401、伪造 `userId` 新增、非法分页、`page=abc`、畸形 JSON、不支持的 Content-Type 返回 415、无 message 的内部异常、学生伪造管理员删除仍 403。
 - `MessageServiceTests`：覆盖 level `0/1/2` 新增留言和回复、空白/超长正文、批量回复查询、分页第二页、极大 page 溢出保护、已删除/不存在留言回复失败、学生不可删除、管理员和团队可删除。
 - `MessageMapperIntegrationTests`：使用 `application-test.properties` 的 H2 MySQL 模式真实加载 MyBatis XML，覆盖 11 条数据分页第二页、同时间 `id DESC` 稳定排序、批量回复查询、逻辑删除后公开列表不展示、用户被物理删除后历史留言仍可读取并显示 `用户#<id>`。
 - `GanluApplicationTests`：使用 test profile 启动 Spring Context，验证干净检出能加载配置和 Bean。

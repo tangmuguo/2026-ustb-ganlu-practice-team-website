@@ -136,13 +136,21 @@ public class MessageAction {
 
     @ExceptionHandler({
             HttpMessageNotReadableException.class,
-            MethodArgumentTypeMismatchException.class,
-            HttpMediaTypeNotSupportedException.class
+            MethodArgumentTypeMismatchException.class
     })
     public ResponseEntity<?> handleBadRequest(Exception ex) {
         return ResponseEntity.badRequest().body(ImmutableMap.of(
                 "code", HttpStatus.BAD_REQUEST.value(),
                 "message", "请求参数格式错误",
+                "content", ImmutableMap.of()
+        ));
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<?> handleUnsupportedMediaType(Exception ex) {
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body(ImmutableMap.of(
+                "code", HttpStatus.UNSUPPORTED_MEDIA_TYPE.value(),
+                "message", "不支持的 Content-Type",
                 "content", ImmutableMap.of()
         ));
     }

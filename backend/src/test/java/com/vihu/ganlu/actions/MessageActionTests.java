@@ -128,6 +128,18 @@ class MessageActionTests {
     }
 
     @Test
+    void addMessage_unsupportedContentType_shouldReturn415ResponseBody() throws Exception {
+        mockMvc.perform(post("/message/add")
+                        .contentType("text/plain")
+                        .content("hello")
+                        .requestAttr(AuthInterceptor.CURRENT_USER_ATTRIBUTE, user(2, 2)))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.code", is(415)))
+                .andExpect(jsonPath("$.message", is("不支持的 Content-Type")))
+                .andExpect(jsonPath("$.content").exists());
+    }
+
+    @Test
     void list_unexpectedExceptionWithoutMessage_shouldReturnStable500() throws Exception {
         when(messageService.getMessages(1, 10)).thenThrow(new RuntimeException());
 
