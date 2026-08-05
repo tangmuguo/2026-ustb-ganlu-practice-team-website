@@ -1,5 +1,7 @@
 <script setup>
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+// 剥离 VITE_API_BASE_URL 尾斜杠（env 均为 http://host:8080/），避免与下方 /team-content/... 拼出 // 双斜杠
+// （Tomcat 对路径中的 // 直接拒绝，HTTP 400）
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 defineProps({
   member: {
     type: Object,
@@ -10,7 +12,7 @@ defineProps({
 
 <template>
     <div class="member-card">
-        <div><img :src="`${apiBaseUrl}${member.imageUrl}`"></div>
+        <div><img :src="`${apiBaseUrl}/team-content/image/${member.id}`"></div>
         <div>{{ member.caption }}</div>
         <div>{{ member.content }}</div>
     </div>

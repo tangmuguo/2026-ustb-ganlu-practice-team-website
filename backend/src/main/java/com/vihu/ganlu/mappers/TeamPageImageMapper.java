@@ -27,11 +27,5 @@ public interface TeamPageImageMapper {
 
     int updateImageStatus(@Param("id") int id, @Param("status") String status, @Param("rejectReason") String rejectReason);
 
-    /**
-     * 更新图片的 imageUrl 列。用于审核状态切换时把文件 move 后同步数据库相对路径
-     * （images_pending/ ↔ images/）。
-     */
-    int updateImageUrl(@Param("id") int id, @Param("imageUrl") String imageUrl);
-
     int purgeById(@Param("id") int id);
 }

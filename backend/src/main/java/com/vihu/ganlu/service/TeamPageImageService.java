@@ -28,9 +28,4 @@ public interface TeamPageImageService {
     boolean archiveByIdAndTeamId(int id, int teamId);
 
     boolean updateStatus(int id, String status, String rejectReason);
-
-    /**
-     * 更新图片 imageUrl 列（文件 move 后同步数据库相对路径）。
-     */
-    boolean updateImageUrl(int id, String imageUrl);
 }

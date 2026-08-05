@@ -9,7 +9,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.*;
-import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
@@ -106,8 +105,8 @@ public class FileStorageUtil {
             }
             file.transferTo(targetPath);
 
-            // 统一为 URL 风格的相对路径（正斜杠），避免 Windows 下反斜杠路径
-            // 让后续 moveImageByStatus 的 startsWith("images_pending/") 前缀判断失效。
+            // 统一为 URL 风格的相对路径（正斜杠），兼容 Windows 历史反斜杠路径
+            // （loadFile / 发布校验 / serveImage 都按正斜杠解析）。
             return uploadRoot.relativize(targetPath).toString().replace('\\', '/');
         } catch (IOException e) {
             throw new StorageException("存储文件失败: " + file.getOriginalFilename(), e);
@@ -128,36 +127,6 @@ public class FileStorageUtil {
             throw new StorageException("尝试访问上传目录之外的文件: " + relativePath);
         }
         return filePath;
-    }
-
-    /**
-     * 在 uploadRoot 下把文件从 fromRelativePath 移动到 toRelativePath。
-     * 用于团队风采图片审核状态切换时在私有目录(images_pending)与公开目录(images)之间搬运，
-     * 保证非公开文件物理上不可通过静态资源地址访问。
-     *
-     * @param fromRelativePath 源相对路径（uploadRoot 下）
-     * @param toRelativePath   目标相对路径（uploadRoot 下）
-     * @return 移动后的目标绝对路径
-     * @throws StorageException 源不存在、目标已存在、或路径越界时抛出
-     */
-    public Path moveFile(String fromRelativePath, String toRelativePath) {
-        Path from = loadFile(fromRelativePath); // 内含 startsWith(uploadRoot) 校验
-        Path to = uploadRoot.resolve(toRelativePath).toAbsolutePath().normalize();
-        if (!to.startsWith(uploadRoot)) {
-            throw new StorageException("非法的目标路径: " + toRelativePath);
-        }
-        if (!Files.exists(from)) {
-            throw new StorageException("源文件不存在: " + fromRelativePath);
-        }
-        if (Files.exists(to)) {
-            throw new StorageException("目标文件已存在: " + toRelativePath);
-        }
-        try {
-            Files.createDirectories(to.getParent());
-            return Files.move(from, to, StandardCopyOption.ATOMIC_MOVE);
-        } catch (IOException e) {
-            throw new StorageException("移动文件失败: " + fromRelativePath + " -> " + toRelativePath, e);
-        }
     }
 
     /**
@@ -384,14 +353,23 @@ public class FileStorageUtil {
      * 普通 zip 不走此方法（继续只验 ZIP 容器）。
      */
     private static final int MAX_OOXML_ENTRIES = 1000;
-    // F2 review: 校验只需根元素（XML 声明 + 根标签 + ContentType 列表），读前 64KB 前缀即可，
-    // 无需读满整个部件。这样兼容主部件超 5MB 的合法 docx（大量修订/内嵌内容），同时仍防 zip bomb。
-    private static final int MAX_OOXML_PART_BYTES = 64 * 1024; // 单条目最多读 64KB 前缀
+    // exy v5 Item 6：hasRootElement 流式完整解析（未闭合即拒），前缀上限决定 document.xml
+    // 超过多大时会被误拒（前缀截断 → SAX 报未闭合）。50MB 覆盖几乎所有合法 docx。
+    // 代价：校验时每文件最多读 50MB 前缀到内存（流式解析不建 DOM，内存≈输入字节）。
+    private static final int MAX_OOXML_PART_BYTES = 50 * 1024 * 1024; // 单条目最多读 50MB
+    // exy v5 Item 7：zip bomb 防护——限制每条目解压后字节数 + 全部条目累计解压字节数。
+    // 单条目上限对嵌入媒体同样生效：含单张 >50MB 图片的文档会被拒（与 document.xml 50MB 边界同源）。
+    private static final int MAX_OOXML_INFLATED_PART_BYTES = 50 * 1024 * 1024; // 单条目解压上限 50MB
+    // 累计上限取 2× 文件大小上限（400MB）：媒体类 docx/pptx 的 JPEG 对 deflate 几乎不压缩（≈1:1），
+    // 200MB 的文件解压总量很容易超 200MB 而被误拒；400MB 仍把高压缩比 bomb（1000:1）挡在可控量内。
+    private static final int MAX_OOXML_TOTAL_INFLATED_BYTES = 400 * 1024 * 1024; // 累计解压上限 400MB
     private static final String NS_CONTENT_TYPES = "http://schemas.openxmlformats.org/package/2006/content-types";
     private static final String NS_WORDPROCESSINGML = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
     private static final String NS_PRESENTATIONML = "http://schemas.openxmlformats.org/presentationml/2006/main";
+    private static final String NS_PACKAGE_RELATIONSHIPS = "http://schemas.openxmlformats.org/package/2006/relationships";
     private static final String CT_DOCX_MAIN = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
     private static final String CT_PPTX_MAIN = "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml";
+    private static final String REL_OFFICE_DOC = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument";
 
     private boolean isRealOoxml(MultipartFile file, String ext) {
         boolean isDocx = "docx".equals(ext);
@@ -400,16 +378,22 @@ public class FileStorageUtil {
         String mainPartLocalName = isDocx ? "document" : "presentation";
         String expectedContentType = isDocx ? CT_DOCX_MAIN : CT_PPTX_MAIN;
         String expectedPartName = isDocx ? "/word/document.xml" : "/ppt/presentation.xml";
+        String expectedRelTarget = isDocx ? "word/document.xml" : "ppt/presentation.xml";
 
         boolean contentTypesValid = false;
         boolean mainPartValid = false;
+        // exy v5 Item 7：_rels/.rels 是结构补充信号源（存在则校验，不强制存在）
+        boolean relsPresent = false;
+        boolean relsValid = false;
         try (InputStream is = file.getInputStream();
-             java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(is)) {
+             // Item 7：用计数 ZipInputStream 防止高压缩比 zip bomb 耗尽 CPU
+             LimitedZipInputStream zis = new LimitedZipInputStream(is,
+                     MAX_OOXML_INFLATED_PART_BYTES, MAX_OOXML_TOTAL_INFLATED_BYTES)) {
             java.util.zip.ZipEntry entry;
             int count = 0;
             while ((entry = zis.getNextEntry()) != null) {
                 if (++count > MAX_OOXML_ENTRIES) {
-                    break; // 超过上限，停止扫描（防 zip bomb）
+                    break; // 超过上限，停止扫描
                 }
                 String name = entry.getName();
                 // 保留 Zip Slip 守卫（只读内存无实际风险，但守卫已有不删）
@@ -425,7 +409,7 @@ public class FileStorageUtil {
                         contentTypesValid = true;
                     }
                 }
-                // 2. 主部件：读出非空字节 + 解析 XML，校验根元素命名空间
+                // 2. 主部件：完整解析前缀 XML，校验根元素命名空间（未闭合即拒）
                 else if (mainPartName.equals(name)) {
                     byte[] bytes = readBoundedBytes(zis, MAX_OOXML_PART_BYTES);
                     if (bytes != null && bytes.length > 0
@@ -433,23 +417,38 @@ public class FileStorageUtil {
                         mainPartValid = true;
                     }
                 }
+                // 3. _rels/.rels（Item 6 补充结构门）：存在则校验指向主部件的 officeDocument 关系
+                else if ("_rels/.rels".equals(name)) {
+                    relsPresent = true;
+                    byte[] bytes = readBoundedBytes(zis, MAX_OOXML_PART_BYTES);
+                    if (bytes != null && bytes.length > 0
+                            && isValidRelsXml(bytes, expectedRelTarget)) {
+                        relsValid = true;
+                    }
+                }
                 zis.closeEntry();
-                // 两目标都命中即可提前返回（语义等价于扫完，但更省）
-                if (contentTypesValid && mainPartValid) {
+                // 三项全部命中才提前返回。⚠️ 不能允许"尚未扫到 _rels/.rels"时提前返回——
+                // zip 条目顺序由创建者（攻击者）控制，.rels 排在主部件之后时会把非法 .rels 跳过校验。
+                // .rels 缺失（允许）时走完整扫描，最终由下方统一判定。
+                if (contentTypesValid && mainPartValid && relsPresent && relsValid) {
                     return true;
                 }
             }
         } catch (IOException e) {
-            return false; // 读取失败或非合法 ZIP → 视为非 OOXML
+            return false; // 读取失败、非合法 ZIP、或 zip bomb 触发解压上限 → 视为非 OOXML
         }
-        return false;
+        // 若 _rels/.rels 存在但不合法，即便 ContentTypes+主部件都过，也拒绝（结构不一致）
+        if (contentTypesValid && mainPartValid && relsPresent && !relsValid) {
+            return false;
+        }
+        return contentTypesValid && mainPartValid;
     }
 
     /**
      * 读 ZipInputStream 当前条目的至多 maxBytes 字节作为前缀返回。
-     * 条目超过 maxBytes 时返回已读前缀，不再视为超限拒绝——调用方只取根元素，
-     * 前缀已足够；剩余字节由后续 closeEntry 跳过。否则主部件超过上限的合法
-     * docx/pptx 会被误拒。仅真实 IO 错误返回 null。
+     * 条目超过 maxBytes 时返回已读前缀，不再视为超限拒绝——剩余字节由后续 closeEntry 跳过
+     * （closeEntry 的解压量受外层 LimitedZipInputStream 的计数上限保护）。
+     * 仅真实 IO 错误返回 null。
      */
     private byte[] readBoundedBytes(InputStream in, int maxBytes) {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -469,6 +468,32 @@ public class FileStorageUtil {
             return null;
         }
         return baos.toByteArray();
+    }
+
+    /**
+     * 校验 _rels/.rels：良构 XML + 正确命名空间 + 含指向主部件的 officeDocument Relationship。
+     * exy v5 Item 6 补充结构门——_rels/.rels 是 OOXML 包级关系部件，其 officeDocument 关系
+     * 指向主部件（word/document.xml 或 ppt/presentation.xml），是区分"任意 ZIP"的标志性结构。
+     */
+    private boolean isValidRelsXml(byte[] xml, String expectedTarget) {
+        Document doc = parseSecureXml(xml);
+        if (doc == null) return false;
+        Element root = doc.getDocumentElement();
+        if (root == null || !NS_PACKAGE_RELATIONSHIPS.equals(root.getNamespaceURI()) || !"Relationships".equals(root.getLocalName())) {
+            return false;
+        }
+        NodeList relationships = root.getElementsByTagNameNS(NS_PACKAGE_RELATIONSHIPS, "Relationship");
+        for (int i = 0; i < relationships.getLength(); i++) {
+            Element rel = (Element) relationships.item(i);
+            String type = rel.getAttribute("Type");
+            String target = rel.getAttribute("Target");
+            // Target 可能是相对路径（word/document.xml）或绝对路径（/word/document.xml），都接受
+            if (REL_OFFICE_DOC.equals(type)
+                    && (expectedTarget.equals(target) || ("/" + expectedTarget).equals(target))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -504,42 +529,38 @@ public class FileStorageUtil {
     }
 
     /**
-     * 校验 XML 流根元素命名空间与 localName 匹配（不比前缀，比 getNamespaceURI）。
-     * F2 review: 用 SAX 流式解析，遇到根元素 startElement 即停止——不读完整文档，
-     * 这样兼容主部件超 5MB 的合法 docx（DocumentBuilder.parse 截断流会报错，SAX 不会）。
+     * 校验 XML 根元素命名空间与 localName 匹配（不比前缀，比 getNamespaceURI）。
+     * exy v5 Item 6：SAX 流式完整解析整个字节流（不构建 DOM、不提前终止），
+     * 未闭合的 XML 会在 EOF 处抛 SAXParseException 被拒——堵住旧版"读根标签即
+     * StopParsingException 终止"的绕过，同时避免大主部件 DOM 解析的内存峰值。
+     * 代价：document.xml 总大小超过 MAX_OOXML_PART_BYTES（50MB）的合法文档会被
+     * 前缀截断误拒（属可接受边缘，与计划一致）。
      */
     private boolean hasRootElement(byte[] xml, String expectedNs, String expectedLocalName) {
-        final String[] rootNs = {null};
-        final String[] rootLocal = {null};
+        final boolean[] rootMatched = {false};
         try {
             javax.xml.parsers.SAXParserFactory factory = newSecureSaxFactory();
             factory.setNamespaceAware(true);
             org.xml.sax.helpers.DefaultHandler handler = new org.xml.sax.helpers.DefaultHandler() {
+                private boolean rootSeen = false;
                 @Override
-                public void startElement(String uri, String localName, String qName, org.xml.sax.Attributes attrs) {
-                    rootNs[0] = uri;
-                    rootLocal[0] = localName;
-                    throw new StopParsingException(); // 读到根元素即停，不继续解析
+                public void startElement(String uri, String localName, String qName,
+                                         org.xml.sax.Attributes attrs) {
+                    if (!rootSeen) {
+                        rootSeen = true;
+                        rootMatched[0] = expectedNs.equals(uri) && expectedLocalName.equals(localName);
+                    }
                 }
             };
             factory.newSAXParser().parse(new java.io.ByteArrayInputStream(xml), handler);
-            // parse 正常结束（无根元素，空文档）→ rootNs[0] 仍为 null
-            return expectedNs.equals(rootNs[0]) && expectedLocalName.equals(rootLocal[0]);
-        } catch (StopParsingException stop) {
-            // 预期终止：已读到根元素
-            return expectedNs.equals(rootNs[0]) && expectedLocalName.equals(rootLocal[0]);
+            // 解析完整走到 EOF（无提前终止）：未闭合/截断的文档在此处已抛 SAXParseException 被拒
+            return rootMatched[0];
         } catch (org.xml.sax.SAXException | IOException | javax.xml.parsers.ParserConfigurationException e) {
-            // 非良构 XML 或解析失败
-            return false;
+            return false; // 非良构 XML（含未闭合截断）或解析失败
         }
     }
 
-    /** SAX 解析读到根元素后抛此异常提前终止，避免读完整个大文档（独立 RuntimeException，不与 SAXException 冲突） */
-    private static class StopParsingException extends RuntimeException {
-        StopParsingException() { super("stop after root element"); }
-    }
-
-    /** 构造带 XXE 防护的 SAXParserFactory（与 DocumentBuilderFactory 等价的防护） */
+    /** 构造带 XXE 防护的 SAXParserFactory（与 parseSecureXml 的防护等价） */
     private javax.xml.parsers.SAXParserFactory newSecureSaxFactory() {
         javax.xml.parsers.SAXParserFactory factory = javax.xml.parsers.SAXParserFactory.newInstance();
         factory.setNamespaceAware(true);
@@ -612,6 +633,61 @@ public class FileStorageUtil {
 
     public ValidatedFile isAllowedDocument(MultipartFile file) {
         return validate(file, MAX_DOCUMENT_SIZE);
+    }
+
+    /**
+     * 计数 ZipInputStream：限制每条目解压后字节数 + 全部条目累计解压字节数，防 zip bomb。
+     * exy v5 Item 7：closeEntry() 会排空当前条目剩余解压数据，高压缩比单条目不触发条目数限制，
+     * 仍耗 CPU。本类重写 read 累计解压字节，超限抛 IOException 终止整个流
+     * （覆盖 readBoundedBytes 读取和 closeEntry 排空两条路径）。
+     * 包可见（非 private）：单元测试用小上限直测计数逻辑，避免构造数百 MB 载荷。
+     */
+    static class LimitedZipInputStream extends java.util.zip.ZipInputStream {
+        private final int maxPerEntry;
+        private final int maxTotal;
+        private long currentEntryInflated = 0;
+        private long totalInflated = 0;
+
+        LimitedZipInputStream(InputStream in, int maxPerEntry, int maxTotal) {
+            super(in);
+            this.maxPerEntry = maxPerEntry;
+            this.maxTotal = maxTotal;
+        }
+
+        @Override
+        public int read() throws IOException {
+            int b = super.read();
+            if (b != -1) {
+                account(1);
+            }
+            return b;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            int n = super.read(b, off, len);
+            if (n > 0) {
+                account(n);
+            }
+            return n;
+        }
+
+        private void account(int n) throws IOException {
+            currentEntryInflated += n;
+            totalInflated += n;
+            if (currentEntryInflated > maxPerEntry) {
+                throw new IOException("ZIP 条目解压超过单条目上限 " + maxPerEntry + " 字节（疑似 zip bomb）");
+            }
+            if (totalInflated > maxTotal) {
+                throw new IOException("ZIP 累计解压超过总量上限 " + maxTotal + " 字节（疑似 zip bomb）");
+            }
+        }
+
+        @Override
+        public java.util.zip.ZipEntry getNextEntry() throws IOException {
+            currentEntryInflated = 0; // 每条目计数重置
+            return super.getNextEntry();
+        }
     }
 
     // 自定义异常

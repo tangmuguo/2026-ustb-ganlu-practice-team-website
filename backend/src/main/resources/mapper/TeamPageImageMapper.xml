@@ -61,13 +61,6 @@
         where id = #{id}
     </update>
 
-    <update id="updateImageUrl">
-        update team_page_images
-        set imageUrl = #{imageUrl},
-            updatedAt = NOW()
-        where id = #{id}
-    </update>
-
     <update id="archiveById">
         update team_page_images
         set status = 'ARCHIVED', updatedAt = NOW()

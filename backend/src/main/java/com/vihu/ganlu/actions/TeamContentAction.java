@@ -309,23 +309,33 @@ public class TeamContentAction {
             }
         }
 
-        return buildImageResponse(img);
+        // exy v5 Item 1 缓存策略：匿名访问 PUBLISHED 图可缓存，缓解全走 serveImage 的性能开销。
+        // 管理员/owner 访问 PENDING/REJECTED 图必须 no-store（审核中内容不应进浏览器缓存）。
+        // PENDING 图匿名拿不到（上面已 404），此约束天然满足。
+        // 诚实声明：状态机可回退（驳回/归档可把 PUBLISHED 撤回），撤回后 1 小时内匿名端可能
+        // 命中浏览器缓存的旧图——计划已接受的权衡（内容非敏感）。用 private 限定仅浏览器缓存，
+        // 不让共享代理/CDN 缓存撤回内容；如需更严可改为 no-store。
+        boolean cacheable = !isAdmin && !isOwner;
+        return buildImageResponse(img, cacheable);
     }
 
     /**
      * 构造图片 inline 响应（Content-Type 由文件扩展名推断，inline 便于浏览器渲染）。
+     * @param cacheable true=可缓存（PUBLISHED 图，Cache-Control: private, max-age=3600，
+     *                  private 限定仅浏览器缓存、不进共享 CDN，见上方诚实声明）；
+     *                  false=no-store（管理员/owner 预览 PENDING/REJECTED 图）
      */
-    private ResponseEntity<?> buildImageResponse(TeamPageImageEntity img) {
+    private ResponseEntity<?> buildImageResponse(TeamPageImageEntity img, boolean cacheable) {
         Path path = fileStorageUtil.loadFile(img.getImageUrl());
         if (!java.nio.file.Files.exists(path)) {
             return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "文件不存在"));
         }
         org.springframework.core.io.Resource resource = new org.springframework.core.io.FileSystemResource(path.toFile());
-        return ResponseEntity.ok()
+        ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_TYPE, guessImageContentType(img.getImageUrl()))
-                .header(HttpHeaders.CACHE_CONTROL, "no-store")
-                .header("X-Content-Type-Options", "nosniff")
-                .body(resource);
+                .header(HttpHeaders.CACHE_CONTROL, cacheable ? "private, max-age=3600" : "no-store")
+                .header("X-Content-Type-Options", "nosniff");
+        return builder.body(resource);
     }
 
     /**

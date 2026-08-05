@@ -148,50 +148,6 @@ class FileStorageUtilTests {
     }
 
     @Test
-    void moveFile_movesBetweenSubdirs() throws IOException {
-        // Item 4: 文件应能从 images_pending/ move 到 images/
-        byte[] content = "img-data".getBytes();
-        MockMultipartFile file = new MockMultipartFile("file", "a.jpg", "image/jpeg", content);
-        String fromPath = util.storeFile(file, "images_pending");
-        assertTrue(fromPath.startsWith("images_pending/"));
-
-        String filename = fromPath.substring(fromPath.indexOf('/') + 1);
-        String toPath = "images/" + filename;
-
-        Path moved = util.moveFile(fromPath, toPath);
-        assertTrue(Files.exists(moved));
-        assertTrue(moved.toString().replace("\\", "/").contains("images/"));
-        // 源文件应已不存在
-        assertFalse(Files.exists(util.loadFile(fromPath)));
-    }
-
-    @Test
-    void moveFile_pathTraversal_rejected() throws IOException {
-        // 目标路径含 ../ 试图逃出 uploadRoot，应被拒绝
-        byte[] content = "x".getBytes();
-        MockMultipartFile file = new MockMultipartFile("file", "a.jpg", "image/jpeg", content);
-        String fromPath = util.storeFile(file, "images_pending");
-
-        assertThrows(FileStorageUtil.StorageException.class,
-                () -> util.moveFile(fromPath, "../../etc/evil.jpg"));
-    }
-
-    @Test
-    void moveFile_targetExists_rejected() throws IOException {
-        // 目标文件已存在时 move 应失败，避免覆盖
-        byte[] content = "x".getBytes();
-        MockMultipartFile f1 = new MockMultipartFile("file", "a.jpg", "image/jpeg", content);
-        String fromPath = util.storeFile(f1, "images_pending");
-        MockMultipartFile f2 = new MockMultipartFile("file", "b.jpg", "image/jpeg", content);
-        String existingPath = util.storeFile(f2, "images");
-
-        String filename = fromPath.substring(fromPath.indexOf('/') + 1);
-        // 已存在的同名文件（用 storeFile 保证文件名不同；这里构造目标为已存在的 existingPath）
-        assertThrows(FileStorageUtil.StorageException.class,
-                () -> util.moveFile(fromPath, existingPath));
-    }
-
-    @Test
     void validate_plaintextRenamedAsDocx_rejected() {
         // 纯文本内容改名为 .docx，应被 ZIP 魔数校验拒绝
         byte[] plaintext = "this is just plain text, not a real docx".getBytes();
@@ -332,11 +288,114 @@ class FileStorageUtilTests {
                 () -> util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE));
     }
 
+    // =====================================================================
+    // exy v5 Item 6/7 回归
+    // =====================================================================
+
+    @Test
+    void validate_truncatedMainPart_rejected() throws Exception {
+        // Item 6：主部件根标签未闭合（攻击载荷），完整解析应识别为非良构 → 拒绝
+        // 旧版 hasRootElement 读到 startElement 即 StopParsingException 终止，未闭合可通过
+        String contentTypesXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
+                + "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
+                + "<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>"
+                + "</Types>";
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
+            zos.putNextEntry(new java.util.zip.ZipEntry("[Content_Types].xml"));
+            zos.write(contentTypesXml.getBytes("UTF-8"));
+            zos.closeEntry();
+            zos.putNextEntry(new java.util.zip.ZipEntry("word/document.xml"));
+            // 故意未闭合（无 </document>）——攻击载荷
+            zos.write("<?xml version=\"1.0\"?><document xmlns=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><body>".getBytes("UTF-8"));
+            zos.closeEntry();
+        }
+        MockMultipartFile file = new MockMultipartFile("file", "trunc.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document", baos.toByteArray());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE));
+    }
+
+    @Test
+    void validate_zipBomb_highRatio_rejected() throws Exception {
+        // Item 7：单条目高压缩比（解压后超 50MB 单条目上限），LimitedZipInputStream 应终止
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
+            zos.putNextEntry(new java.util.zip.ZipEntry("[Content_Types].xml"));
+            // 写一个超大条目（62.5MB 解压后，超过 50MB 单条目上限）
+            byte[] chunk = new byte[64 * 1024];
+            java.util.Arrays.fill(chunk, (byte) 'x');
+            for (int i = 0; i < 1000; i++) { // 1000 × 64KB ≈ 62.5MB 解压
+                zos.write(chunk);
+            }
+            zos.closeEntry();
+        }
+        MockMultipartFile file = new MockMultipartFile("file", "bomb.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document", baos.toByteArray());
+
+        // 高压缩比触发解压上限 → OOXML 校验失败 → 拒绝
+        assertThrows(IllegalArgumentException.class,
+                () -> util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE));
+    }
+
+    @Test
+    void limitedZipInputStream_perEntryCap_rejectsHugeEntry() throws Exception {
+        // Item 7：单条目解压超过单条目上限 → 读取时立即抛 IOException 终止
+        // （旧版 closeEntry 会继续排空高压缩比条目；此版本计数后直接终止整个流）
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
+            zos.putNextEntry(new java.util.zip.ZipEntry("big.xml"));
+            byte[] chunk = new byte[4096];
+            java.util.Arrays.fill(chunk, (byte) 'x');
+            for (int i = 0; i < 8; i++) { // 8 × 4KB = 32KB 解压，超过 16KB 单条目上限
+                zos.write(chunk);
+            }
+            zos.closeEntry();
+        }
+        try (FileStorageUtil.LimitedZipInputStream limited = new FileStorageUtil.LimitedZipInputStream(
+                new java.io.ByteArrayInputStream(baos.toByteArray()), 16 * 1024, 1 << 20)) {
+            byte[] buf = new byte[4096];
+            limited.getNextEntry();
+            while (limited.read(buf) != -1) { /* drain */ }
+            fail("预期单条目解压超限抛 IOException，实际读完整个条目");
+        } catch (java.io.IOException expected) {
+            // 预期：单条目解压超过 16KB 上限
+        }
+    }
+
+    @Test
+    void limitedZipInputStream_totalCap_rejectsManyMediumEntries() throws Exception {
+        // Item 7：多个中等条目累计解压超过总量上限 → 同样终止
+        // （单条目都不超限，只有累计计数能拦截——旧版无累计限制可被分散型 bomb 穿透）
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
+            byte[] chunk = new byte[4096];
+            java.util.Arrays.fill(chunk, (byte) 'x');
+            for (int e = 0; e < 6; e++) { // 6 × 4KB = 24KB 解压，超过 16KB 总量上限
+                zos.putNextEntry(new java.util.zip.ZipEntry("entry" + e + ".xml"));
+                zos.write(chunk);
+                zos.closeEntry();
+            }
+        }
+        try (FileStorageUtil.LimitedZipInputStream limited = new FileStorageUtil.LimitedZipInputStream(
+                new java.io.ByteArrayInputStream(baos.toByteArray()), 16 * 1024, 16 * 1024)) {
+            byte[] buf = new byte[4096];
+            java.util.zip.ZipEntry entry;
+            while ((entry = limited.getNextEntry()) != null) {
+                while (limited.read(buf) != -1) { /* drain */ }
+            }
+            fail("预期累计解压超限抛 IOException，实际读完 6 个条目");
+        } catch (java.io.IOException expected) {
+            // 预期：累计解压超过 16KB 总量上限
+        }
+    }
+
     @Test
     void validate_largeMainPartDocx_passes() throws Exception {
-        // F2 回归：主部件超过单条目读取上限（64KB）的合法 docx 应通过。
-        // 校验只读根元素前缀（readBoundedBytes 返回前缀而非超限拒绝），
-        // 条目过大时剩余字节由 closeEntry 跳过，不得误拒合法大文档。
+        // exy v5 Item 6 回归：主部件含填充正文的合法 docx，根元素在 50MB 上限内完整闭合 → 应通过。
+        // hasRootElement 完整解析前缀，未闭合会拒；此处 </document> 闭合在 72KB 内，合法通过。
         String contentTypesXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
                 + "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
                 + "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
@@ -345,7 +404,7 @@ class FileStorageUtilTests {
         StringBuilder mainXml = new StringBuilder(72 * 1024);
         mainXml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
                 .append("<document xmlns=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><body>");
-        char[] pad = new char[70 * 1024]; // 填充正文，使主部件超过 64KB 读取上限
+        char[] pad = new char[70 * 1024]; // 填充正文，主部件 72KB（在 50MB 上限内）
         java.util.Arrays.fill(pad, 'x');
         mainXml.append(pad).append("</body></document>");
 
@@ -359,6 +418,73 @@ class FileStorageUtilTests {
             zos.closeEntry();
         }
         MockMultipartFile file = new MockMultipartFile("file", "large.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document", baos.toByteArray());
+
+        FileStorageUtil.ValidatedFile vf = util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE);
+        assertEquals(FileStorageUtil.FileCategory.DOCUMENT, vf.getCategory());
+        assertEquals("docx", vf.getExtension());
+    }
+
+    @Test
+    void validate_relsPresentButInvalidTarget_rejected() throws Exception {
+        // exy v5 Item 6 回归：_rels/.rels 存在但 officeDocument 关系指向错误主部件 → 拒绝。
+        // 覆盖 isRealOoxml 第 472-474 行分支：ContentTypes+主部件均合法，仅因 .rels 不一致而拒。
+        String contentTypesXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
+                + "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
+                + "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
+                + "<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>"
+                + "</Types>";
+        String mainXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<document xmlns=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><body/></document>";
+        // .rels 存在但 officeDocument 关系 Target 指向 word/other.xml（非主部件 word/document.xml）
+        String relsXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+                + "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/other.xml\"/>"
+                + "</Relationships>";
+
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
+            zos.putNextEntry(new java.util.zip.ZipEntry("[Content_Types].xml"));
+            zos.write(contentTypesXml.getBytes("UTF-8"));
+            zos.closeEntry();
+            zos.putNextEntry(new java.util.zip.ZipEntry("word/document.xml"));
+            zos.write(mainXml.getBytes("UTF-8"));
+            zos.closeEntry();
+            zos.putNextEntry(new java.util.zip.ZipEntry("_rels/.rels"));
+            zos.write(relsXml.getBytes("UTF-8"));
+            zos.closeEntry();
+        }
+        MockMultipartFile file = new MockMultipartFile("file", "bad-rels.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document", baos.toByteArray());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE));
+    }
+
+    @Test
+    void validate_relsMissingButValid_passes() throws Exception {
+        // exy v5 Item 6：_rels/.rels 缺失但 ContentTypes+主部件均合法 → 放行。
+        // 锁定".rels 可选"语义，防止未来误改为强制要求 .rels 才通过。
+        String contentTypesXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
+                + "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
+                + "<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>"
+                + "</Types>";
+        String mainXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<document xmlns=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><body/></document>";
+
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
+            zos.putNextEntry(new java.util.zip.ZipEntry("[Content_Types].xml"));
+            zos.write(contentTypesXml.getBytes("UTF-8"));
+            zos.closeEntry();
+            zos.putNextEntry(new java.util.zip.ZipEntry("word/document.xml"));
+            zos.write(mainXml.getBytes("UTF-8"));
+            zos.closeEntry();
+            // 故意不放 _rels/.rels
+        }
+        MockMultipartFile file = new MockMultipartFile("file", "no-rels.docx",
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document", baos.toByteArray());
 
         FileStorageUtil.ValidatedFile vf = util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE);

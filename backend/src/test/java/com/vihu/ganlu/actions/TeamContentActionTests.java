@@ -12,6 +12,7 @@ import com.vihu.ganlu.service.TeamPageWordService;
 import com.vihu.ganlu.utils.FileStorageUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockMultipartFile;
@@ -545,6 +546,8 @@ class TeamContentActionTests {
 
         ResponseEntity<?> resp = action.serveImage(10, request);
         assertEquals(200, resp.getStatusCodeValue());
+        // exy v5 Item 1：管理员预览 PENDING 图必须 no-store（审核中内容不进缓存）
+        assertEquals("no-store", resp.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL));
         java.nio.file.Files.delete(tmp);
     }
 
@@ -563,6 +566,8 @@ class TeamContentActionTests {
 
         ResponseEntity<?> resp = action.serveImage(10, request);
         assertEquals(200, resp.getStatusCodeValue());
+        // exy v5 Item 1：owner 预览 PENDING 图必须 no-store
+        assertEquals("no-store", resp.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL));
         java.nio.file.Files.delete(tmp);
     }
 
@@ -595,6 +600,8 @@ class TeamContentActionTests {
 
         ResponseEntity<?> resp = action.serveImage(10, request);
         assertEquals(200, resp.getStatusCodeValue());
+        // exy v5 Item 1：匿名访问 PUBLISHED 图走缓存路径（private 仅浏览器缓存，max-age=3600）
+        assertEquals("private, max-age=3600", resp.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL));
         java.nio.file.Files.delete(tmp);
     }
 

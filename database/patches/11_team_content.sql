@@ -1,51 +1,24 @@
 -- =====================================================================
 -- Patch 11: 团队风采内容管理 — team_media 表 + 旧表加列 + 数据回填
 -- 依赖: ganlu.sql + Patch 10（Patch 10 已把 team_page.userId 迁移为 team_page.team_id）
--- 执行顺序: ganlu.sql → 10_team_core.sql → 本文件
+-- 执行顺序: ganlu.sql → 10_team_core.sql → 本文件 → 12_team_owner_unique.sql → 15_team_content_history_publish.sql
+--
+-- 职责（exy v5 回退后）：
+--   本 patch 只做 schema 演进 + team_id 回填 + orphan 校验，**不做历史 PENDING→PUBLISHED 公开**。
+--   历史内容的 PUBLISHED 回填由独立的 patch 15 负责（三态识别 + 快照 + 幂等回填）。
+--   这样 patch 11 对"从未执行"和"已执行过旧版（d9873b1/2976c24）"的库都不崩溃。
 --
 -- 幂等性说明：
 --   - DDL 段（CREATE TABLE / ALTER TABLE / ADD INDEX）通过 INFORMATION_SCHEMA
 --     条件判断，可安全重入。
---   - DML 历史回填（第 6 节）基于历史 ID 快照表（_patch11_hist_images / _patch11_hist_word）
---     JOIN 完成。快照在脚本最顶部、任何 DDL 之前一次性采集（表不存在才 CREATE AS SELECT），
---     保证失败重跑时仍能按原历史 ID 清单完成回填，且上线后新插入的 PENDING 内容
---     不在快照中、永不被误公开（满足 exy v4 "完成且只完成历史回填" 的要求）。
---   - ⚠️ 快照表 _patch11_hist_* 为常驻表，禁止 DROP——DROP 后重跑会重新采集
---     （含上线后新行），破坏"只完成历史回填"语义。
---   - ⚠️ 本脚本仅一次性手工执行；上线后不建议重跑（第 5 节 orphan 校验会挡住
---     上线后应用产生的 team_id IS NULL 新行）。
+--   - team_id 回填（第 4/4b 节）有 team_id IS NULL 条件，天然幂等。
+--
+-- ⚠️ 维护模式（Item 4 exy v5）：执行 patch 10/11/12/15 期间必须停止应用写入
+--    team / team_page / team_page_images / team_page_word 表，避免并发写入破坏
+--    owner 预检（3.5 节）与唯一约束（patch 12）之间的检查窗口。
 -- =====================================================================
 
 SET NAMES utf8mb4;
-SET FOREIGN_KEY_CHECKS = 0;
-
--- ---------------------------------------------------------------------
--- 0. 历史 ID 快照采集 — 必须在任何 DDL 之前执行
---    仅首次执行时采集（快照表不存在才 CREATE AS SELECT）；之后无论失败重跑多少次，
---    只回填快照里的历史行。上线后新插入的 PENDING 行不在快照中，永不被误公开。
---    快照表为常驻表，禁止 DROP（见头注释）。
---
---    额外守卫（F1 review）：快照采集还要满足 team_media 表不存在。team_media 是本 patch
---    第 1 节创建的，它存在 = patch 已完整跑过一次（含快照）。这样即使 _patch11_hist_*
---    被误删（当临时表清理、逻辑备份遗漏），只要 team_media 还在，就不会重建快照——
---    堵住"快照丢失 + status 列已存在 → 重跑重建快照（含上线后 PENDING）→ 批量误公开"。
---    （team_media 不存在 = patch 从未跑完整，此时即使重建快照也只含迁移前历史行，安全。）
--- ---------------------------------------------------------------------
-SET @team_media_exists := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
-  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'team_media');
-SET @snap_images_exists := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
-  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '_patch11_hist_images');
-SET @sql := IF(@snap_images_exists = 0 AND @team_media_exists = 0,
-  'CREATE TABLE `_patch11_hist_images` (PRIMARY KEY (`id`)) ENGINE = InnoDB AS SELECT `id` FROM `team_page_images`',
-  'SELECT ''_patch11_hist_images 已存在或 patch 已完整执行过，跳过采集'' AS msg');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-SET @snap_word_exists := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
-  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '_patch11_hist_word');
-SET @sql := IF(@snap_word_exists = 0 AND @team_media_exists = 0,
-  'CREATE TABLE `_patch11_hist_word` (PRIMARY KEY (`id`)) ENGINE = InnoDB AS SELECT `id` FROM `team_page_word`',
-  'SELECT ''_patch11_hist_word 已存在或 patch 已完整执行过，跳过采集'' AS msg');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ---------------------------------------------------------------------
 -- 1. CREATE TABLE team_media — 视频/附件表
@@ -184,6 +157,10 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 --     错误归属且无法通过重跑修复（team_id 已非 NULL，4b 的 IS NULL 条件不再命中）。
 --     因此必须在回填前 SIGNAL 中止，要求人工合并/解绑重复 owner。
 --     （Patch 12 才补 UNIQUE(owner_user_id) 约束，此预检把检测时机提前。）
+--     竞态兜底（exy v5 P2-4）：即使预检后并发写入了重复 owner，第 4b 节的
+--     无歧义 JOIN 也不会错归属——多匹配行留在 team_id IS NULL，由第 5 节 orphan
+--     校验 SIGNAL 响亮中止；patch 12 的 ADD UNIQUE 在重复数据上同样响亮失败。
+--     最坏情况全部是"可发现、需人工修"，不存在静默数据污染。
 -- ---------------------------------------------------------------------
 DELIMITER $$
 DROP PROCEDURE IF EXISTS check_team_owner_unique_before_backfill$$
@@ -228,9 +205,17 @@ WHERE wrd.pageId IS NOT NULL AND page.team_id IS NOT NULL;
 --     从不设 pageId，因此这批记录无法命中主路径 JOIN。
 --     通过 team.owner_user_id = 内容表.userId/userid 兜底映射到 team.id
 --     （Patch 10 已建立 user.id → team.owner_user_id 的 owner 关系）。
---     Patch 12 加 UNIQUE(owner_user_id) 后此映射严格 1:1，不会歧义。
+--
+--     无歧义化（exy v5 P2-4 竞态窗口收口）：JOIN 限定 owner 唯一（COUNT=1）的账号。
+--     3.5 预检通过后若并发写入了重复 owner，多匹配的内容行 JOIN 不命中、
+--     保持 team_id IS NULL，由第 5 节 orphan 校验 SIGNAL 响亮中止——
+--     杜绝"UPDATE JOIN 任选其一"导致的静默错归属（错归属后 team_id 已非 NULL，
+--     无法靠重跑修复）。唯一 owner 的正常路径语义与原来完全一致。
 -- ---------------------------------------------------------------------
 UPDATE team_page_images img
+  JOIN (SELECT owner_user_id FROM team
+         WHERE owner_user_id IS NOT NULL
+         GROUP BY owner_user_id HAVING COUNT(1) = 1) u ON u.owner_user_id = img.userId
   JOIN team t ON t.owner_user_id = img.userId
 SET img.team_id = t.id
 WHERE img.pageId IS NULL
@@ -238,6 +223,9 @@ WHERE img.pageId IS NULL
   AND img.userId IS NOT NULL;
 
 UPDATE team_page_word wrd
+  JOIN (SELECT owner_user_id FROM team
+         WHERE owner_user_id IS NOT NULL
+         GROUP BY owner_user_id HAVING COUNT(1) = 1) u ON u.owner_user_id = wrd.userid
   JOIN team t ON t.owner_user_id = wrd.userid
 SET wrd.team_id = t.id
 WHERE wrd.pageId IS NULL
@@ -270,22 +258,9 @@ DROP PROCEDURE IF EXISTS check_team_content_orphans$$
 DELIMITER ;
 
 -- ---------------------------------------------------------------------
--- 6. 历史内容回填 PUBLISHED — 基于第 0 节的历史 ID 快照
---    只回填快照表（_patch11_hist_*）里记录的历史行，且仅当它们仍处于 PENDING。
---    这样满足 exy v4 "完成且只完成历史回填" 的要求：
---      - 失败重跑：快照在脚本顶部采集（orphan 校验之前），首次失败重跑后历史 ID 齐全，
---        回填照常完成。
---      - 上线后重跑：新插入的 PENDING 内容不在快照中，永不被误公开。
---      - 已回填的行 status 已是 PUBLISHED，WHERE status='PENDING' 不再命中，天然幂等。
+-- 6. 历史内容回填 PUBLISHED — 已挪到 patch 15
+--    exy v5 Item 3：历史回填的幂等性/兼容性问题（快照方案对旧库崩溃、orphan 重跑永久 PENDING）
+--    已由独立的 15_team_content_history_publish.sql 解决。本 patch 不再做 PENDING→PUBLISHED 公开，
+--    避免对已执行过旧版 patch 11 的库造成不兼容。
+--    patch 15 会做三态识别（从未执行/部分执行/已完整执行）+ 快照 + 幂等回填。
 -- ---------------------------------------------------------------------
-UPDATE team_page_images img
-  JOIN `_patch11_hist_images` h ON h.id = img.id
-   SET img.status = 'PUBLISHED'
- WHERE img.status = 'PENDING' AND img.team_id IS NOT NULL;
-
-UPDATE team_page_word wrd
-  JOIN `_patch11_hist_word` h ON h.id = wrd.id
-   SET wrd.status = 'PUBLISHED'
- WHERE wrd.status = 'PENDING' AND wrd.team_id IS NOT NULL;
-
-SET FOREIGN_KEY_CHECKS = 1;
