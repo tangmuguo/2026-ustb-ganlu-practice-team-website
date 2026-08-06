@@ -14,7 +14,7 @@
 | 6 | `14_team_media_lifecycle.sql` | 附件配额、跨实例在途上传预留、持久化删除任务 | 已提供 |
 | 7 | `20_message_board.sql` | 留言与回复查询索引 | 已提供 |
 | 8 | `30_material_center.sql` | 课件中心字段、索引和上传会话表 | 已提供 |
-| 9 | `31_material_file_lifecycle.sql` | 课件共享路径阻断检查、课件文件持久化删除任务类型 | 已提供 |
+| 9 | `31_material_file_lifecycle.sql` | 课件内部及与公共图片跨生命周期共享路径阻断、课件文件任务类型 | 已提供 |
 | 10 | `40_volunteer_application.sql` | 志愿者报名表及处理中手机号唯一约束 | 已提供 |
 
 全量联调必须等孙木文按 `PR #5 → PR #12 → 本 Draft PR` 完成审核与集成后，在数据库备份副本中按上表顺序重新验证。

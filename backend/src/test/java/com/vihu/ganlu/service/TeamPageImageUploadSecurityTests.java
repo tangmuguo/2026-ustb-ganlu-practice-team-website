@@ -174,7 +174,8 @@ class TeamPageImageUploadSecurityTests {
         assertEquals(1, permanentFileCount.get());
         assertTrue(Files.exists(uploadRoot.resolve(firstPath)));
         verify(deletionTaskService).enqueuePublicImage(firstPath);
-        new PublicImageAssetDeletionService(fileStorageUtil, quotaMapper)
+                new PublicImageAssetDeletionService(fileStorageUtil, quotaMapper,
+                        mock(com.vihu.ganlu.mappers.CourseDetailMapper.class))
                 .deletePhysicalFileThenReleaseQuota(permanentAssets.get(firstPath).getAssetId());
         assertEquals(0, permanentFileCount.get());
         assertFalse(Files.exists(uploadRoot.resolve(firstPath)));
@@ -226,7 +227,8 @@ class TeamPageImageUploadSecurityTests {
         doThrow(new FileStorageUtil.StorageException("磁盘删除失败"))
                 .when(failingStorage).deleteFile(imagePath);
         PublicImageAssetDeletionService deletionService =
-                new PublicImageAssetDeletionService(failingStorage, quotaMapper);
+                new PublicImageAssetDeletionService(failingStorage, quotaMapper,
+                        mock(com.vihu.ganlu.mappers.CourseDetailMapper.class));
 
         assertThrows(FileStorageUtil.StorageException.class,
                 () -> deletionService.deletePhysicalFileThenReleaseQuota(

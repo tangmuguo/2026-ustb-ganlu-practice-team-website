@@ -179,6 +179,8 @@ class PublicImageMigrationServiceTests {
                 reference("TEAM_IMAGE", 70, sharedPath, 7)));
         when(references.findCourseCoverReferences()).thenReturn(Collections.singletonList(
                 reference("COURSE_COVER", 71, sharedPath, 7)));
+        when(references.findMaterialFileReferences()).thenReturn(Collections.singletonList(
+                reference("COURSE_COVER", 71, sharedPath, 7)));
         PublicImageQuotaMapper quota = mock(PublicImageQuotaMapper.class);
         when(quota.findAllAssets()).thenReturn(Collections.emptyList());
         PublicImageMigrationService service = new PublicImageMigrationService(
@@ -191,6 +193,37 @@ class PublicImageMigrationServiceTests {
                 .anyMatch(issue -> "CROSS_DOMAIN_SHARED_PATH".equals(issue.getCode())));
         assertEquals(0, report.getExcludedCourseCoverFileCount());
         assertEquals(1, report.getDiskFileCount());
+    }
+
+    @Test
+    void everyOriginalAndPreviewCrossDomainCombinationBlocksPreflight() throws Exception {
+        String[] materialRoles = {"COURSE_ORIGINAL", "COURSE_PREVIEW"};
+        String[] publicRoles = {"TEAM_IMAGE", "BANNER", "NEWS", "USER"};
+        int sequence = 800;
+        for (String materialRole : materialRoles) {
+            for (String publicRole : publicRoles) {
+                String suffix = String.format("%012d", sequence++);
+                String path = "images/7/88888888-8888-8888-8888-" + suffix + ".jpg";
+                write(path, new byte[]{1, 2, 3});
+                PublicImageMigrationMapper references = mock(PublicImageMigrationMapper.class);
+                when(references.findBusinessReferences()).thenReturn(Collections.singletonList(
+                        reference(publicRole, sequence, path, 7)));
+                when(references.findCourseCoverReferences()).thenReturn(Collections.emptyList());
+                when(references.findMaterialFileReferences()).thenReturn(Collections.singletonList(
+                        reference(materialRole, sequence + 100, path, 7)));
+                PublicImageQuotaMapper quota = mock(PublicImageQuotaMapper.class);
+                when(quota.findAllAssets()).thenReturn(Collections.emptyList());
+                PublicImageMigrationService service = new PublicImageMigrationService(
+                        references, quota, new FileStorageUtil(uploadRoot.toString(), "test"), false);
+
+                PublicImageMigrationReport report = service.preflight();
+
+                assertTrue(report.getIssues().stream().anyMatch(issue ->
+                                "CROSS_DOMAIN_SHARED_PATH".equals(issue.getCode())
+                                        && path.equals(issue.getPath())),
+                        materialRole + " must be protected from " + publicRole);
+            }
+        }
     }
 
     @Test

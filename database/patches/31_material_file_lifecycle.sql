@@ -27,6 +27,89 @@ GROUP BY normalized_path
 HAVING COUNT(DISTINCT course_id) > 1
 ORDER BY normalized_path;
 
+-- 课件三类文件与四类公共图片业务的跨生命周期共享同样属于阻断项。
+SELECT material.normalized_path,
+       GROUP_CONCAT(DISTINCT CONCAT(material.file_role, '#', material.source_id)
+                    ORDER BY material.file_role, material.source_id) AS material_references,
+       GROUP_CONCAT(DISTINCT CONCAT(public_image.source_type, '#', public_image.source_id)
+                    ORDER BY public_image.source_type, public_image.source_id) AS public_image_references
+FROM (
+    SELECT id AS source_id, 'COURSE_COVER' AS file_role,
+           TRIM(LEADING '/' FROM REPLACE(
+               COALESCE(NULLIF(TRIM(cover_path), ''), NULLIF(TRIM(thumbnail_url), '')), CHAR(92), '/')) AS normalized_path
+    FROM course_detail WHERE status = 1
+    UNION ALL
+    SELECT id, 'COURSE_ORIGINAL',
+           TRIM(LEADING '/' FROM REPLACE(
+               COALESCE(NULLIF(TRIM(original_file_path), ''), NULLIF(TRIM(files), '')), CHAR(92), '/'))
+    FROM course_detail WHERE status = 1
+    UNION ALL
+    SELECT id, 'COURSE_PREVIEW',
+           TRIM(LEADING '/' FROM REPLACE(NULLIF(TRIM(preview_file_path), ''), CHAR(92), '/'))
+    FROM course_detail WHERE status = 1
+) material
+JOIN (
+    SELECT id AS source_id, 'TEAM_IMAGE' AS source_type,
+           TRIM(LEADING '/' FROM REPLACE(NULLIF(TRIM(imageUrl), ''), CHAR(92), '/')) AS normalized_path
+    FROM team_page_images
+    UNION ALL
+    SELECT id, 'BANNER', TRIM(LEADING '/' FROM REPLACE(NULLIF(TRIM(imageUrl), ''), CHAR(92), '/')) FROM banner
+    UNION ALL
+    SELECT id, 'NEWS', TRIM(LEADING '/' FROM REPLACE(NULLIF(TRIM(imageUrl), ''), CHAR(92), '/')) FROM news
+    UNION ALL
+    SELECT id, 'USER', TRIM(LEADING '/' FROM REPLACE(NULLIF(TRIM(imageUrl), ''), CHAR(92), '/')) FROM `user`
+) public_image ON public_image.normalized_path = material.normalized_path
+WHERE material.normalized_path IS NOT NULL
+  AND material.normalized_path <> ''
+  AND material.normalized_path NOT REGEXP '^https?://'
+GROUP BY material.normalized_path
+ORDER BY material.normalized_path;
+
+DROP PROCEDURE IF EXISTS check_material_public_cross_paths;
+DELIMITER $$
+CREATE PROCEDURE check_material_public_cross_paths()
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM (
+            SELECT id AS source_id,
+                   TRIM(LEADING '/' FROM REPLACE(
+                       COALESCE(NULLIF(TRIM(cover_path), ''), NULLIF(TRIM(thumbnail_url), '')), CHAR(92), '/')) AS normalized_path
+            FROM course_detail WHERE status = 1
+            UNION ALL
+            SELECT id,
+                   TRIM(LEADING '/' FROM REPLACE(
+                       COALESCE(NULLIF(TRIM(original_file_path), ''), NULLIF(TRIM(files), '')), CHAR(92), '/'))
+            FROM course_detail WHERE status = 1
+            UNION ALL
+            SELECT id,
+                   TRIM(LEADING '/' FROM REPLACE(NULLIF(TRIM(preview_file_path), ''), CHAR(92), '/'))
+            FROM course_detail WHERE status = 1
+        ) material
+        JOIN (
+            SELECT id AS source_id,
+                   TRIM(LEADING '/' FROM REPLACE(NULLIF(TRIM(imageUrl), ''), CHAR(92), '/')) AS normalized_path
+            FROM team_page_images
+            UNION ALL
+            SELECT id, TRIM(LEADING '/' FROM REPLACE(NULLIF(TRIM(imageUrl), ''), CHAR(92), '/')) FROM banner
+            UNION ALL
+            SELECT id, TRIM(LEADING '/' FROM REPLACE(NULLIF(TRIM(imageUrl), ''), CHAR(92), '/')) FROM news
+            UNION ALL
+            SELECT id, TRIM(LEADING '/' FROM REPLACE(NULLIF(TRIM(imageUrl), ''), CHAR(92), '/')) FROM `user`
+        ) public_image ON public_image.normalized_path = material.normalized_path
+        WHERE material.normalized_path IS NOT NULL
+          AND material.normalized_path <> ''
+          AND material.normalized_path NOT REGEXP '^https?://'
+        LIMIT 1
+    ) THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = '31_material_file_lifecycle.sql: 有效课件文件与公共图片业务共享物理路径；请按上方列表复制拆分后重试';
+    END IF;
+END$$
+DELIMITER ;
+CALL check_material_public_cross_paths();
+DROP PROCEDURE IF EXISTS check_material_public_cross_paths;
+
 DROP PROCEDURE IF EXISTS check_shared_material_paths;
 DELIMITER $$
 CREATE PROCEDURE check_shared_material_paths()

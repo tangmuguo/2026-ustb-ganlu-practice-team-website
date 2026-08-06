@@ -95,6 +95,28 @@ class CourseMaterialLifecycleTests {
     }
 
     @Test
+    void bothSharedCoursesAlwaysLeaveDurableTasksForConcurrentDeletion() {
+        CourseDetailMapper mapper = mock(CourseDetailMapper.class);
+        FileDeletionTaskService tasks = mock(FileDeletionTaskService.class);
+        CourseDetailEntity first = sharedCourse(61);
+        CourseDetailEntity second = sharedCourse(62);
+        when(mapper.getCourseByIdForUpdate(61)).thenReturn(first);
+        when(mapper.getCourseByIdForUpdate(62)).thenReturn(second);
+        when(mapper.softDeleteCourseById(anyInt())).thenReturn(1);
+        CourseDetailServiceImpl service = service(
+                mapper, mock(FileStorageUtil.class), mock(MaterialUploadStorageService.class), tasks);
+
+        assertTrue(service.deleteCourseById(61));
+        assertTrue(service.deleteCourseById(62));
+
+        verify(tasks).enqueueCourseFiles(first);
+        verify(tasks).enqueueCourseFiles(second);
+        verify(mapper, never()).countActiveFileReferences(anyString(), any());
+        assertEquals("protected/materials/shared.pdf", first.getOriginalFilePath());
+        assertEquals("protected/materials/shared.pdf", second.getOriginalFilePath());
+    }
+
+    @Test
     void deletingOneHistoricalSharedCourseKeepsTheOtherCoursesFile() throws Exception {
         String path = "protected/materials/shared.pdf";
         Path file = write(path, "%PDF-shared");
@@ -130,6 +152,32 @@ class CourseMaterialLifecycleTests {
     }
 
     @Test
+    void tasksFromBothDeletedSharedCoursesConvergeOnOneFileIdempotently() throws Exception {
+        String path = "protected/materials/concurrent-shared.pdf";
+        Path file = write(path, "%PDF-concurrent");
+        FileDeletionTaskMapper tasks = mock(FileDeletionTaskMapper.class);
+        CourseDetailMapper courses = mock(CourseDetailMapper.class);
+        when(tasks.findByIdForUpdate(7)).thenReturn(
+                task(7, FileDeletionTaskProcessor.COURSE_ORIGINAL, 61, path));
+        when(tasks.findByIdForUpdate(8)).thenReturn(
+                task(8, FileDeletionTaskProcessor.COURSE_ORIGINAL, 62, path));
+        when(tasks.deleteTask(anyLong())).thenReturn(1);
+        when(courses.getCourseByIdIncludingDeletedForUpdate(61)).thenReturn(course(61, 0, path));
+        when(courses.getCourseByIdIncludingDeletedForUpdate(62)).thenReturn(course(62, 0, path));
+        when(courses.countActiveFileReferences(path, 61)).thenReturn(0);
+        when(courses.countActiveFileReferences(path, 62)).thenReturn(0);
+        FileDeletionTaskProcessor processor =
+                processor(tasks, courses, new FileStorageUtil(uploadRoot.toString(), "test"));
+
+        assertTrue(processor.process(7));
+        assertTrue(processor.process(8));
+
+        assertFalse(Files.exists(file));
+        verify(tasks).deleteTask(7);
+        verify(tasks).deleteTask(8);
+    }
+
+    @Test
     void physicalDeleteFailureKeepsCourseTaskForRetry() throws Exception {
         String path = "protected/materials/busy.pdf";
         write(path, "%PDF-busy");
@@ -158,6 +206,33 @@ class CourseMaterialLifecycleTests {
 
         assertTrue(Files.exists(file));
         verify(tasks).deleteTask(4);
+    }
+
+    @Test
+    void publicImageLedgerDeletionKeepsPhysicalFileUsedByActiveCourse() throws Exception {
+        String path = "images/7/99999999-9999-9999-9999-999999999999.jpg";
+        Path file = write(path, "shared-image");
+        PublicImageQuotaMapper quota = mock(PublicImageQuotaMapper.class);
+        CourseDetailMapper courses = mock(CourseDetailMapper.class);
+        com.vihu.ganlu.entitys.PublicImageAssetEntity asset =
+                new com.vihu.ganlu.entitys.PublicImageAssetEntity();
+        asset.setAssetId(77L);
+        asset.setRelativePath(path);
+        asset.setOwnerUserId(7);
+        asset.setFileSize(12L);
+        when(quota.findAssetByIdForUpdate(77)).thenReturn(asset);
+        when(quota.deleteAsset(77)).thenReturn(1);
+        when(quota.releasePermanentQuota(7, 12)).thenReturn(1);
+        when(courses.countActiveFileReferences(path, null)).thenReturn(1);
+        PublicImageAssetDeletionService service =
+                new PublicImageAssetDeletionService(
+                        new FileStorageUtil(uploadRoot.toString(), "test"), quota, courses);
+
+        service.deletePhysicalFileThenReleaseQuota(77);
+
+        assertTrue(Files.exists(file));
+        verify(quota).deleteAsset(77);
+        verify(quota).releasePermanentQuota(7, 12);
     }
 
     @Test
@@ -202,7 +277,8 @@ class CourseMaterialLifecycleTests {
     private FileDeletionTaskProcessor processor(FileDeletionTaskMapper tasks, CourseDetailMapper courses,
                                                 FileStorageUtil storage) {
         return new FileDeletionTaskProcessor(tasks,
-                new PublicImageAssetDeletionService(storage, mock(PublicImageQuotaMapper.class)),
+                new PublicImageAssetDeletionService(
+                        storage, mock(PublicImageQuotaMapper.class), courses),
                 mock(TeamMediaMapper.class), mock(TeamMediaQuotaMapper.class), storage, courses);
     }
 
@@ -255,6 +331,13 @@ class CourseMaterialLifecycleTests {
         course.setThumbnailUrl("images/materials/cover-" + id + ".jpg");
         course.setPreviewFilePath("protected/material-previews/preview-" + id + ".pdf");
         course.setFileSize(9L);
+        return course;
+    }
+
+    private CourseDetailEntity sharedCourse(int id) {
+        CourseDetailEntity course = course(id, 1, "protected/materials/shared.pdf");
+        course.setThumbnailUrl("images/materials/shared.jpg");
+        course.setPreviewFilePath("protected/material-previews/shared.pdf");
         return course;
     }
 

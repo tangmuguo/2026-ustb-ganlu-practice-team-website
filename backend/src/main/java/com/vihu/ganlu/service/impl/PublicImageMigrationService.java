@@ -164,11 +164,11 @@ public class PublicImageMigrationService {
             referencesByPath.computeIfAbsent(normalized, ignored -> new ArrayList<>()).add(reference);
         }
 
-        for (PublicImageReferenceEntity reference : courseCoverReferences) {
-            String normalized = PublicImagePathPolicy.normalizeCourseCoverReference(reference.getRelativePath());
+        for (PublicImageReferenceEntity reference : materialFileReferences) {
+            String normalized = PublicImagePathPolicy.normalizeManagedPath(reference.getRelativePath());
             if (normalized != null && referencesByPath.containsKey(normalized)) {
                 issue(report, "CROSS_DOMAIN_SHARED_PATH", source(reference), normalized,
-                        "课件封面与公共图片账本业务共享同一物理文件；必须先复制为独立文件");
+                        "课件文件与公共图片业务共享同一物理文件；必须先复制为独立文件");
             }
         }
         protectedCourseCoverPaths.removeAll(referencesByPath.keySet());

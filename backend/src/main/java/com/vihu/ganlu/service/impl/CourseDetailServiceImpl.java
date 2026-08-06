@@ -14,7 +14,6 @@ import com.vihu.ganlu.service.CourseService;
 import com.vihu.ganlu.service.OfficePreviewService;
 import com.vihu.ganlu.utils.FileStorageUtil;
 import com.vihu.ganlu.utils.MaterialFileValidator;
-import com.vihu.ganlu.utils.MaterialPathPolicy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -184,7 +183,6 @@ public class CourseDetailServiceImpl implements CourseDetailService {
         if (courseDetailMapper.softDeleteCourseById(id) != 1) {
             return false;
         }
-        clearPathsStillReferencedByOtherActiveCourses(existing);
         fileDeletionTaskService.enqueueCourseFiles(existing);
         return true;
     }
@@ -390,21 +388,6 @@ public class CourseDetailServiceImpl implements CourseDetailService {
                 }
             }
         });
-    }
-
-    private void clearPathsStillReferencedByOtherActiveCourses(CourseDetailEntity course) {
-        String cover = MaterialPathPolicy.normalizeLocalPath(course.getThumbnailUrl());
-        if (cover == null || courseDetailMapper.countActiveFileReferences(cover, course.getId()) > 0) {
-            course.setThumbnailUrl(null);
-        }
-        String original = MaterialPathPolicy.normalizeLocalPath(course.getOriginalFilePath());
-        if (original == null || courseDetailMapper.countActiveFileReferences(original, course.getId()) > 0) {
-            course.setOriginalFilePath(null);
-        }
-        String preview = MaterialPathPolicy.normalizeLocalPath(course.getPreviewFilePath());
-        if (preview == null || courseDetailMapper.countActiveFileReferences(preview, course.getId()) > 0) {
-            course.setPreviewFilePath(null);
-        }
     }
 
     private void consumeAfterCommit(MaterialUploadStorageService.StagedFile staged) {
