@@ -72,6 +72,7 @@
 - 公开接口，不需要 token。
 - `page >= 1`。
 - `pageSize` 范围为 `1-50`。
+- 为避免公开接口深分页拖慢数据库，最大 offset 为 `10000`；例如 `pageSize=50` 时最大允许 `page=201`，超过返回 `400`。
 - 只返回 `status=1` 的留言和回复。
 - 排序：留言 `create_time DESC, id DESC`，同一留言下回复 `create_time DESC, id DESC`。
 
@@ -169,7 +170,7 @@
 
 ## 错误码
 
-- `400`：空白正文、超长正文、非法 id、`page=0`、`pageSize>50` 等参数错误。
+- `400`：空白正文、超长正文、非法 id、`page=0`、`pageSize>50`、超深 page 等参数错误。
 - `400`：畸形 JSON、`page=abc` 等框架级客户端错误。
 - `415`：不支持的 Content-Type。
 - `401`：未登录或 token 无效。
@@ -206,7 +207,7 @@
 已新增三组留言板测试：
 
 - `MessageActionTests`：覆盖游客列表、游客新增/回复 401、伪造 `userId` 新增、非法分页、`page=abc`、畸形 JSON、不支持的 Content-Type 返回 415、无 message 的内部异常、学生伪造管理员删除仍 403。
-- `MessageServiceTests`：覆盖 level `0/1/2` 新增留言和回复、空白/超长正文、批量回复查询、分页第二页、极大 page 溢出保护、已删除/不存在留言回复失败、学生不可删除、管理员和团队可删除。
+- `MessageServiceTests`：覆盖 level `0/1/2` 新增留言和回复、空白/超长正文、批量回复查询、分页第二页、最大业务 offset 可查询、超深 page 不调用列表 SQL、极大 page 溢出保护、已删除/不存在留言回复失败、学生不可删除、管理员和团队可删除。
 - `MessageMapperIntegrationTests`：使用 `application-test.properties` 的 H2 MySQL 模式真实加载 MyBatis XML，覆盖 11 条数据分页第二页、同时间 `id DESC` 稳定排序、批量回复查询、逻辑删除后公开列表不展示、用户被物理删除后历史留言仍可读取并显示 `用户#<id>`。
 - `GanluApplicationTests`：使用 test profile 启动 Spring Context，验证干净检出能加载配置和 Bean。
 
@@ -237,7 +238,7 @@ cd backend
 5. 学生请求体伪造 `userId=1` 删除留言，应返回 `403`。
 6. 管理员删除留言后，公开列表不再展示该留言。
 7. 团队删除回复后，公开列表不再展示该回复。
-8. `page=0`、`pageSize=1000`、空白正文、超长正文均返回 `400`。
+8. `page=0`、`pageSize=1000`、超深 page、空白正文、超长正文均返回 `400`。
 9. 对已删除或不存在的 `messageId` 回复，返回 `404`。
 
 ## 前端对接提示

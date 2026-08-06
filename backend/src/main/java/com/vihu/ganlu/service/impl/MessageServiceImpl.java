@@ -22,7 +22,7 @@ import java.util.stream.Collectors;
 @Service
 public class MessageServiceImpl {
     private static final int MAX_PAGE_SIZE = 50;
-    private static final int MAX_OFFSET = Integer.MAX_VALUE;
+    private static final int MAX_OFFSET = 10000;
     private static final int MAX_MESSAGE_LENGTH = 500;
     private static final int MAX_REPLY_LENGTH = 300;
 
@@ -189,3 +189,4 @@ public class MessageServiceImpl {
         }
     }
 }
+

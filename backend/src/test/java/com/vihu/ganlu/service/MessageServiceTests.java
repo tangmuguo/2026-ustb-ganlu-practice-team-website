@@ -137,6 +137,25 @@ class MessageServiceTests {
     }
 
     @Test
+    void listAllowsMaxBusinessOffset() {
+        when(messageMapper.selectMessages(10000, 50)).thenReturn(Collections.singletonList(message(1)));
+        when(replyMapper.selectRepliesByMessageIds(Collections.singletonList(1))).thenReturn(Collections.emptyList());
+        when(messageMapper.countMessages()).thenReturn(10001);
+
+        Map<String, Object> result = service.getMessages(201, 50);
+
+        assertEquals(201, result.get("page"));
+        verify(messageMapper).selectMessages(10000, 50);
+    }
+
+    @Test
+    void listRejectsPageBeyondBusinessOffsetBeforeQueryingMessages() {
+        assertThrows(IllegalArgumentException.class, () -> service.getMessages(202, 50));
+
+        verify(messageMapper, never()).selectMessages(any(Integer.class), any(Integer.class));
+    }
+
+    @Test
     void replyRejectsDeletedOrMissingMessage() {
         when(userMapper.findUserById(3)).thenReturn(user(3, 2));
         ReplyCreateRequest request = new ReplyCreateRequest();
