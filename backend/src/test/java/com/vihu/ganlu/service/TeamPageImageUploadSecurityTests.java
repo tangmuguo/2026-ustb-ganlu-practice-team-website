@@ -4,6 +4,7 @@ import com.vihu.ganlu.entitys.PublicImageAssetEntity;
 import com.vihu.ganlu.entitys.PublicImageUploadInfo;
 import com.vihu.ganlu.entitys.TeamPageImageEntity;
 import com.vihu.ganlu.mappers.PublicImageQuotaMapper;
+import com.vihu.ganlu.mappers.PhysicalFileReferenceMapper;
 import com.vihu.ganlu.mappers.TeamMediaMapper;
 import com.vihu.ganlu.mappers.TeamPageImageMapper;
 import com.vihu.ganlu.service.impl.PublicImageLifecycleService;
@@ -175,7 +176,7 @@ class TeamPageImageUploadSecurityTests {
         assertTrue(Files.exists(uploadRoot.resolve(firstPath)));
         verify(deletionTaskService).enqueuePublicImage(firstPath);
                 new PublicImageAssetDeletionService(fileStorageUtil, quotaMapper,
-                        mock(com.vihu.ganlu.mappers.CourseDetailMapper.class))
+                        mock(PhysicalFileReferenceMapper.class))
                 .deletePhysicalFileThenReleaseQuota(permanentAssets.get(firstPath).getAssetId());
         assertEquals(0, permanentFileCount.get());
         assertFalse(Files.exists(uploadRoot.resolve(firstPath)));
@@ -228,7 +229,7 @@ class TeamPageImageUploadSecurityTests {
                 .when(failingStorage).deleteFile(imagePath);
         PublicImageAssetDeletionService deletionService =
                 new PublicImageAssetDeletionService(failingStorage, quotaMapper,
-                        mock(com.vihu.ganlu.mappers.CourseDetailMapper.class));
+                        mock(PhysicalFileReferenceMapper.class));
 
         assertThrows(FileStorageUtil.StorageException.class,
                 () -> deletionService.deletePhysicalFileThenReleaseQuota(

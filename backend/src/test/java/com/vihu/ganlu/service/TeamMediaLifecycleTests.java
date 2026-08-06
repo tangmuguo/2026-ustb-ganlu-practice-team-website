@@ -6,6 +6,7 @@ import com.vihu.ganlu.entitys.TeamMediaEntity;
 import com.vihu.ganlu.entitys.TeamPageImageEntity;
 import com.vihu.ganlu.entitys.TeamPageWordEntity;
 import com.vihu.ganlu.mappers.FileDeletionTaskMapper;
+import com.vihu.ganlu.mappers.PhysicalFileReferenceMapper;
 import com.vihu.ganlu.mappers.PublicImageQuotaMapper;
 import com.vihu.ganlu.mappers.TeamMediaMapper;
 import com.vihu.ganlu.mappers.TeamMediaQuotaMapper;
@@ -235,12 +236,13 @@ class TeamMediaLifecycleTests {
     }
 
     private FileDeletionTaskProcessor processor(FileDeletionTaskMapper tasks, TeamMediaMapper media,
-                                                TeamMediaQuotaMapper mediaQuota, FileStorageUtil storage,
-                                                PublicImageQuotaMapper imageQuota) {
+                                                 TeamMediaQuotaMapper mediaQuota, FileStorageUtil storage,
+                                                 PublicImageQuotaMapper imageQuota) {
+        PhysicalFileReferenceMapper references = mock(PhysicalFileReferenceMapper.class);
         return new FileDeletionTaskProcessor(tasks,
-                new PublicImageAssetDeletionService(storage, imageQuota,
-                        mock(com.vihu.ganlu.mappers.CourseDetailMapper.class)),
-                media, mediaQuota, storage, mock(com.vihu.ganlu.mappers.CourseDetailMapper.class));
+                new PublicImageAssetDeletionService(storage, imageQuota, references),
+                media, mediaQuota, storage,
+                mock(com.vihu.ganlu.mappers.CourseDetailMapper.class), references);
     }
 
     private FileStorageUtil.ValidatedFile validated(MockMultipartFile file, String extension) {

@@ -4,7 +4,6 @@ import com.vihu.ganlu.entitys.CourseDetailEntity;
 import com.vihu.ganlu.entitys.MaterialSearchQuery;
 
 import java.util.List;
-import org.apache.ibatis.annotations.Param;
 
 public interface CourseDetailMapper {
     int insertCourseDetail(CourseDetailEntity courseDetail);
@@ -16,10 +15,6 @@ public interface CourseDetailMapper {
     CourseDetailEntity getCourseByIdForUpdate(int id);
 
     CourseDetailEntity getCourseByIdIncludingDeletedForUpdate(int id);
-
-    int countActiveFileReferences(
-            @Param("relativePath") String relativePath,
-            @Param("excludeCourseId") Integer excludeCourseId);
 
     int softDeleteCourseById(int id);
 }

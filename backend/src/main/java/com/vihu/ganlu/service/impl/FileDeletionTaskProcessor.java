@@ -5,6 +5,7 @@ import com.vihu.ganlu.entitys.TeamMediaEntity;
 import com.vihu.ganlu.entitys.CourseDetailEntity;
 import com.vihu.ganlu.mappers.CourseDetailMapper;
 import com.vihu.ganlu.mappers.FileDeletionTaskMapper;
+import com.vihu.ganlu.mappers.PhysicalFileReferenceMapper;
 import com.vihu.ganlu.mappers.TeamMediaMapper;
 import com.vihu.ganlu.mappers.TeamMediaQuotaMapper;
 import com.vihu.ganlu.utils.FileStorageUtil;
@@ -30,6 +31,7 @@ public class FileDeletionTaskProcessor {
     private final TeamMediaQuotaMapper mediaQuotaMapper;
     private final FileStorageUtil fileStorageUtil;
     private final CourseDetailMapper courseDetailMapper;
+    private final PhysicalFileReferenceMapper physicalFileReferenceMapper;
 
     public FileDeletionTaskProcessor(
             FileDeletionTaskMapper taskMapper,
@@ -37,13 +39,15 @@ public class FileDeletionTaskProcessor {
             TeamMediaMapper mediaMapper,
             TeamMediaQuotaMapper mediaQuotaMapper,
             FileStorageUtil fileStorageUtil,
-            CourseDetailMapper courseDetailMapper) {
+            CourseDetailMapper courseDetailMapper,
+            PhysicalFileReferenceMapper physicalFileReferenceMapper) {
         this.taskMapper = taskMapper;
         this.imageDeletionService = imageDeletionService;
         this.mediaMapper = mediaMapper;
         this.mediaQuotaMapper = mediaQuotaMapper;
         this.fileStorageUtil = fileStorageUtil;
         this.courseDetailMapper = courseDetailMapper;
+        this.physicalFileReferenceMapper = physicalFileReferenceMapper;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -106,8 +110,8 @@ public class FileDeletionTaskProcessor {
         String normalized = MaterialPathPolicy.normalizeLocalPath(
                 currentPath == null ? task.getRelativePath() : currentPath);
         if (normalized == null) return;
-        if (courseDetailMapper.countActiveFileReferences(normalized, courseId) > 0) {
-            return; // A historical shared file remains owned by another active course.
+        if (hasLiveReference(normalized, courseId)) {
+            return; // The same physical file remains referenced by a course or public image.
         }
         deletePhysicalFileIdempotently(normalized);
     }
@@ -115,10 +119,17 @@ public class FileDeletionTaskProcessor {
     private void deleteCourseOrphan(FileDeletionTaskEntity task) {
         String normalized = MaterialPathPolicy.normalizeLocalPath(task.getRelativePath());
         if (normalized == null) return;
-        if (courseDetailMapper.countActiveFileReferences(normalized, null) > 0) {
-            return; // The outer create transaction committed; the file is no longer an orphan.
+        if (hasLiveReference(normalized, null)) {
+            return; // The file is no longer an orphan in either lifecycle.
         }
         deletePhysicalFileIdempotently(normalized);
+    }
+
+    private boolean hasLiveReference(String normalizedPath, Integer excludedCourseId) {
+        return physicalFileReferenceMapper.countActiveCourseReferences(
+                normalizedPath, excludedCourseId) > 0
+                || physicalFileReferenceMapper.countPublicBusinessReferences(normalizedPath) > 0
+                || physicalFileReferenceMapper.countPublicAssetReferences(normalizedPath, null) > 0;
     }
 
     private String currentCoursePath(CourseDetailEntity course, String type) {

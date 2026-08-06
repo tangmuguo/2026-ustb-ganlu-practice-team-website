@@ -1,7 +1,7 @@
 package com.vihu.ganlu.service.impl;
 
 import com.vihu.ganlu.entitys.PublicImageAssetEntity;
-import com.vihu.ganlu.mappers.CourseDetailMapper;
+import com.vihu.ganlu.mappers.PhysicalFileReferenceMapper;
 import com.vihu.ganlu.mappers.PublicImageQuotaMapper;
 import com.vihu.ganlu.utils.FileStorageUtil;
 import com.vihu.ganlu.utils.MaterialPathPolicy;
@@ -14,15 +14,15 @@ import java.nio.file.Files;
 public class PublicImageAssetDeletionService {
     private final FileStorageUtil fileStorageUtil;
     private final PublicImageQuotaMapper quotaMapper;
-    private final CourseDetailMapper courseDetailMapper;
+    private final PhysicalFileReferenceMapper physicalFileReferenceMapper;
 
     public PublicImageAssetDeletionService(
             FileStorageUtil fileStorageUtil,
             PublicImageQuotaMapper quotaMapper,
-            CourseDetailMapper courseDetailMapper) {
+            PhysicalFileReferenceMapper physicalFileReferenceMapper) {
         this.fileStorageUtil = fileStorageUtil;
         this.quotaMapper = quotaMapper;
-        this.courseDetailMapper = courseDetailMapper;
+        this.physicalFileReferenceMapper = physicalFileReferenceMapper;
     }
 
     @Transactional
@@ -31,9 +31,15 @@ public class PublicImageAssetDeletionService {
         if (asset == null) return;
         String relativePath = asset.getRelativePath();
         String normalized = MaterialPathPolicy.normalizeLocalPath(relativePath);
+        if (normalized != null
+                && physicalFileReferenceMapper.countPublicBusinessReferences(normalized) > 0) {
+            return; // Keep the ledger/quota until the final public reference is removed.
+        }
+        boolean usedByAnotherPublicAsset = normalized != null
+                && physicalFileReferenceMapper.countPublicAssetReferences(normalized, assetId) > 0;
         boolean usedByActiveCourse = normalized != null
-                && courseDetailMapper.countActiveFileReferences(normalized, null) > 0;
-        if (!usedByActiveCourse) {
+                && physicalFileReferenceMapper.countActiveCourseReferences(normalized, null) > 0;
+        if (!usedByAnotherPublicAsset && !usedByActiveCourse) {
             if (Files.exists(fileStorageUtil.loadFile(relativePath))) {
                 fileStorageUtil.deleteFile(relativePath);
             }

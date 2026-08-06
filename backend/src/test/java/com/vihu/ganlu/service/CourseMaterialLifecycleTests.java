@@ -3,10 +3,12 @@ package com.vihu.ganlu.service;
 import com.vihu.ganlu.entitys.CourseDetailEntity;
 import com.vihu.ganlu.entitys.FileDeletionTaskEntity;
 import com.vihu.ganlu.entitys.MaterialCreateRequest;
+import com.vihu.ganlu.entitys.PublicImageAssetEntity;
 import com.vihu.ganlu.entitys.UploadedFileInfo;
 import com.vihu.ganlu.entitys.UserEntity;
 import com.vihu.ganlu.mappers.CourseDetailMapper;
 import com.vihu.ganlu.mappers.FileDeletionTaskMapper;
+import com.vihu.ganlu.mappers.PhysicalFileReferenceMapper;
 import com.vihu.ganlu.mappers.PublicImageQuotaMapper;
 import com.vihu.ganlu.mappers.TeamMediaMapper;
 import com.vihu.ganlu.mappers.TeamMediaQuotaMapper;
@@ -111,7 +113,6 @@ class CourseMaterialLifecycleTests {
 
         verify(tasks).enqueueCourseFiles(first);
         verify(tasks).enqueueCourseFiles(second);
-        verify(mapper, never()).countActiveFileReferences(anyString(), any());
         assertEquals("protected/materials/shared.pdf", first.getOriginalFilePath());
         assertEquals("protected/materials/shared.pdf", second.getOriginalFilePath());
     }
@@ -122,13 +123,15 @@ class CourseMaterialLifecycleTests {
         Path file = write(path, "%PDF-shared");
         FileDeletionTaskMapper tasks = mock(FileDeletionTaskMapper.class);
         CourseDetailMapper courses = mock(CourseDetailMapper.class);
+        PhysicalFileReferenceMapper references = mock(PhysicalFileReferenceMapper.class);
         FileDeletionTaskEntity task = task(1, FileDeletionTaskProcessor.COURSE_ORIGINAL, 41, path);
         when(tasks.findByIdForUpdate(1)).thenReturn(task);
         when(tasks.deleteTask(1)).thenReturn(1);
         when(courses.getCourseByIdIncludingDeletedForUpdate(41)).thenReturn(course(41, 0, path));
-        when(courses.countActiveFileReferences(path, 41)).thenReturn(1);
+        when(references.countActiveCourseReferences(path, 41)).thenReturn(1);
 
-        assertTrue(processor(tasks, courses, new FileStorageUtil(uploadRoot.toString(), "test")).process(1));
+        assertTrue(processor(tasks, courses,
+                new FileStorageUtil(uploadRoot.toString(), "test"), references).process(1));
 
         assertTrue(Files.exists(file));
         verify(tasks).deleteTask(1);
@@ -143,7 +146,6 @@ class CourseMaterialLifecycleTests {
         when(tasks.findByIdForUpdate(2)).thenReturn(task(2, FileDeletionTaskProcessor.COURSE_ORIGINAL, 42, path));
         when(tasks.deleteTask(2)).thenReturn(1);
         when(courses.getCourseByIdIncludingDeletedForUpdate(42)).thenReturn(course(42, 0, path));
-        when(courses.countActiveFileReferences(path, 42)).thenReturn(0);
 
         assertTrue(processor(tasks, courses, new FileStorageUtil(uploadRoot.toString(), "test")).process(2));
 
@@ -164,8 +166,6 @@ class CourseMaterialLifecycleTests {
         when(tasks.deleteTask(anyLong())).thenReturn(1);
         when(courses.getCourseByIdIncludingDeletedForUpdate(61)).thenReturn(course(61, 0, path));
         when(courses.getCourseByIdIncludingDeletedForUpdate(62)).thenReturn(course(62, 0, path));
-        when(courses.countActiveFileReferences(path, 61)).thenReturn(0);
-        when(courses.countActiveFileReferences(path, 62)).thenReturn(0);
         FileDeletionTaskProcessor processor =
                 processor(tasks, courses, new FileStorageUtil(uploadRoot.toString(), "test"));
 
@@ -198,11 +198,13 @@ class CourseMaterialLifecycleTests {
         Path file = write(path, "image");
         FileDeletionTaskMapper tasks = mock(FileDeletionTaskMapper.class);
         CourseDetailMapper courses = mock(CourseDetailMapper.class);
+        PhysicalFileReferenceMapper references = mock(PhysicalFileReferenceMapper.class);
         when(tasks.findByIdForUpdate(4)).thenReturn(task(4, FileDeletionTaskProcessor.COURSE_ORPHAN, 99, path));
         when(tasks.deleteTask(4)).thenReturn(1);
-        when(courses.countActiveFileReferences(path, null)).thenReturn(1);
+        when(references.countActiveCourseReferences(path, null)).thenReturn(1);
 
-        assertTrue(processor(tasks, courses, new FileStorageUtil(uploadRoot.toString(), "test")).process(4));
+        assertTrue(processor(tasks, courses,
+                new FileStorageUtil(uploadRoot.toString(), "test"), references).process(4));
 
         assertTrue(Files.exists(file));
         verify(tasks).deleteTask(4);
@@ -213,7 +215,7 @@ class CourseMaterialLifecycleTests {
         String path = "images/7/99999999-9999-9999-9999-999999999999.jpg";
         Path file = write(path, "shared-image");
         PublicImageQuotaMapper quota = mock(PublicImageQuotaMapper.class);
-        CourseDetailMapper courses = mock(CourseDetailMapper.class);
+        PhysicalFileReferenceMapper references = mock(PhysicalFileReferenceMapper.class);
         com.vihu.ganlu.entitys.PublicImageAssetEntity asset =
                 new com.vihu.ganlu.entitys.PublicImageAssetEntity();
         asset.setAssetId(77L);
@@ -223,16 +225,96 @@ class CourseMaterialLifecycleTests {
         when(quota.findAssetByIdForUpdate(77)).thenReturn(asset);
         when(quota.deleteAsset(77)).thenReturn(1);
         when(quota.releasePermanentQuota(7, 12)).thenReturn(1);
-        when(courses.countActiveFileReferences(path, null)).thenReturn(1);
+        when(references.countActiveCourseReferences(path, null)).thenReturn(1);
         PublicImageAssetDeletionService service =
                 new PublicImageAssetDeletionService(
-                        new FileStorageUtil(uploadRoot.toString(), "test"), quota, courses);
+                        new FileStorageUtil(uploadRoot.toString(), "test"), quota, references);
 
         service.deletePhysicalFileThenReleaseQuota(77);
 
         assertTrue(Files.exists(file));
         verify(quota).deleteAsset(77);
         verify(quota).releasePermanentQuota(7, 12);
+    }
+
+    @Test
+    void courseThenPublicDeletionKeepsSharedFileUntilTheFinalReference() throws Exception {
+        String path = "images/7/course-then-public.jpg";
+        Path file = write(path, "shared-image");
+        FileStorageUtil storage = new FileStorageUtil(uploadRoot.toString(), "test");
+        FileDeletionTaskMapper tasks = mock(FileDeletionTaskMapper.class);
+        CourseDetailMapper courses = mock(CourseDetailMapper.class);
+        PublicImageQuotaMapper quota = mock(PublicImageQuotaMapper.class);
+        PhysicalFileReferenceMapper references = mock(PhysicalFileReferenceMapper.class);
+        PublicImageAssetEntity asset = publicAsset(81, path);
+        when(tasks.findByIdForUpdate(81)).thenReturn(
+                task(81, FileDeletionTaskProcessor.COURSE_ORIGINAL, 51, path));
+        when(tasks.deleteTask(81)).thenReturn(1);
+        when(courses.getCourseByIdIncludingDeletedForUpdate(51)).thenReturn(course(51, 0, path));
+        when(references.countPublicBusinessReferences(path)).thenReturn(1, 0);
+        when(quota.findAssetByIdForUpdate(81)).thenReturn(asset);
+        when(quota.deleteAsset(81)).thenReturn(1);
+        when(quota.releasePermanentQuota(7, 12)).thenReturn(1);
+
+        assertTrue(processor(tasks, courses, storage, references).process(81));
+        assertTrue(Files.exists(file));
+
+        new PublicImageAssetDeletionService(storage, quota, references)
+                .deletePhysicalFileThenReleaseQuota(81);
+
+        assertFalse(Files.exists(file));
+        verify(quota).deleteAsset(81);
+        verify(quota).releasePermanentQuota(7, 12);
+    }
+
+    @Test
+    void courseDeletionKeepsFileReferencedOnlyByPublicAssetLedger() throws Exception {
+        String path = "images/7/asset-ledger-only.jpg";
+        Path file = write(path, "shared-image");
+        FileDeletionTaskMapper tasks = mock(FileDeletionTaskMapper.class);
+        CourseDetailMapper courses = mock(CourseDetailMapper.class);
+        PhysicalFileReferenceMapper references = mock(PhysicalFileReferenceMapper.class);
+        when(tasks.findByIdForUpdate(83)).thenReturn(
+                task(83, FileDeletionTaskProcessor.COURSE_ORIGINAL, 53, path));
+        when(tasks.deleteTask(83)).thenReturn(1);
+        when(courses.getCourseByIdIncludingDeletedForUpdate(53)).thenReturn(course(53, 0, path));
+        when(references.countPublicAssetReferences(path, null)).thenReturn(1);
+
+        assertTrue(processor(tasks, courses,
+                new FileStorageUtil(uploadRoot.toString(), "test"), references).process(83));
+
+        assertTrue(Files.exists(file));
+        verify(tasks).deleteTask(83);
+    }
+
+    @Test
+    void publicThenCourseDeletionKeepsSharedFileUntilTheFinalReference() throws Exception {
+        String path = "images/7/public-then-course.jpg";
+        Path file = write(path, "shared-image");
+        FileStorageUtil storage = new FileStorageUtil(uploadRoot.toString(), "test");
+        FileDeletionTaskMapper tasks = mock(FileDeletionTaskMapper.class);
+        CourseDetailMapper courses = mock(CourseDetailMapper.class);
+        PublicImageQuotaMapper quota = mock(PublicImageQuotaMapper.class);
+        PhysicalFileReferenceMapper references = mock(PhysicalFileReferenceMapper.class);
+        PublicImageAssetEntity asset = publicAsset(82, path);
+        when(quota.findAssetByIdForUpdate(82)).thenReturn(asset);
+        when(quota.deleteAsset(82)).thenReturn(1);
+        when(quota.releasePermanentQuota(7, 12)).thenReturn(1);
+        when(references.countActiveCourseReferences(path, null)).thenReturn(1);
+        when(tasks.findByIdForUpdate(82)).thenReturn(
+                task(82, FileDeletionTaskProcessor.COURSE_ORIGINAL, 52, path));
+        when(tasks.deleteTask(82)).thenReturn(1);
+        when(courses.getCourseByIdIncludingDeletedForUpdate(52)).thenReturn(course(52, 0, path));
+
+        new PublicImageAssetDeletionService(storage, quota, references)
+                .deletePhysicalFileThenReleaseQuota(82);
+        assertTrue(Files.exists(file));
+        verify(quota).deleteAsset(82);
+        verify(quota).releasePermanentQuota(7, 12);
+
+        assertTrue(processor(tasks, courses, storage, references).process(82));
+
+        assertFalse(Files.exists(file));
     }
 
     @Test
@@ -276,10 +358,25 @@ class CourseMaterialLifecycleTests {
 
     private FileDeletionTaskProcessor processor(FileDeletionTaskMapper tasks, CourseDetailMapper courses,
                                                 FileStorageUtil storage) {
+        return processor(tasks, courses, storage, mock(PhysicalFileReferenceMapper.class));
+    }
+
+    private FileDeletionTaskProcessor processor(FileDeletionTaskMapper tasks, CourseDetailMapper courses,
+                                                FileStorageUtil storage,
+                                                PhysicalFileReferenceMapper references) {
         return new FileDeletionTaskProcessor(tasks,
                 new PublicImageAssetDeletionService(
-                        storage, mock(PublicImageQuotaMapper.class), courses),
-                mock(TeamMediaMapper.class), mock(TeamMediaQuotaMapper.class), storage, courses);
+                        storage, mock(PublicImageQuotaMapper.class), references),
+                mock(TeamMediaMapper.class), mock(TeamMediaQuotaMapper.class), storage, courses, references);
+    }
+
+    private PublicImageAssetEntity publicAsset(long id, String path) {
+        PublicImageAssetEntity asset = new PublicImageAssetEntity();
+        asset.setAssetId(id);
+        asset.setRelativePath(path);
+        asset.setOwnerUserId(7);
+        asset.setFileSize(12L);
+        return asset;
     }
 
     private MaterialUploadStorageService.StagedFile staged(
