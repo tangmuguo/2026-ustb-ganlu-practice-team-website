@@ -407,6 +407,11 @@ class FileStorageUtilTests {
         char[] pad = new char[70 * 1024]; // 填充正文，主部件 72KB（在 50MB 上限内）
         java.util.Arrays.fill(pad, 'x');
         mainXml.append(pad).append("</body></document>");
+        // exy v6 P2#4：.rels 现为必需结构门，合法 docx 构造必须含指向主部件的 officeDocument 关系
+        String relsXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+                + "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/>"
+                + "</Relationships>";
 
         java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
         try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
@@ -415,6 +420,9 @@ class FileStorageUtilTests {
             zos.closeEntry();
             zos.putNextEntry(new java.util.zip.ZipEntry("word/document.xml"));
             zos.write(mainXml.toString().getBytes("UTF-8"));
+            zos.closeEntry();
+            zos.putNextEntry(new java.util.zip.ZipEntry("_rels/.rels"));
+            zos.write(relsXml.getBytes("UTF-8"));
             zos.closeEntry();
         }
         MockMultipartFile file = new MockMultipartFile("file", "large.docx",
@@ -463,9 +471,10 @@ class FileStorageUtilTests {
     }
 
     @Test
-    void validate_relsMissingButValid_passes() throws Exception {
-        // exy v5 Item 6：_rels/.rels 缺失但 ContentTypes+主部件均合法 → 放行。
-        // 锁定".rels 可选"语义，防止未来误改为强制要求 .rels 才通过。
+    void validate_relsMissing_rejected() throws Exception {
+        // exy v6 P2#4：_rels/.rels 缺失 → 拒绝（旧版 exy v5 把 .rels 当可选，会放行此类伪造 ZIP）。
+        // 攻击者只需放入声明正确的 [Content_Types].xml 和合法根的 word/document.xml 的普通 ZIP，
+        // 即可冒充 docx；强制 .rels 堵住该路径。此测试锁定".rels 必需"语义。
         String contentTypesXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
                 + "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
                 + "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
@@ -487,13 +496,107 @@ class FileStorageUtilTests {
         MockMultipartFile file = new MockMultipartFile("file", "no-rels.docx",
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document", baos.toByteArray());
 
+        assertThrows(IllegalArgumentException.class,
+                () -> util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE));
+    }
+
+    @Test
+    void validate_relsDuplicateOneCorrect_passes() throws Exception {
+        // exy v6 P2#4：.rels 含多条 Relationship（含一条错误 Target + 一条正确 Target），
+        // 只要有一条 officeDocument 关系指向主部件即视为合法。验证重复条目不破坏判定。
+        byte[] ooxml = buildOoxmlZipWithRels("word/", new String[]{
+                // 第一条 Target 错误，第二条 Target 正确 → 正确那条命中，应通过
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument|word/other.xml",
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument|word/document.xml"
+        });
+        MockMultipartFile file = new MockMultipartFile("file", "dup-rels.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ooxml);
+
         FileStorageUtil.ValidatedFile vf = util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE);
         assertEquals(FileStorageUtil.FileCategory.DOCUMENT, vf.getCategory());
         assertEquals("docx", vf.getExtension());
     }
 
-    /** 构造合法 OOXML ZIP 字节：含符合 schema 的 [Content_Types].xml 和主部件。
-     *  prefix = "word/"（docx）或 "ppt/"（pptx），对应 mainPart/ContentType/命名空间不同。 */
+    @Test
+    void validate_relsMissingOfficeDocType_rejected() throws Exception {
+        // exy v6 P2#4：.rels 存在但所有 Relationship 的 Type 都不是 officeDocument → 拒绝。
+        // 覆盖".rels 缺少 officeDocument Type"分支。
+        byte[] ooxml = buildOoxmlZipWithRels("word/", new String[]{
+                // Type 是其他关系（非 officeDocument）
+                "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties|docProps/core.xml"
+        });
+        MockMultipartFile file = new MockMultipartFile("file", "wrong-type.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ooxml);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE));
+    }
+
+    @Test
+    void validate_oversizedContentTypesXml_rejected() throws Exception {
+        // exy v6 P2#5：[Content_Types].xml 超过 1MB 元数据上限 → 拒绝。
+        // 旧版借用主部件 50MB 上限，并发上传可造成堆压力；收紧到 1MB 后超大元数据快速拒绝。
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
+            zos.putNextEntry(new java.util.zip.ZipEntry("[Content_Types].xml"));
+            // 写合法但超大的 [Content_Types].xml（> 1MB）：Types 根 + 大量 Default 声明填充
+            StringBuilder sb = new StringBuilder(2 * 1024 * 1024);
+            sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+                    .append("<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">");
+            // 每条 Default ~80 字节，约 26000 条 ≈ 2MB
+            for (int i = 0; i < 26000; i++) {
+                sb.append("<Default Extension=\"x").append(i).append("\" ContentType=\"application/xml\"/>");
+            }
+            sb.append("<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>");
+            sb.append("</Types>");
+            zos.write(sb.toString().getBytes("UTF-8"));
+            zos.closeEntry();
+            zos.putNextEntry(new java.util.zip.ZipEntry("word/document.xml"));
+            zos.write("<?xml version=\"1.0\"?><document xmlns=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><body/></document>".getBytes("UTF-8"));
+            zos.closeEntry();
+            zos.putNextEntry(new java.util.zip.ZipEntry("_rels/.rels"));
+            zos.write("<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/></Relationships>".getBytes("UTF-8"));
+            zos.closeEntry();
+        }
+        MockMultipartFile file = new MockMultipartFile("file", "big-ct.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document", baos.toByteArray());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE));
+    }
+
+    @Test
+    void validate_oversizedRelsXml_rejected() throws Exception {
+        // exy v6 P2#5：_rels/.rels 超过 1MB 元数据上限 → 拒绝。
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
+            zos.putNextEntry(new java.util.zip.ZipEntry("[Content_Types].xml"));
+            zos.write("<?xml version=\"1.0\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/></Types>".getBytes("UTF-8"));
+            zos.closeEntry();
+            zos.putNextEntry(new java.util.zip.ZipEntry("word/document.xml"));
+            zos.write("<?xml version=\"1.0\"?><document xmlns=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><body/></document>".getBytes("UTF-8"));
+            zos.closeEntry();
+            zos.putNextEntry(new java.util.zip.ZipEntry("_rels/.rels"));
+            // 写合法但超大的 .rels（> 1MB）：大量 Relationship 填充
+            StringBuilder sb = new StringBuilder(2 * 1024 * 1024);
+            sb.append("<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">");
+            for (int i = 0; i < 40000; i++) {
+                sb.append("<Relationship Id=\"rId").append(i).append("\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/>");
+            }
+            sb.append("</Relationships>");
+            zos.write(sb.toString().getBytes("UTF-8"));
+            zos.closeEntry();
+        }
+        MockMultipartFile file = new MockMultipartFile("file", "big-rels.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document", baos.toByteArray());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE));
+    }
+
+    /** 构造合法 OOXML ZIP 字节：含符合 schema 的 [Content_Types].xml、主部件和合法 _rels/.rels。
+     *  prefix = "word/"（docx）或 "ppt/"（pptx），对应 mainPart/ContentType/命名空间不同。
+     *  exy v6 P2#4：.rels 现为必需结构门，合法 OOXML 构造必须含指向主部件的 officeDocument 关系。 */
     private byte[] buildOoxmlZip(String prefix) throws Exception {
         boolean isDocx = "word/".equals(prefix);
         String mainPart = isDocx ? "word/document.xml" : "ppt/presentation.xml";
@@ -514,6 +617,11 @@ class FileStorageUtilTests {
                 + "</Types>";
         String mainXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
                 + "<" + mainRoot + " xmlns=\"" + mainNs + "\"><body/></" + mainRoot + ">";
+        // 合法 .rels：officeDocument 关系指向主部件（相对路径）
+        String relsXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+                + "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"" + mainPart + "\"/>"
+                + "</Relationships>";
 
         java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
         try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
@@ -522,6 +630,9 @@ class FileStorageUtilTests {
             zos.closeEntry();
             zos.putNextEntry(new java.util.zip.ZipEntry(mainPart));
             zos.write(mainXml.getBytes("UTF-8"));
+            zos.closeEntry();
+            zos.putNextEntry(new java.util.zip.ZipEntry("_rels/.rels"));
+            zos.write(relsXml.getBytes("UTF-8"));
             zos.closeEntry();
         }
         return baos.toByteArray();
@@ -533,6 +644,54 @@ class FileStorageUtilTests {
         try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
             zos.putNextEntry(new java.util.zip.ZipEntry("readme.txt"));
             zos.write("hello".getBytes());
+            zos.closeEntry();
+        }
+        return baos.toByteArray();
+    }
+
+    /** 构造合法 OOXML ZIP 字节，但 _rels/.rels 的 Relationship 列表由调用者自定义。
+     *  用于 P2#4 边界用例（重复/缺 officeDocument Type 等）。relationships 每项格式 "Type|Target"。
+     *  prefix = "word/"（docx）或 "ppt/"（pptx）。 */
+    private byte[] buildOoxmlZipWithRels(String prefix, String[] relationships) throws Exception {
+        boolean isDocx = "word/".equals(prefix);
+        String mainPart = isDocx ? "word/document.xml" : "ppt/presentation.xml";
+        String partName = isDocx ? "/word/document.xml" : "/ppt/presentation.xml";
+        String mainContentType = isDocx
+                ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+                : "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml";
+        String mainNs = isDocx
+                ? "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                : "http://schemas.openxmlformats.org/presentationml/2006/main";
+        String mainRoot = isDocx ? "document" : "presentation";
+
+        String contentTypesXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
+                + "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
+                + "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
+                + "<Override PartName=\"" + partName + "\" ContentType=\"" + mainContentType + "\"/>"
+                + "</Types>";
+        String mainXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<" + mainRoot + " xmlns=\"" + mainNs + "\"><body/></" + mainRoot + ">";
+        StringBuilder relsSb = new StringBuilder();
+        relsSb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+                .append("<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">");
+        for (int i = 0; i < relationships.length; i++) {
+            String[] parts = relationships[i].split("\\|", 2);
+            relsSb.append("<Relationship Id=\"rId").append(i).append("\" Type=\"")
+                    .append(parts[0]).append("\" Target=\"").append(parts[1]).append("\"/>");
+        }
+        relsSb.append("</Relationships>");
+
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
+            zos.putNextEntry(new java.util.zip.ZipEntry("[Content_Types].xml"));
+            zos.write(contentTypesXml.getBytes("UTF-8"));
+            zos.closeEntry();
+            zos.putNextEntry(new java.util.zip.ZipEntry(mainPart));
+            zos.write(mainXml.getBytes("UTF-8"));
+            zos.closeEntry();
+            zos.putNextEntry(new java.util.zip.ZipEntry("_rels/.rels"));
+            zos.write(relsSb.toString().getBytes("UTF-8"));
             zos.closeEntry();
         }
         return baos.toByteArray();

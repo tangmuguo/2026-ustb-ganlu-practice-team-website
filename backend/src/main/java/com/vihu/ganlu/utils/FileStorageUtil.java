@@ -356,7 +356,12 @@ public class FileStorageUtil {
     // exy v5 Item 6：hasRootElement 流式完整解析（未闭合即拒），前缀上限决定 document.xml
     // 超过多大时会被误拒（前缀截断 → SAX 报未闭合）。50MB 覆盖几乎所有合法 docx。
     // 代价：校验时每文件最多读 50MB 前缀到内存（流式解析不建 DOM，内存≈输入字节）。
-    private static final int MAX_OOXML_PART_BYTES = 50 * 1024 * 1024; // 单条目最多读 50MB
+    private static final int MAX_OOXML_PART_BYTES = 50 * 1024 * 1024; // 主部件最多读 50MB
+    // exy v6 P2#5：元数据部件（[Content_Types].xml / _rels/.rels）专用小上限。
+    // 这两个部件正常极小（几 KB），无需借用主部件的 50MB 上限；它们读入 byte[] 后还经
+    // parseSecureXml 建 DOM（DOM 对象常把原始 XML 放大数倍），几个并发上传即可造成远高于
+    // 50MB/请求的堆占用。1MB 已远超任何合法 OOXML 包级元数据大小，收紧后消除堆压力。
+    private static final int MAX_OOXML_METADATA_PART_BYTES = 1 * 1024 * 1024; // 元数据部件最多读 1MB
     // exy v5 Item 7：zip bomb 防护——限制每条目解压后字节数 + 全部条目累计解压字节数。
     // 单条目上限对嵌入媒体同样生效：含单张 >50MB 图片的文档会被拒（与 document.xml 50MB 边界同源）。
     private static final int MAX_OOXML_INFLATED_PART_BYTES = 50 * 1024 * 1024; // 单条目解压上限 50MB
@@ -382,7 +387,10 @@ public class FileStorageUtil {
 
         boolean contentTypesValid = false;
         boolean mainPartValid = false;
-        // exy v5 Item 7：_rels/.rels 是结构补充信号源（存在则校验，不强制存在）
+        // exy v6 P2#4：_rels/.rels 是 OOXML 包级关系的必需结构门。
+        // 旧版（exy v5）把 .rels 当可选信号源（缺失也放行），导致攻击者只需放入声明正确的
+        // [Content_Types].xml 和合法根的 word/document.xml 就能让普通 ZIP 冒充 docx/pptx。
+        // 现强制：.rels 必须存在且其 officeDocument 关系必须指向主部件。
         boolean relsPresent = false;
         boolean relsValid = false;
         try (InputStream is = file.getInputStream();
@@ -402,8 +410,9 @@ public class FileStorageUtil {
                     continue;
                 }
                 // 1. [Content_Types].xml：读出并解析 XML，校验 ContentType 声明
+                //    元数据部件用 1MB 上限（P2#5），避免大 XML 经 DOM 放大造成堆压力。
                 if ("[Content_Types].xml".equals(name)) {
-                    byte[] bytes = readBoundedBytes(zis, MAX_OOXML_PART_BYTES);
+                    byte[] bytes = readBoundedBytes(zis, MAX_OOXML_METADATA_PART_BYTES);
                     if (bytes != null && bytes.length > 0
                             && isValidContentTypesXml(bytes, expectedContentType, expectedPartName)) {
                         contentTypesValid = true;
@@ -418,9 +427,10 @@ public class FileStorageUtil {
                     }
                 }
                 // 3. _rels/.rels（Item 6 补充结构门）：存在则校验指向主部件的 officeDocument 关系
+                //    元数据部件用 1MB 上限（P2#5）。
                 else if ("_rels/.rels".equals(name)) {
                     relsPresent = true;
-                    byte[] bytes = readBoundedBytes(zis, MAX_OOXML_PART_BYTES);
+                    byte[] bytes = readBoundedBytes(zis, MAX_OOXML_METADATA_PART_BYTES);
                     if (bytes != null && bytes.length > 0
                             && isValidRelsXml(bytes, expectedRelTarget)) {
                         relsValid = true;
@@ -437,11 +447,10 @@ public class FileStorageUtil {
         } catch (IOException e) {
             return false; // 读取失败、非合法 ZIP、或 zip bomb 触发解压上限 → 视为非 OOXML
         }
-        // 若 _rels/.rels 存在但不合法，即便 ContentTypes+主部件都过，也拒绝（结构不一致）
-        if (contentTypesValid && mainPartValid && relsPresent && !relsValid) {
-            return false;
-        }
-        return contentTypesValid && mainPartValid;
+        // exy v6 P2#4：强制三项齐备且均合法。删除旧版".rels 缺失也放行"的宽松 fallback，
+        // 否则攻击者可构造只含 [Content_Types].xml + 合法根主部件的普通 ZIP 冒充 OOXML。
+        // 四项中任一缺失或不合法即视为非 OOXML。
+        return contentTypesValid && mainPartValid && relsPresent && relsValid;
     }
 
     /**
