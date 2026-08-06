@@ -412,7 +412,7 @@ public class FileStorageUtil {
                 // 1. [Content_Types].xml：读出并解析 XML，校验 ContentType 声明
                 //    元数据部件用 1MB 上限（P2#5），避免大 XML 经 DOM 放大造成堆压力。
                 if ("[Content_Types].xml".equals(name)) {
-                    byte[] bytes = readBoundedBytes(zis, MAX_OOXML_METADATA_PART_BYTES);
+                    byte[] bytes = readBoundedBytes(zis, MAX_OOXML_METADATA_PART_BYTES, true);
                     if (bytes != null && bytes.length > 0
                             && isValidContentTypesXml(bytes, expectedContentType, expectedPartName)) {
                         contentTypesValid = true;
@@ -420,7 +420,7 @@ public class FileStorageUtil {
                 }
                 // 2. 主部件：完整解析前缀 XML，校验根元素命名空间（未闭合即拒）
                 else if (mainPartName.equals(name)) {
-                    byte[] bytes = readBoundedBytes(zis, MAX_OOXML_PART_BYTES);
+                    byte[] bytes = readBoundedBytes(zis, MAX_OOXML_PART_BYTES, false);
                     if (bytes != null && bytes.length > 0
                             && hasRootElement(bytes, mainPartNs, mainPartLocalName)) {
                         mainPartValid = true;
@@ -430,7 +430,7 @@ public class FileStorageUtil {
                 //    元数据部件用 1MB 上限（P2#5）。
                 else if ("_rels/.rels".equals(name)) {
                     relsPresent = true;
-                    byte[] bytes = readBoundedBytes(zis, MAX_OOXML_METADATA_PART_BYTES);
+                    byte[] bytes = readBoundedBytes(zis, MAX_OOXML_METADATA_PART_BYTES, true);
                     if (bytes != null && bytes.length > 0
                             && isValidRelsXml(bytes, expectedRelTarget)) {
                         relsValid = true;
@@ -455,26 +455,31 @@ public class FileStorageUtil {
 
     /**
      * 读 ZipInputStream 当前条目的至多 maxBytes 字节作为前缀返回。
-     * 条目超过 maxBytes 时返回已读前缀，不再视为超限拒绝——剩余字节由后续 closeEntry 跳过
-     * （closeEntry 的解压量受外层 LimitedZipInputStream 的计数上限保护）。
-     * 仅真实 IO 错误返回 null。
+     * rejectIfOver=true（元数据部件 [Content_Types].xml / _rels/.rels 用，exy v6 P2#5）：
+     *   条目超过 maxBytes 时立即抛 IOException 终止整个 ZIP 流。旧版读满前缀后由 closeEntry
+     *   排空剩余数据，而 closeEntry 的解压量只受外层 LimitedZipInputStream 计数保护
+     *   （单条目可到 50MB、累计 400MB），超大元数据会白耗解压 CPU；1MB 内已远超任何合法
+     *   OOXML 包级元数据大小，超限即弃，不再排空（exy v7 P2#3）。
+     * rejectIfOver=false（主部件用）：超过 maxBytes 时返回已读前缀，剩余字节由后续
+     *   closeEntry 跳过（保持 exy v5 的 50MB 前缀截断语义，不拒合法大文档）。
+     * 真实 IO 错误与超限同样以 IOException 向上抛，由 isRealOoxml 统一 catch 视为非 OOXML。
      */
-    private byte[] readBoundedBytes(InputStream in, int maxBytes) {
+    byte[] readBoundedBytes(InputStream in, int maxBytes, boolean rejectIfOver) throws IOException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         byte[] buf = new byte[4096];
         int total = 0;
         int n;
-        try {
-            while ((n = in.read(buf)) > 0) {
-                if (total >= maxBytes) {
-                    break; // 前缀已够，停止读取（剩余数据由 closeEntry 跳过）
-                }
-                int toWrite = Math.min(n, maxBytes - total);
-                baos.write(buf, 0, toWrite);
-                total += toWrite;
+        while (total < maxBytes && (n = in.read(buf)) > 0) {
+            int toWrite = Math.min(n, maxBytes - total);
+            baos.write(buf, 0, toWrite);
+            total += toWrite;
+        }
+        if (rejectIfOver && total >= maxBytes) {
+            // 条目可能仍有数据：探测一次。若还能读到字节说明确实超限，立即抛异常终止整个流
+            // （不调用 closeEntry 排空超大元数据条目，避免白耗解压）。
+            if (in.read(buf) > 0) {
+                throw new IOException("OOXML 元数据部件超过 " + maxBytes + " 字节上限，终止解压");
             }
-        } catch (IOException e) {
-            return null;
         }
         return baos.toByteArray();
     }

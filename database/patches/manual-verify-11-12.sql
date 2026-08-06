@@ -2,7 +2,7 @@
 -- Patch 11/12/15 手工验证脚本（供复审参考）
 --
 -- 用途：验证 patch 11（owner 预检 + team_id 回填）、patch 12（owner 唯一约束）、
---      patch 15（cutoff 双确认 + 历史回填 + 文件搬迁清单）在多种升级路径下的正确性。
+--      patch 15（持久化状态机 + 历史回填 + 文件搬迁清单）在多种升级路径下的正确性。
 --
 -- exy v5 调整：
 --   - patch 11 不再做历史 PENDING→PUBLISHED（已挪到 patch 15）
@@ -17,6 +17,17 @@
 --   - 搬迁脚本改为清单驱动，missing/conflict/后置失败均 exit 1，密码走 --defaults-extra-file
 --   - 新增场景 F（cutoff 不误公开新行）、G（Windows 反斜杠路径）、H（搬迁失败退出码）、
 --          I（部分 schema 前置校验）、J（dry-run/确认双步流程）
+--
+-- exy v7 调整（修复复审 v7 的 P1 + P2，单过程门控状态机）：
+--   - patch 15 重写为单个存储过程 patch15_main()：_patch15_meta 持久化 dry-run 的 cutoff
+--     与 applied_at；快照绑定 cutoff（apply 时强校验 meta.cutoff==本次 cutoff 且快照与
+--     候选集一致，任一不一致即 SIGNAL）；确认门严格 COALESCE(@patch15_apply,0)=1；
+--     破坏性语句（清单表/改指 imageUrl/回填/清理）全在过程内门后执行，--force 客户端
+--     越过 SIGNAL 也无法执行破坏性操作。
+--   - createdAt IS NULL 的 PENDING 行不再静默漏掉：dry-run 单独列出，apply 需显式
+--     SET @patch15_confirm_null_created := 1（这些行保持 PENDING，不自动回填）。
+--   - 成功后重跑 patch 15 → SIGNAL "本 patch 已应用过"（不再幂等放行）。
+--   - 新增场景 K（错误 cutoff）、L（apply=0）、M（createdAt NULL）、N（--force 越权）。
 --
 -- ⚠️ 维护模式（Item 4 exy v5）：执行 patch 10/11/12/15 期间必须停止应用写入
 --    team / team_page / team_page_images / team_page_word 表。
@@ -92,10 +103,13 @@ SELECT id, team_id, status FROM team_page_images WHERE id = 6002;
 INSERT INTO team_page_images (id, userId, pageId, team_id, imageUrl, caption, type, status) VALUES
   (6100, 9002, NULL, 5003, 'images_pending/c.jpg', 'C场景-上线后新内容', 2, 'PENDING');
 
--- C.2 重跑 patch 15
---     SOURCE database/patches/15_team_content_history_publish.sql
+-- C.2 重跑 patch 15（成功后重跑不再幂等放行，exy v7 改为 SIGNAL "已应用过"）
+--   SET @patch15_cutoff := '2026-01-01 00:00:00'; SET @patch15_apply := 1;
+--   SOURCE database/patches/15_team_content_history_publish.sql
+--   期望：SIGNAL "本 patch 已应用过（applied_at = ...）"——比 v6 的幂等放行更安全，
+--         从机制上杜绝"重跑误公开"。
 
--- C.3 断言：新行 6100 不被误改 PUBLISHED（id 6100 不在 _patch15_hist_images 快照里）
+-- C.3 断言：新行 6100 保持 PENDING（即使重跑被拦截，业务数据也未被触碰）
 SELECT 'C.3 断言：新行 6100 保持 PENDING' AS step;
 SELECT id, status FROM team_page_images WHERE id = 6100;
 -- 期望：status = 'PENDING'
@@ -137,10 +151,13 @@ SELECT COUNT(*) AS snap_images FROM information_schema.tables
 --     team_media 表存在、status 列存在、历史内容已 PUBLISHED（d9873b1 的 status-列判断回填过）
 --     （实际操作：在一个已跑过 d9873b1 的库上直接跑 patch 15）
 
--- E.2 执行 patch 15
---     SOURCE database/patches/15_team_content_history_publish.sql
---     期望：三态识别通过（team_media + status 都在），完成度判断为"无 PENDING"，
---          幂等跳过，不崩溃（快照表恒建，无需回填时为空表——第 5 节 UPDATE JOIN 空表，0 行变更）
+-- E.2 执行 patch 15（exy v7：需先设 cutoff，确认后 apply；无 PENDING 时为 no-op 成功）
+--   SET @patch15_cutoff := '2026-01-01 00:00:00';
+--   SOURCE database/patches/15_team_content_history_publish.sql   -- dry-run，出"待发布 0 条"后 SIGNAL
+--   SET @patch15_apply := 1;
+--   SOURCE database/patches/15_team_content_history_publish.sql   -- apply：快照为空，回填 0 行，成功
+--   期望：schema 前置校验通过（team_media + 列 + 索引 + 唯一约束都在），
+--         无 PENDING 历史行 → 空快照 → 第 7 节 UPDATE JOIN 空表 0 行变更，不崩溃
 
 -- E.3 断言：patch 15 幂等跳过，历史内容保持 PUBLISHED
 SELECT 'E.3 断言：升级路径幂等' AS step;
@@ -250,26 +267,117 @@ ALTER TABLE team_page_word DROP COLUMN status;
 
 
 -- #####################################################################
--- 场景 J（exy v6 P1#1）：dry-run / 确认双步流程
+-- 场景 J（exy v6 P1#1 / v7 收口）：dry-run / 确认双步流程 + 持久化状态机
 --   验证两步确认安全门：首次（dry-run）只出清单不改动业务数据；确认后才回填。
+--   v7 后整个脚本是单存储过程 patch15_main()，_patch15_meta 持久化 cutoff 与 applied_at。
 -- #####################################################################
--- J.1 cutoff 缺失 → 立即 SIGNAL（第 2 节）
+-- J.1 cutoff 缺失 → SIGNAL（patch15_main 门 2）
 --   SOURCE database/patches/15_team_content_history_publish.sql
 --   期望：SIGNAL "未提供 @patch15_cutoff..."
 
--- J.2 cutoff 提供但 @patch15_apply 未设 → dry-run 出清单后 SIGNAL（第 4 节）
+-- J.2 cutoff 提供但 @patch15_apply 未设 → dry-run 出清单后 SIGNAL（门 5.1）
 --   SET @patch15_cutoff := '2026-01-01 00:00:00';
 --   SOURCE database/patches/15_team_content_history_publish.sql
 --   期望：输出 preview + 待发布 ID 清单，然后 SIGNAL "dry-run 完成..."
---   期望：业务数据（team_page_images.status、imageUrl）未变化；_patch15_image_migration 表不存在
+--   期望：业务数据（team_page_images.status、imageUrl）未变化；
+--         快照表 _patch15_hist_* 与 _patch15_meta 已建（cutoff 记录在案）；
+--         _patch15_image_migration 表不存在（破坏性节未执行）
 
 -- J.3 确认运行 → 执行回填 + 文件搬迁
 --   SET @patch15_apply := 1;
 --   SOURCE database/patches/15_team_content_history_publish.sql
---   期望：第 5 节建清单改 imageUrl，第 6 节回填 PUBLISHED；migration_result 提示执行搬迁脚本
+--   期望：第 6 节建清单改 imageUrl，第 7 节回填 PUBLISHED，第 9 节 applied_at 置非空；
+--         migration_result 提示执行搬迁脚本
 
--- J.4 重跑确认（幂等）→ 无变化
+-- J.4 成功后重跑（exy v7：不再幂等放行）→ SIGNAL "已应用过"
 --   SET @patch15_apply := 1;
 --   SOURCE database/patches/15_team_content_history_publish.sql
---   期望：已 PUBLISHED 的行 WHERE status='PENDING' 不命中，0 行变更；已改 imageUrl 的行 old_url 不匹配，0 行变更
+--   期望：SIGNAL "本 patch 已应用过（applied_at = ...）"，业务数据不变
 
+
+-- #####################################################################
+-- 场景 K（exy v7 P1）：错误 cutoff 的 dry-run → 换 cutoff apply 被拦截
+--   v6 缺陷：快照表只存 ID 不存 cutoff，错误 cutoff 的旧快照可被复用，preview 显示新
+--   cutoff 而实际按旧快照发布。v7 用 _patch15_meta 持久化 cutoff，apply 时强校验一致。
+-- #####################################################################
+-- K.1 dry-run 用 cutoff A=2026-01-01（采集 createdAt <= A 的历史行）
+--   SET @patch15_cutoff := '2026-01-01 00:00:00';
+--   SOURCE database/patches/15_team_content_history_publish.sql
+--   期望：preview 列出 A 之前的行，SIGNAL "dry-run 完成"
+
+-- K.2 不重新 dry-run，直接换 cutoff B=2026-02-01 apply
+--   SET @patch15_cutoff := '2026-02-01 00:00:00'; SET @patch15_apply := 1;
+--   SOURCE database/patches/15_team_content_history_publish.sql
+--   期望：SIGNAL "cutoff 与 dry-run 不一致（快照 cutoff = 2026-01-01 ...，本次 = 2026-02-01 ...）"
+--         —— 不得沿用旧快照发布
+
+-- K.3 断言：业务数据未变（历史行仍 PENDING，未被误发布）
+SELECT 'K.3 断言：错误 cutoff 未误发布' AS step;
+SELECT id, status FROM team_page_images WHERE imageUrl LIKE 'images_pending/k-%';
+-- 期望：全部 PENDING
+
+
+-- #####################################################################
+-- 场景 L（exy v7 P1）：@patch15_apply := 0 必须走 dry-run，不能当成确认
+--   v6 缺陷：门是 IF @patch15_apply IS NULL，apply=0 也会放行。v7 严格 =1。
+-- #####################################################################
+-- L.1 apply=0
+--   SET @patch15_cutoff := '2026-01-01 00:00:00'; SET @patch15_apply := 0;
+--   SOURCE database/patches/15_team_content_history_publish.sql
+--   期望：SIGNAL "dry-run 完成..."（非执行回填）
+
+-- L.2 断言：无破坏性操作
+SELECT 'L.2 断言：apply=0 无破坏性操作' AS step;
+SELECT COUNT(*) AS migration_table FROM information_schema.tables
+ WHERE table_schema = DATABASE() AND table_name = '_patch15_image_migration';
+-- 期望：0（清单表未创建）
+
+
+-- #####################################################################
+-- 场景 M（exy v7 P2#2）：createdAt IS NULL 的历史 PENDING 行不被静默漏掉
+--   v6 缺陷：createdAt <= cutoff 的过滤会静默吞掉 createdAt IS NULL 的行，它们永远 PENDING
+--   且不出现在清单。v7 单独列出并要求显式确认，apply 才放行。
+-- #####################################################################
+-- M.1 插入 createdAt IS NULL 的 PENDING 行
+INSERT INTO team_page_images (userId, pageId, team_id, imageUrl, caption, type, status, createdAt) VALUES
+  (7001, NULL, 5003, 'images_pending/m-null.jpg', 'M-NULL时间', 2, 'PENDING', NULL);
+
+-- M.2 dry-run：应单独列出该行
+--   SET @patch15_cutoff := '2026-01-01 00:00:00';
+--   SOURCE database/patches/15_team_content_history_publish.sql
+--   期望：preview 含 "createdAt IS NULL 待确认图片 1 条"，并单独列出该 ID
+
+-- M.3 apply 且未确认 → 被 5.5 门拦截
+--   SET @patch15_cutoff := '2026-01-01 00:00:00'; SET @patch15_apply := 1;
+--   SOURCE database/patches/15_team_content_history_publish.sql
+--   期望：SIGNAL "存在 createdAt IS NULL 的 PENDING 历史行...如已知悉请 SET @patch15_confirm_null_created := 1"
+
+-- M.4 显式确认后 apply → 成功，NULL 行保持 PENDING（不自动回填）
+--   SET @patch15_confirm_null_created := 1;
+--   SOURCE database/patches/15_team_content_history_publish.sql
+--   期望：migration_result 成功；该 NULL 行 status 仍为 PENDING（已知悉，未被静默吞掉）
+
+-- M.5 断言
+SELECT 'M.5 断言：NULL 行保持 PENDING' AS step;
+SELECT id, status FROM team_page_images WHERE imageUrl = 'images_pending/m-null.jpg';
+-- 期望：status = 'PENDING'
+
+
+-- #####################################################################
+-- 场景 N（exy v7 P1）：mysql --force 越过 dry-run SIGNAL 后，破坏性操作不得执行
+--   v6 缺陷：破坏性语句在顶层，--force 客户端越过 SIGNAL 后第 5/6 节仍会执行。
+--   v7 全部破坏性语句在被门控的存储过程内，SIGNAL 中止整个 CALL，过程外无破坏性语句。
+-- #####################################################################
+-- N.1 用 --force 执行 dry-run
+--   mysql --force ... -e "SET @patch15_cutoff := '2026-01-01 00:00:00'; SOURCE database/patches/15_team_content_history_publish.sql;"
+--   期望：虽输出 SIGNAL "dry-run 完成"，但脚本继续执行到最后一行
+
+-- N.2 断言：破坏性操作未执行
+SELECT 'N.2 断言：--force 下破坏性操作未执行' AS step;
+SELECT COUNT(*) AS migration_table FROM information_schema.tables
+ WHERE table_schema = DATABASE() AND table_name = '_patch15_image_migration';
+-- 期望：0（清单表未创建）
+SELECT id, status FROM team_page_images WHERE imageUrl LIKE 'images_pending/n-%';
+-- 期望：全部 PENDING（未回填）
+SELECT applied_at FROM _patch15_meta WHERE id = 1;
+-- 期望：NULL（未标记已应用）

@@ -594,6 +594,64 @@ class FileStorageUtilTests {
                 () -> util.validate(file, FileStorageUtil.MAX_DOCUMENT_SIZE));
     }
 
+    // =====================================================================
+    // exy v7 P2#3：元数据部件超限必须立即终止解压，而非读满前缀后 closeEntry 排空
+    // =====================================================================
+
+    @Test
+    void readBoundedBytes_rejectIfOver_oversizedInput_throws() throws Exception {
+        // 2MB 输入，1MB 上限 + rejectIfOver=true → 探测到仍有数据 → 立即抛 IOException
+        byte[] big = new byte[2 * 1024 * 1024];
+        java.util.Arrays.fill(big, (byte) 'x');
+        try (java.io.ByteArrayInputStream in = new java.io.ByteArrayInputStream(big)) {
+            util.readBoundedBytes(in, 1 * 1024 * 1024, true);
+            fail("预期超限抛 IOException，实际正常返回");
+        } catch (java.io.IOException expected) {
+            // 预期：元数据部件超限立即抛出
+        }
+    }
+
+    @Test
+    void readBoundedBytes_rejectIfOver_exactCap_passes() throws Exception {
+        // 恰好 1MB 输入，rejectIfOver=true → 读完 1MB 后探测读到 EOF，不抛，正常返回
+        byte[] exact = new byte[1 * 1024 * 1024];
+        java.util.Arrays.fill(exact, (byte) 'x');
+        byte[] result;
+        try (java.io.ByteArrayInputStream in = new java.io.ByteArrayInputStream(exact)) {
+            result = util.readBoundedBytes(in, 1 * 1024 * 1024, true);
+        }
+        assertEquals(1 * 1024 * 1024, result.length);
+    }
+
+    @Test
+    void readBoundedBytes_prefixMode_truncatesInsteadOfThrow() throws Exception {
+        // 2MB 输入，1MB 上限 + rejectIfOver=false → 返回 1MB 前缀，不抛（主部件 50MB 前缀语义）
+        byte[] big = new byte[2 * 1024 * 1024];
+        java.util.Arrays.fill(big, (byte) 'x');
+        byte[] result;
+        try (java.io.ByteArrayInputStream in = new java.io.ByteArrayInputStream(big)) {
+            result = util.readBoundedBytes(in, 1 * 1024 * 1024, false);
+        }
+        assertEquals(1 * 1024 * 1024, result.length);
+    }
+
+    @Test
+    void readBoundedBytes_rejectIfOver_doesNotDrainOversizedEntry() throws Exception {
+        // 用计数流证明：超限后读取量止于 1MB + 一次探测块(4KB)，不会排空整个条目。
+        // 旧版读满前缀后 closeEntry 会解压完剩余数据（单条目最多 50MB），元数据超限白耗 CPU。
+        byte[] big = new byte[2 * 1024 * 1024];
+        java.util.Arrays.fill(big, (byte) 'x');
+        CountingInputStream cis = new CountingInputStream(new java.io.ByteArrayInputStream(big));
+        try {
+            util.readBoundedBytes(cis, 1 * 1024 * 1024, true);
+            fail("预期超限抛 IOException");
+        } catch (java.io.IOException expected) {
+            // 预期
+        }
+        assertTrue(cis.readCount <= (1 * 1024 * 1024) + 4096,
+                "读取量应止于上限 + 探测块，而非排空整个条目");
+    }
+
     /** 构造合法 OOXML ZIP 字节：含符合 schema 的 [Content_Types].xml、主部件和合法 _rels/.rels。
      *  prefix = "word/"（docx）或 "ppt/"（pptx），对应 mainPart/ContentType/命名空间不同。
      *  exy v6 P2#4：.rels 现为必需结构门，合法 OOXML 构造必须含指向主部件的 officeDocument 关系。 */
@@ -695,5 +753,22 @@ class FileStorageUtilTests {
             zos.closeEntry();
         }
         return baos.toByteArray();
+    }
+
+    /** 计数 InputStream：统计从底层实际读取的字节数，用于验证 readBoundedBytes 超限后不再排空整个条目。 */
+    private static class CountingInputStream extends java.io.InputStream {
+        private final java.io.InputStream delegate;
+        long readCount = 0;
+        CountingInputStream(java.io.InputStream delegate) { this.delegate = delegate; }
+        @Override public int read() throws java.io.IOException {
+            int b = delegate.read();
+            if (b != -1) readCount++;
+            return b;
+        }
+        @Override public int read(byte[] b, int off, int len) throws java.io.IOException {
+            int n = delegate.read(b, off, len);
+            if (n > 0) readCount += n;
+            return n;
+        }
     }
 }
