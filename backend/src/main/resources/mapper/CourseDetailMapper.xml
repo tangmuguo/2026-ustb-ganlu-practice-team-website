@@ -109,6 +109,42 @@
         WHERE cd.id = #{id} AND cd.status = 1
     </select>
 
+    <select id="getCourseByIdForUpdate" parameterType="Integer" resultMap="courseDetailMap">
+        SELECT
+        <include refid="materialColumns"/>
+        FROM course_detail cd
+        LEFT JOIN course c ON cd.course_id = c.id
+        LEFT JOIN user u ON cd.uploader_user_id = u.id
+        WHERE cd.id = #{id} AND cd.status = 1
+        FOR UPDATE
+    </select>
+
+    <select id="getCourseByIdIncludingDeletedForUpdate" parameterType="Integer" resultMap="courseDetailMap">
+        SELECT
+        <include refid="materialColumns"/>
+        FROM course_detail cd
+        LEFT JOIN course c ON cd.course_id = c.id
+        LEFT JOIN user u ON cd.uploader_user_id = u.id
+        WHERE cd.id = #{id}
+        FOR UPDATE
+    </select>
+
+    <!-- Compare every course-file role after slash/leading-slash normalization.  This protects
+         historical instant-upload records that share a physical file across different roles. -->
+    <select id="countActiveFileReferences" resultType="int">
+        SELECT COUNT(*)
+        FROM course_detail cd
+        WHERE cd.status = 1
+          <if test="excludeCourseId != null">
+            AND cd.id &lt;&gt; #{excludeCourseId}
+          </if>
+          AND (
+            TRIM(LEADING '/' FROM REPLACE(COALESCE(NULLIF(TRIM(cd.cover_path), ''), NULLIF(TRIM(cd.thumbnail_url), '')), CHAR(92), '/')) = #{relativePath}
+            OR TRIM(LEADING '/' FROM REPLACE(COALESCE(NULLIF(TRIM(cd.original_file_path), ''), NULLIF(TRIM(cd.files), '')), CHAR(92), '/')) = #{relativePath}
+            OR TRIM(LEADING '/' FROM REPLACE(NULLIF(TRIM(cd.preview_file_path), ''), CHAR(92), '/')) = #{relativePath}
+          )
+    </select>
+
     <update id="softDeleteCourseById" parameterType="Integer">
         UPDATE course_detail
         SET status = 0, update_time = NOW()

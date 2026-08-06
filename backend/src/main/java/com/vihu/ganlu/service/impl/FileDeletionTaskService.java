@@ -1,10 +1,12 @@
 package com.vihu.ganlu.service.impl;
 
 import com.vihu.ganlu.entitys.FileDeletionTaskEntity;
+import com.vihu.ganlu.entitys.CourseDetailEntity;
 import com.vihu.ganlu.entitys.PublicImageAssetEntity;
 import com.vihu.ganlu.entitys.TeamMediaEntity;
 import com.vihu.ganlu.mappers.FileDeletionTaskMapper;
 import com.vihu.ganlu.mappers.PublicImageQuotaMapper;
+import com.vihu.ganlu.utils.MaterialPathPolicy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -14,6 +16,10 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -63,6 +69,54 @@ public class FileDeletionTaskService {
         insertAndRunAfterCommit(task);
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void enqueueCourseFiles(CourseDetailEntity course) {
+        if (course == null || course.getId() == null) {
+            throw new IllegalArgumentException("课件删除任务数据不完整");
+        }
+        int ownerId = course.getUploaderUserId() == null ? 0 : course.getUploaderUserId();
+        enqueueCourseFile(FileDeletionTaskProcessor.COURSE_COVER, course.getId(),
+                course.getThumbnailUrl(), ownerId, 0L);
+        enqueueCourseFile(FileDeletionTaskProcessor.COURSE_ORIGINAL, course.getId(),
+                course.getOriginalFilePath(), ownerId,
+                course.getFileSize() == null ? 0L : course.getFileSize());
+        enqueueCourseFile(FileDeletionTaskProcessor.COURSE_PREVIEW, course.getId(),
+                course.getPreviewFilePath(), ownerId, 0L);
+    }
+
+    /**
+     * Persists recovery intent independently from the course transaction and before the permanent file is written.
+     * The delay prevents a normal long-running transaction from racing the scanner; the processor also rechecks
+     * active references, so a crash immediately after commit cannot delete a valid course file.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public long enqueueCourseOrphanCleanup(String relativePath, int ownerId, long fileSize) {
+        String normalizedPath = MaterialPathPolicy.normalizeLocalPath(relativePath);
+        if (normalizedPath == null || fileSize < 0) {
+            throw new IllegalArgumentException("课件孤儿清理任务数据不完整");
+        }
+        FileDeletionTaskEntity task = new FileDeletionTaskEntity();
+        task.setAssetType(FileDeletionTaskProcessor.COURSE_ORPHAN);
+        long assetId = UUID.randomUUID().getMostSignificantBits() & Long.MAX_VALUE;
+        task.setAssetId(assetId == 0 ? 1 : assetId);
+        task.setRelativePath(normalizedPath);
+        task.setOwnerUserId(Math.max(0, ownerId));
+        task.setFileSize(fileSize);
+        task.setNextRetryAt(Timestamp.from(Instant.now().plus(30, ChronoUnit.MINUTES)));
+        taskMapper.insertTask(task);
+        if (task.getId() == null) {
+            FileDeletionTaskEntity existing = taskMapper.findByAsset(task.getAssetType(), task.getAssetId());
+            if (existing != null) task.setId(existing.getId());
+        }
+        if (task.getId() == null) throw new IllegalStateException("创建课件孤儿清理任务失败");
+        return task.getId();
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void cancelTask(long taskId) {
+        taskMapper.deleteTask(taskId);
+    }
+
     public List<FileDeletionTaskEntity> listTasks(int limit) {
         return taskMapper.findAll(Math.max(1, Math.min(limit, 200)));
     }
@@ -103,6 +157,18 @@ public class FileDeletionTaskService {
                 }
             }
         });
+    }
+
+    private void enqueueCourseFile(String type, int courseId, String relativePath, int ownerId, long fileSize) {
+        String normalizedPath = MaterialPathPolicy.normalizeLocalPath(relativePath);
+        if (normalizedPath == null) return;
+        FileDeletionTaskEntity task = new FileDeletionTaskEntity();
+        task.setAssetType(type);
+        task.setAssetId((long) courseId);
+        task.setRelativePath(normalizedPath);
+        task.setOwnerUserId(Math.max(0, ownerId));
+        task.setFileSize(Math.max(0L, fileSize));
+        insertAndRunAfterCommit(task);
     }
 
     private boolean processSafely(FileDeletionTaskEntity task) {

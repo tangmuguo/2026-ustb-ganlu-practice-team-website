@@ -233,6 +233,7 @@ public class MaterialUploadStorageService {
             return;
         }
         withUserLock(staged.userId, () -> {
+            Files.deleteIfExists(staged.path);
             Files.deleteIfExists(staged.metadata);
             Files.deleteIfExists(staged.index);
             return null;

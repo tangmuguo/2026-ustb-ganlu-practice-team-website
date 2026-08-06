@@ -8,4 +8,6 @@ public interface PublicImageMigrationMapper {
     List<PublicImageReferenceEntity> findBusinessReferences();
 
     List<PublicImageReferenceEntity> findCourseCoverReferences();
+
+    List<PublicImageReferenceEntity> findMaterialFileReferences();
 }

@@ -156,6 +156,35 @@ public class FileStorageUtil {
         }
     }
 
+    /** Allocates a collision-resistant path without creating the file, so recovery intent can be persisted first. */
+    public String allocatePath(String subDir, String extension) {
+        String safeExtension = sanitizeExtension(extension);
+        Path target = createDirectory(subDir).resolve(
+                UUID.randomUUID().toString() + (safeExtension.isEmpty() ? "" : "." + safeExtension)
+        ).normalize();
+        ensureInsideRoot(target);
+        if (Files.exists(target)) {
+            throw new StorageException("目标文件已存在: " + toRelativePath(target));
+        }
+        return toRelativePath(target);
+    }
+
+    /** Copies into a previously allocated path. The staged source remains available until DB commit succeeds. */
+    public void copyToAllocatedPath(Path source, String relativePath) {
+        ensureExistingSource(source);
+        Path target = loadFile(relativePath);
+        if (Files.exists(target)) {
+            throw new StorageException("目标文件已存在: " + relativePath);
+        }
+        try {
+            Files.createDirectories(target.getParent());
+            Files.copy(source, target);
+        } catch (IOException error) {
+            deleteQuietly(target);
+            throw new StorageException("复制文件失败: " + relativePath, error);
+        }
+    }
+
     public Path moveFile(String fromRelativePath, String toRelativePath) {
         Path source = loadFile(fromRelativePath);
         Path target = loadFile(toRelativePath);

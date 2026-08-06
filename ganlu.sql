@@ -269,7 +269,7 @@ CREATE TABLE `file_deletion_task` (
   CONSTRAINT `chk_file_deletion_size` CHECK (`file_size` >= 0),
   CONSTRAINT `chk_file_deletion_retry_count` CHECK (`retry_count` >= 0),
   CONSTRAINT `chk_file_deletion_status` CHECK (`status` IN ('PENDING','FAILED')),
-  CONSTRAINT `chk_file_deletion_type` CHECK (`asset_type` IN ('PUBLIC_IMAGE','TEAM_MEDIA'))
+  CONSTRAINT `chk_file_deletion_type` CHECK (`asset_type` IN ('PUBLIC_IMAGE','TEAM_MEDIA','COURSE_COVER','COURSE_ORIGINAL','COURSE_PREVIEW','COURSE_ORPHAN'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='可审计、可重试的文件删除 outbox';
 
 -- ----------------------------

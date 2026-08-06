@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS team_media_upload_reservation (
 
 CREATE TABLE IF NOT EXISTS file_deletion_task (
     id BIGINT NOT NULL AUTO_INCREMENT,
-    asset_type VARCHAR(32) NOT NULL COMMENT 'PUBLIC_IMAGE / TEAM_MEDIA',
+    asset_type VARCHAR(32) NOT NULL COMMENT '公共图片、团队附件或课件文件生命周期类型',
     asset_id BIGINT NOT NULL COMMENT '稳定资产ID或团队附件ID',
     relative_path VARCHAR(512) NOT NULL COMMENT '任务创建时路径；执行时优先读取资产当前路径',
     owner_user_id INT NOT NULL,
@@ -59,7 +59,9 @@ CREATE TABLE IF NOT EXISTS file_deletion_task (
     CONSTRAINT chk_file_deletion_size CHECK (file_size >= 0),
     CONSTRAINT chk_file_deletion_retry_count CHECK (retry_count >= 0),
     CONSTRAINT chk_file_deletion_status CHECK (status IN ('PENDING','FAILED')),
-    CONSTRAINT chk_file_deletion_type CHECK (asset_type IN ('PUBLIC_IMAGE','TEAM_MEDIA'))
+    CONSTRAINT chk_file_deletion_type CHECK (asset_type IN (
+        'PUBLIC_IMAGE','TEAM_MEDIA','COURSE_COVER','COURSE_ORIGINAL','COURSE_PREVIEW','COURSE_ORPHAN'
+    ))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='可审计、可重试的文件删除 outbox';
 
 -- 尽量为旧附件补齐上传账号；无法关联团队负责人的遗留数据需在联调前人工处理。

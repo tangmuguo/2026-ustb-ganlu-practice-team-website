@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -190,6 +191,54 @@ class PublicImageMigrationServiceTests {
                 .anyMatch(issue -> "CROSS_DOMAIN_SHARED_PATH".equals(issue.getCode())));
         assertEquals(0, report.getExcludedCourseCoverFileCount());
         assertEquals(1, report.getDiskFileCount());
+    }
+
+    @Test
+    void sharedHistoricalCourseCoversBlockPreflight() {
+        assertSharedMaterialBlocked(Arrays.asList(
+                reference("COURSE_COVER", 101, "images/legacy/shared.jpg", 7),
+                reference("COURSE_COVER", 102, "\\images\\legacy\\shared.jpg", 8)), 1);
+    }
+
+    @Test
+    void sharedHistoricalCourseOriginalsBlockPreflight() {
+        assertSharedMaterialBlocked(Arrays.asList(
+                reference("COURSE_ORIGINAL", 201, "protected/legacy/shared.pdf", 7),
+                reference("COURSE_ORIGINAL", 202, "/protected/legacy/shared.pdf", 8)), 1);
+    }
+
+    @Test
+    void sharedHistoricalCoursePreviewsBlockPreflight() {
+        assertSharedMaterialBlocked(Arrays.asList(
+                reference("COURSE_PREVIEW", 251, "protected/material-previews/shared.pdf", 7),
+                reference("COURSE_PREVIEW", 252, "\\protected\\material-previews\\shared.pdf", 8)), 1);
+    }
+
+    @Test
+    void sharingBothCoverAndOriginalReportsBothBlockingPaths() {
+        assertSharedMaterialBlocked(Arrays.asList(
+                reference("COURSE_COVER", 301, "images/legacy/both.jpg", 7),
+                reference("COURSE_ORIGINAL", 301, "protected/legacy/both.pdf", 7),
+                reference("COURSE_COVER", 302, "images/legacy/both.jpg", 8),
+                reference("COURSE_ORIGINAL", 302, "protected/legacy/both.pdf", 8)), 2);
+    }
+
+    private void assertSharedMaterialBlocked(List<PublicImageReferenceEntity> materialReferences, int issueCount) {
+        PublicImageMigrationMapper references = mock(PublicImageMigrationMapper.class);
+        when(references.findBusinessReferences()).thenReturn(Collections.emptyList());
+        when(references.findCourseCoverReferences()).thenReturn(Collections.emptyList());
+        when(references.findMaterialFileReferences()).thenReturn(materialReferences);
+        PublicImageQuotaMapper quota = mock(PublicImageQuotaMapper.class);
+        when(quota.findAllAssets()).thenReturn(Collections.emptyList());
+        PublicImageMigrationService service = new PublicImageMigrationService(
+                references, quota, new FileStorageUtil(uploadRoot.toString(), "test"), false);
+
+        PublicImageMigrationReport report = service.preflight();
+
+        assertFalse(report.isMigrationAllowed());
+        assertEquals(issueCount, report.getSharedMaterialPathCount());
+        assertEquals(issueCount, report.getIssues().stream()
+                .filter(issue -> "SHARED_MATERIAL_FILE_PATH".equals(issue.getCode())).count());
     }
 
     private void write(String relativePath, byte[] content) throws Exception {

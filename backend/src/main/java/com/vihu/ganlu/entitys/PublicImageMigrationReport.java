@@ -13,6 +13,8 @@ public class PublicImageMigrationReport {
     private int managedReferenceCount;
     private int externalReferenceCount;
     private int courseCoverReferenceCount;
+    private int materialFileReferenceCount;
+    private int sharedMaterialPathCount;
     private int excludedCourseCoverFileCount;
     private int registeredAssetCount;
     private int diskFileCount;

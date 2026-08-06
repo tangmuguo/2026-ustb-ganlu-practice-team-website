@@ -47,4 +47,30 @@
                        NULLIF(TRIM(thumbnail_url), '')) IS NOT NULL
         ORDER BY id
     </select>
+
+    <!-- All active course-file roles are audited together because legacy instant-upload deduplication
+         could make different course rows point at the same physical file. -->
+    <select id="findMaterialFileReferences" resultMap="referenceMap">
+        SELECT source_type, source_id, relative_path, owner_hint
+        FROM (
+            SELECT 'COURSE_COVER' AS source_type, id AS source_id,
+                   COALESCE(NULLIF(TRIM(cover_path), ''), NULLIF(TRIM(thumbnail_url), '')) AS relative_path,
+                   uploader_user_id AS owner_hint
+            FROM course_detail
+            WHERE status = 1
+              AND COALESCE(NULLIF(TRIM(cover_path), ''), NULLIF(TRIM(thumbnail_url), '')) IS NOT NULL
+            UNION ALL
+            SELECT 'COURSE_ORIGINAL', id,
+                   COALESCE(NULLIF(TRIM(original_file_path), ''), NULLIF(TRIM(files), '')),
+                   uploader_user_id
+            FROM course_detail
+            WHERE status = 1
+              AND COALESCE(NULLIF(TRIM(original_file_path), ''), NULLIF(TRIM(files), '')) IS NOT NULL
+            UNION ALL
+            SELECT 'COURSE_PREVIEW', id, NULLIF(TRIM(preview_file_path), ''), uploader_user_id
+            FROM course_detail
+            WHERE status = 1 AND NULLIF(TRIM(preview_file_path), '') IS NOT NULL
+        ) material_references
+        ORDER BY source_type, source_id
+    </select>
 </mapper>

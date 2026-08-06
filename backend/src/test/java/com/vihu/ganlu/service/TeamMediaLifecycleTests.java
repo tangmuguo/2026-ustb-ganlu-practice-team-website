@@ -238,7 +238,8 @@ class TeamMediaLifecycleTests {
                                                 TeamMediaQuotaMapper mediaQuota, FileStorageUtil storage,
                                                 PublicImageQuotaMapper imageQuota) {
         return new FileDeletionTaskProcessor(tasks,
-                new PublicImageAssetDeletionService(storage, imageQuota), media, mediaQuota, storage);
+                new PublicImageAssetDeletionService(storage, imageQuota), media, mediaQuota, storage,
+                mock(com.vihu.ganlu.mappers.CourseDetailMapper.class));
     }
 
     private FileStorageUtil.ValidatedFile validated(MockMultipartFile file, String extension) {

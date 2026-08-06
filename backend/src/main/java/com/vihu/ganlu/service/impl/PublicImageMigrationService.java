@@ -7,6 +7,7 @@ import com.vihu.ganlu.entitys.PublicImageReferenceEntity;
 import com.vihu.ganlu.mappers.PublicImageMigrationMapper;
 import com.vihu.ganlu.mappers.PublicImageQuotaMapper;
 import com.vihu.ganlu.utils.FileStorageUtil;
+import com.vihu.ganlu.utils.MaterialPathPolicy;
 import com.vihu.ganlu.utils.PublicImagePathPolicy;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -99,9 +100,30 @@ public class PublicImageMigrationService {
         if (references == null) references = Collections.emptyList();
         List<PublicImageReferenceEntity> courseCoverReferences = migrationMapper.findCourseCoverReferences();
         if (courseCoverReferences == null) courseCoverReferences = Collections.emptyList();
+        List<PublicImageReferenceEntity> materialFileReferences = migrationMapper.findMaterialFileReferences();
+        if (materialFileReferences == null) materialFileReferences = Collections.emptyList();
         report.setReferenceCount(references.size());
         report.setCourseCoverReferenceCount(courseCoverReferences.size());
+        report.setMaterialFileReferenceCount(materialFileReferences.size());
         report.setRegisteredAssetCount(assets.size());
+
+        Map<String, List<PublicImageReferenceEntity>> materialReferencesByPath = new LinkedHashMap<>();
+        for (PublicImageReferenceEntity reference : materialFileReferences) {
+            String normalized = MaterialPathPolicy.normalizeLocalPath(reference.getRelativePath());
+            if (normalized != null) {
+                materialReferencesByPath.computeIfAbsent(normalized, ignored -> new ArrayList<>()).add(reference);
+            }
+        }
+        for (Map.Entry<String, List<PublicImageReferenceEntity>> entry : materialReferencesByPath.entrySet()) {
+            long distinctCourses = entry.getValue().stream()
+                    .map(PublicImageReferenceEntity::getSourceId).distinct().count();
+            if (distinctCourses > 1) {
+                report.setSharedMaterialPathCount(report.getSharedMaterialPathCount() + 1);
+                String sources = entry.getValue().stream().map(this::source).collect(Collectors.joining(", "));
+                issue(report, "SHARED_MATERIAL_FILE_PATH", sources, entry.getKey(),
+                        "多个有效课件共享同一物理文件；上线前必须复制为独立文件并更新各自路径");
+            }
+        }
 
         Set<String> protectedCourseCoverPaths = new LinkedHashSet<>();
         for (PublicImageReferenceEntity reference : courseCoverReferences) {

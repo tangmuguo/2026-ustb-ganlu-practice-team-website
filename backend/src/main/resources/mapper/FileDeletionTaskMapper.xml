@@ -26,14 +26,14 @@
             status, retry_count, next_retry_at, created_at, updated_at
         ) VALUES (
             #{assetType}, #{assetId}, #{relativePath}, #{ownerUserId}, #{fileSize},
-            'PENDING', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            'PENDING', 0, COALESCE(#{nextRetryAt}, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
         )
         ON DUPLICATE KEY UPDATE
             relative_path = VALUES(relative_path),
             owner_user_id = VALUES(owner_user_id),
             file_size = VALUES(file_size),
             status = 'PENDING',
-            next_retry_at = CURRENT_TIMESTAMP,
+            next_retry_at = COALESCE(VALUES(next_retry_at), CURRENT_TIMESTAMP),
             updated_at = CURRENT_TIMESTAMP,
             id = LAST_INSERT_ID(id)
     </insert>
