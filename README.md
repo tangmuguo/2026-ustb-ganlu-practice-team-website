@@ -55,12 +55,16 @@ E:\github\zhaoyouwei\2026-ustb-ganlu-practice-team-website
    - `database/patches/12_team_owner_unique.sql`
    - `database/patches/13_public_image_quota.sql`
    - `database/patches/14_team_media_lifecycle.sql`
+   - `database/patches/15_team_content_history_publish.sql`
    - `database/patches/20_message_board.sql`
    - `database/patches/30_material_center.sql`
+   - `database/patches/31_material_file_lifecycle.sql`
    - `database/patches/40_volunteer_application.sql`
-5. 最终固定顺序是 `00 → 10 → 11 → 12 → 13 → 14 → 20 → 30 → 40`。仍须在数据库备份副本中用真实 MySQL 完整重跑；本轮没有数据库凭据，不能把静态检查写成实测通过。
+5. 最终固定顺序是 `00 → 10 → 11 → 12 → 13 → 14 → 15 → 20 → 30 → 31 → 40`。仍须在数据库备份副本中用真实 MySQL 完整重跑；本轮没有数据库凭据，不能把静态检查写成实测通过。
 
 补丁的完整说明和注意事项见 `database/patches/README.md`。不要在已有正式数据库上直接试脚本。
+
+后端启动时会校验关键表和字段。若提示“数据库结构不完整”，说明补丁未完整执行；按上面的顺序在备份副本完成迁移后再启动。不要用 `GANLU_SCHEMA_VALIDATION_ENABLED=false` 代替迁移，它只适合临时诊断。
 
 在 Workbench 中创建一个只给本地网站使用的账号。把示例密码换成你自己的强密码：
 
