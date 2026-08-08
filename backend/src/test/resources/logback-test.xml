@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- 阻止 RestTemplate 和 HTTP converter 在日志中输出完整请求/响应正文 -->
+    <logger name="org.springframework.web.client.RestTemplate" level="INFO" />
+    <logger name="org.springframework.http.converter" level="INFO" />
+    <!-- 禁止 Spring MVC 映射日志输出 -->
+    <logger name="org.springframework.web.servlet.mvc.method.annotation" level="INFO" />
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- 根日志保持 INFO -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE" />
+    </root>
+</configuration>
