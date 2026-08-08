@@ -8,10 +8,9 @@ import com.vihu.ganlu.entitys.message.ReplyCreateRequest;
 import com.vihu.ganlu.mappers.MessageMapper;
 import com.vihu.ganlu.mappers.ReplyMapper;
 import com.vihu.ganlu.mappers.UserMapper;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import javax.annotation.Resource;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -26,29 +25,34 @@ public class MessageServiceImpl {
     private static final int MAX_MESSAGE_LENGTH = 500;
     private static final int MAX_REPLY_LENGTH = 300;
 
-    @Autowired
-    private MessageMapper messageMapper;
-    @Autowired
-    private ReplyMapper replyMapper;
-    @Resource
-    private UserMapper userMapper;
+    private final MessageMapper messageMapper;
+    private final ReplyMapper replyMapper;
+    private final UserMapper userMapper;
 
-    // 添加留言
+    public MessageServiceImpl(MessageMapper messageMapper, ReplyMapper replyMapper, UserMapper userMapper) {
+        this.messageMapper = messageMapper;
+        this.replyMapper = replyMapper;
+        this.userMapper = userMapper;
+    }
+
     public MessageEntity addMessage(MessageCreateRequest request, Integer userId) {
+        return addMessage(request == null ? null : request.getContent(), userId);
+    }
+
+    public MessageEntity addMessage(String content, Integer userId) {
+        String normalized = normalizeContent(content, MAX_MESSAGE_LENGTH, "留言");
         UserEntity user = userMapper.findUserById(userId);
         if (!canPublish(user)) {
             throw new IllegalArgumentException("当前用户不能留言");
         }
-        String content = normalizeContent(request == null ? null : request.getContent(), MAX_MESSAGE_LENGTH, "留言");
         MessageEntity message = new MessageEntity();
         message.setUserId(userId);
-        message.setContent(content);
+        message.setContent(normalized);
         message.setStatus(true);
         messageMapper.insertMessage(message);
         return message;
     }
 
-    // 获取留言列表（分页）
     public Map<String, Object> getMessages(int page, int pageSize) {
         validatePage(page, pageSize);
         int offset = calculateOffset(page, pageSize);
@@ -73,60 +77,67 @@ public class MessageServiceImpl {
             }
         }
 
-        int total = messageMapper.countMessages();
         Map<String, Object> data = new HashMap<>();
         data.put("messages", messages);
-        data.put("total", total);
+        data.put("total", messageMapper.countMessages());
         data.put("page", page);
         data.put("pageSize", pageSize);
         return data;
     }
 
-    // 删除留言（管理员）
+    @Transactional
     public void deleteMessage(Integer messageId, Integer userId) {
         validateId(messageId, "留言ID");
-        UserEntity user = userMapper.findUserById(userId);
-        if (!canDelete(user)) {
-            throw forbidden("无删除权限");
-        }
+        requireDeletePermission(userId);
         if (messageMapper.selectMessageById(messageId) == null) {
             throw new NoSuchElementException("留言不存在或已删除");
         }
+        replyMapper.deleteRepliesByMessageId(messageId);
         messageMapper.deleteMessage(messageId);
     }
 
-    // 添加回复
     public ReplyEntity addReply(ReplyCreateRequest request, Integer userId) {
+        return addReply(
+                request == null ? null : request.getMessageId(),
+                request == null ? null : request.getContent(),
+                userId
+        );
+    }
+
+    public ReplyEntity addReply(Integer messageId, String content, Integer userId) {
+        validateId(messageId, "留言ID");
+        String normalized = normalizeContent(content, MAX_REPLY_LENGTH, "回复");
         UserEntity user = userMapper.findUserById(userId);
         if (!canPublish(user)) {
             throw new IllegalArgumentException("当前用户不能回复");
         }
-        validateId(request == null ? null : request.getMessageId(), "留言ID");
-        MessageEntity message = messageMapper.selectMessageById(request.getMessageId());
-        if (message == null || !message.getStatus()) {
+        MessageEntity message = messageMapper.selectMessageById(messageId);
+        if (message == null || !Boolean.TRUE.equals(message.getStatus())) {
             throw new NoSuchElementException("留言不存在或已删除");
         }
-        String content = normalizeContent(request.getContent(), MAX_REPLY_LENGTH, "回复");
         ReplyEntity reply = new ReplyEntity();
-        reply.setMessageId(request.getMessageId());
+        reply.setMessageId(messageId);
         reply.setUserId(userId);
-        reply.setContent(content);
+        reply.setContent(normalized);
         reply.setStatus(true);
         replyMapper.insertReply(reply);
         return reply;
     }
 
-    // 删除回复（管理员）
     public void deleteReply(Integer replyId, Integer userId) {
         validateId(replyId, "回复ID");
-        UserEntity user = userMapper.findUserById(userId);
-        if (!canDelete(user)) {
-            throw forbidden("无删除权限");
-        }
+        requireDeletePermission(userId);
         if (replyMapper.selectReplyById(replyId) == null) {
             throw new NoSuchElementException("回复不存在或已删除");
         }
         replyMapper.deleteReply(replyId);
+    }
+
+    private void requireDeletePermission(Integer userId) {
+        UserEntity user = userMapper.findUserById(userId);
+        if (!canDelete(user)) {
+            throw new SecurityException("无删除权限");
+        }
     }
 
     private boolean canPublish(UserEntity user) {
@@ -164,17 +175,14 @@ public class MessageServiceImpl {
 
     private String normalizeContent(String content, int maxLength, String fieldName) {
         String normalized = content == null ? "" : content.trim();
-        if (normalized.isEmpty()) {
+        int length = normalized.codePointCount(0, normalized.length());
+        if (length < 1) {
             throw new IllegalArgumentException(fieldName + "内容不能为空");
         }
-        if (normalized.length() > maxLength) {
+        if (length > maxLength) {
             throw new IllegalArgumentException(fieldName + "内容不能超过" + maxLength + "字");
         }
         return normalized;
-    }
-
-    private RuntimeException forbidden(String message) {
-        return new SecurityException(message);
     }
 
     private void fillUserFallback(MessageEntity message) {
@@ -189,4 +197,3 @@ public class MessageServiceImpl {
         }
     }
 }
-

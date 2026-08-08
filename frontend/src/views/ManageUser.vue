@@ -4,7 +4,10 @@ import { Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {AddTeam,GetAllTeams,DeleteTeam,UpdateTeam} from '@/apis/userAPI'
 import {access} from '@/utils/access'
-import UploadWidget from "@/components/UploadWidget.vue"
+import PublicImageUploadWidget from "@/components/PublicImageUploadWidget.vue"
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
 // 表格数据
 const teams = ref([])
 const needPassword = ref(null)
@@ -15,17 +18,22 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 const loading = ref(false)
 
-// 过滤后的团队数据
-const filteredTeams = computed(() => {
+const matchingTeams = computed(() => {
   let result = teams.value
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
     result = result.filter(
       (team) =>
-        team.teamname.toLowerCase().includes(query) ||
-        team.username.toLowerCase().includes(query)
+        String(team.teamname || '').toLowerCase().includes(query) ||
+        String(team.username || '').toLowerCase().includes(query)
     )
   }
+  return result
+})
+
+// 过滤后的团队数据
+const filteredTeams = computed(() => {
+  const result = matchingTeams.value
   return result.slice(
     (currentPage.value - 1) * pageSize.value,
     currentPage.value * pageSize.value
@@ -33,9 +41,7 @@ const filteredTeams = computed(() => {
 })
 
 const totalTeams = computed(() => {
-  return searchQuery.value
-    ? filteredTeams.value.length
-    : teams.value.length
+  return matchingTeams.value.length
 })
 
 // 对话框相关
@@ -46,9 +52,11 @@ const teamForm = ref({
   username: '',
   password: '',
   teamname: '',
-  imageUrl: ''
+  imageUrl: '',
+  imageUploadToken: ''
 })
 const teamFormRef=ref(null)
+const uploadWidget=ref(null)
 
 // 表单验证规则
 const rules = {
@@ -86,38 +94,42 @@ const handleCurrentChange = (val) => {
 
 // 添加团队
 const handleAdd = () => {
-  isEdit.value = false
-  needPassword.value=true
-  teamForm.value = {
-    id: null,
-    username: '',
-    password: '',
-    teamname: '',
-    imageUrl:''
-  }
-  dialogVisible.value = true
+  router.push('/regt')
 }
 
 // 编辑团队
 const handleEdit = (row) => {
   isEdit.value = true
   needPassword.value=false
-  teamForm.value = { ...row }
+  teamForm.value = { ...row, imageUploadToken: '' }
   dialogVisible.value = true
 }
 
 // 删除团队
-const handleDelete = (id) => {
-  ElMessageBox.confirm('确定要删除该团队吗?', '警告', {
-    confirmButtonText: '确定',
-    cancelButtonText: '取消',
-    type: 'warning'
-  })
-    .then(async () => {
-      await DeleteTeam(id)
-      ElMessage.success('删除成功')
+const handleDelete = async (id) => {
+  try {
+    await ElMessageBox.confirm('确定要删除该团队吗?', '警告', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
     })
-    .catch(() => {})
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error('无法确认删除操作')
+    }
+    return
+  }
+
+  try {
+    const response = await DeleteTeam(id)
+    if (response.data.code !== 200) {
+      throw new Error(response.data.message || '删除失败')
+    }
+    ElMessage.success('删除成功')
+    await loadTeams()
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || error.message || '删除失败')
+  }
 }
 
 function AddUser(){
@@ -139,31 +151,20 @@ function AddUser(){
     })
 }
 
-function UpdateUser(updateForm){
-  console.log('执行UpdateUser'+updateForm)
-    teamFormRef.value.validate(async (res)=>{
-      console.log('通过验证')
-        if(res){
-            console.log('UpdateTeam')
-            const d=await UpdateTeam(updateForm)
-            
-            if(d.data.code==200){
-                ElMessage({
-                message: '添加成功',
-                type: 'success',
-                })                       
-            }else{
-                ElMessage({
-                message: '添加失败',
-                type: 'fail',
-                })
-            }
-        }
-    })
+async function UpdateUser(updateForm){
+  await teamFormRef.value.validate()
+  const d = await UpdateTeam(updateForm)
+  if (d.data.code == 200) {
+    ElMessage.success('更新成功')
+    await loadTeams()
+    return true
+  }
+  ElMessage.error(d.data.message || '更新失败')
+  return false
 }
 
 // 提交表单
-const submitForm = () => {
+const submitForm = async () => {
   if (!teamForm.value.username || !teamForm.value.teamname) {
     ElMessage.warning('请填写完整信息')
     return
@@ -174,7 +175,7 @@ const submitForm = () => {
     return
   }
 
-  if (!teamForm.value.imageUrl) {
+  if (!teamForm.value.imageUrl && !teamForm.value.imageUploadToken) {
     ElMessage.warning('请上传图片')
     return
   }
@@ -182,7 +183,6 @@ const submitForm = () => {
   if (isEdit.value) {
     // 修改团队
     const index = teams.value.findIndex((t) => t.id === teamForm.value.id)
-    console.log("index:"+index)
     if (index !== -1) {
       // 如果密码为空则不更新密码
       const updatedTeam = { ...teamForm.value }
@@ -192,11 +192,9 @@ const submitForm = () => {
       if (!updatedTeam.imageUrl) {
         delete updatedTeam.imageUrl
       }
-      teams.value[index] = updatedTeam
-      console.log('updatedTeam:'+updatedTeam)
-      UpdateUser(updatedTeam)
+      if (!await UpdateUser(updatedTeam)) return
+      uploadWidget.value?.markConsumed()
     }
-    ElMessage.success('更新成功')
   } else {
     // 添加团队
     AddUser()
@@ -209,13 +207,16 @@ const submitForm = () => {
 async function loadTeams(){
     const d=await GetAllTeams()
     if(d.data.code==200){
-        console.log(d.data.content)
         teams.value=d.data.content                      
     }
 }
 
-const handleImageUpload = (url) => {
-  teamForm.value.imageUrl = url
+const handleImageUpload = (stagedImage) => {
+  teamForm.value.imageUploadToken = stagedImage?.token || ''
+}
+
+const handleDialogClosed = () => {
+  uploadWidget.value?.clearFile()
 }
 
 onMounted(() => {
@@ -293,6 +294,7 @@ onBeforeMount(()=>{
         v-model="dialogVisible"
         :title="isEdit ? '编辑团队' : '添加团队'"
         width="500px"
+        @closed="handleDialogClosed"
       >
         <el-form
           ref="teamFormRef"
@@ -315,11 +317,11 @@ onBeforeMount(()=>{
             <el-input v-model="teamForm.teamname" />
           </el-form-item>
           <el-form-item label="上传图片" prop="imageUrl">
-            <UploadWidget
+            <PublicImageUploadWidget
               ref="uploadWidget"
-              accept="image/*"
+              accept=".jpg,.jpeg,.png,.webp"
               tipText="请上传图片文件，大小不超过5MB"
-              max-size-mb="5"
+              :max-size-mb="5"
               @upload="handleImageUpload"
             />
           </el-form-item>

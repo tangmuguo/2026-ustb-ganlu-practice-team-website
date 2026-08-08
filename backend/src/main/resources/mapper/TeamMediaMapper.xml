@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.vihu.ganlu.mappers.TeamMediaMapper">
+    <resultMap type="com.vihu.ganlu.entitys.TeamMediaEntity" id="teammediamap">
+        <id column="id" property="id"/>
+        <result column="filename" property="filename"/>
+        <result column="relative_path" property="relativePath"/>
+        <result column="mime_type" property="mimeType"/>
+        <result column="file_size" property="fileSize"/>
+        <result column="uploader_id" property="uploaderId"/>
+        <result column="team_id" property="teamId"/>
+        <result column="related_type" property="relatedType"/>
+        <result column="related_id" property="relatedId"/>
+        <result column="status" property="status"/>
+        <result column="reject_reason" property="rejectReason"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insertTeamMedia" parameterType="com.vihu.ganlu.entitys.TeamMediaEntity"
+            useGeneratedKeys="true" keyProperty="id">
+        insert into team_media(
+            filename, relative_path, mime_type, file_size,
+            uploader_id, team_id, related_type, related_id,
+            status, reject_reason, created_at
+        ) VALUES (
+            #{filename}, #{relativePath}, #{mimeType}, #{fileSize},
+            #{uploaderId}, #{teamId}, #{relatedType}, #{relatedId},
+            #{status}, #{rejectReason}, NOW()
+        )
+    </insert>
+
+    <select id="findById" parameterType="Integer" resultMap="teammediamap">
+        select * from team_media where id = #{id}
+    </select>
+
+    <select id="findByIdForUpdate" parameterType="Integer" resultMap="teammediamap">
+        select * from team_media where id = #{id} for update
+    </select>
+
+    <select id="findByTeamId" parameterType="Integer" resultMap="teammediamap">
+        select * from team_media where team_id = #{teamId} and status &lt;&gt; 'ARCHIVED'
+    </select>
+
+    <select id="findByStatus" resultMap="teammediamap">
+        select * from team_media
+        where team_id = #{teamId}
+        <if test="status != null and status != ''">
+            and status = #{status}
+        </if>
+    </select>
+
+    <!--
+      公开端媒体查询（Item 6）：
+      只返回 media.status='PUBLISHED' 且（无父内容 或 父内容存在且 PUBLISHED 且同 team）的记录，
+      避免公开列表展示后下载 404。父内容类型：IMAGE→team_page_images，WORD→team_page_word。
+      独立附件（related_type 为空）不关联父内容，只要自身 PUBLISHED 即可。
+    -->
+    <select id="findPublicByTeamId" resultMap="teammediamap">
+        select m.* from team_media m
+        where m.team_id = #{teamId}
+          and m.status = 'PUBLISHED'
+          and (
+                m.related_type IS NULL
+                OR m.related_type = ''
+                OR (
+                    m.related_type = 'IMAGE' AND EXISTS (
+                        SELECT 1 FROM team_page_images img
+                        WHERE img.id = m.related_id
+                          AND img.team_id = m.team_id
+                          AND img.status = 'PUBLISHED'
+                    )
+                )
+                OR (
+                    m.related_type = 'WORD' AND EXISTS (
+                        SELECT 1 FROM team_page_word wrd
+                        WHERE wrd.id = m.related_id
+                          AND wrd.team_id = m.team_id
+                          AND wrd.status = 'PUBLISHED'
+                    )
+                )
+              )
+        order by m.created_at desc
+    </select>
+
+    <select id="findByRelated" resultMap="teammediamap">
+        select * from team_media
+        where related_type = #{relatedType} and related_id = #{relatedId}
+    </select>
+
+    <update id="updateStatus">
+        update team_media
+        set status = #{status},
+            reject_reason = #{rejectReason},
+            updated_at = NOW()
+        where id = #{id}
+    </update>
+
+    <update id="updateStatusByRelated">
+        update team_media
+        set status = #{status},
+            updated_at = NOW()
+        where related_type = #{relatedType} and related_id = #{relatedId}
+          and team_id = #{teamId}
+    </update>
+
+    <update id="archiveByRelated">
+        update team_media
+        set status = 'ARCHIVED',
+            updated_at = NOW()
+        where related_type = #{relatedType} and related_id = #{relatedId}
+          and team_id = #{teamId}
+    </update>
+
+    <!-- 逻辑归档：将状态置为 ARCHIVED（保留审计追溯，与 image/word 一致） -->
+    <update id="deleteByIds">
+        update team_media
+        set status = 'ARCHIVED', updated_at = NOW()
+        where id in
+        <foreach collection="ids" item="id" separator="," open="(" close=")">
+            #{id}
+        </foreach>
+    </update>
+
+    <update id="deleteByIdsAndUploader">
+        update team_media
+        set status = 'ARCHIVED', updated_at = NOW()
+        where uploader_id = #{uploaderId}
+          and id in
+        <foreach collection="ids" item="id" separator="," open="(" close=")">
+            #{id}
+        </foreach>
+    </update>
+
+    <update id="archiveByIdAndTeamId">
+        update team_media
+        set status = 'ARCHIVED', updated_at = NOW()
+        where id = #{id} and team_id = #{teamId}
+    </update>
+
+    <!-- 物理删除（仅用于管理员 purge 流程） -->
+    <delete id="purgeById">
+        delete from team_media where id = #{id}
+    </delete>
+
+    <select id="findArchivedIdsForRetention" resultType="int">
+        select id from team_media
+        where status = 'ARCHIVED'
+          and updated_at &lt; DATE_SUB(CURRENT_TIMESTAMP, INTERVAL #{retentionDays} DAY)
+        order by updated_at asc, id asc
+        limit #{limit}
+    </select>
+</mapper>

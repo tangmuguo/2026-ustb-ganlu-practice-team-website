@@ -1,123 +1,179 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { userinfoStore } from '@/stores/userStore'
 
+const defaultMeta = { layout: 'DefaultLayout', hideBanner: true }
+
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
+  scrollBehavior() {
+    return { top: 0 }
+  },
   routes: [
     {
       path: '/',
       name: 'home',
       component: () => import('@/views/Home.vue'),
-      meta: { layout: 'DefaultLayout', hideBanner: false } // 指定布局
+      meta: { ...defaultMeta, hideBanner: false, title: '首页' },
+    },
+    {
+      path: '/about',
+      name: 'about-ganlu',
+      component: () => import('@/views/AboutGanlu.vue'),
+      meta: { ...defaultMeta, title: '关于甘露' },
+    },
+    {
+      path: '/contact',
+      name: 'contact-us',
+      component: () => import('@/views/ContactUs.vue'),
+      meta: { ...defaultMeta, title: '联系我们' },
+    },
+    {
+      path: '/join',
+      name: 'join-ganlu',
+      component: () => import('@/views/JoinGanlu.vue'),
+      meta: { ...defaultMeta, title: '加入甘露' },
     },
     {
       path: '/login',
       name: 'login',
       component: () => import('@/views/Login.vue'),
-      meta: { layout: 'DefaultLayout', hideBanner: true } // 指定布局
-    },
-    {
-      path: '/regt',
-      name: 'regt',
-      component: () => import('@/views/RegisteTeam.vue'),
-      meta: { layout: 'DefaultLayout', hideBanner: true, requiresAuth: true, roles: [0] } // 指定布局
+      meta: { ...defaultMeta, title: '登录' },
     },
     {
       path: '/regs',
-      name: 'regs',
+      name: 'register-student',
       component: () => import('@/views/RegisteStudent.vue'),
-      meta: { layout: 'DefaultLayout', hideBanner: true } // 指定布局
+      meta: { ...defaultMeta, title: '学生注册' },
+    },
+    {
+      path: '/regt',
+      name: 'register-team',
+      component: () => import('@/views/RegisteTeam.vue'),
+      meta: { ...defaultMeta, title: '创建团队账号', requiresAuth: true, roles: [0] },
+    },
+    {
+      path: '/ai',
+      name: 'ai-assistant',
+      component: () => import('@/views/AiAssistant.vue'),
+      meta: { ...defaultMeta, title: 'AI 小助手', requiresAuth: true, roles: [0, 1, 2] },
+    },
+    {
+      path: '/showm',
+      name: 'materials',
+      component: () => import('@/views/ShowMaterials.vue'),
+      meta: { ...defaultMeta, title: '课件共享' },
+    },
+    {
+      path: '/mdetail/:id',
+      name: 'material-detail',
+      component: () => import('@/views/MaterialDetail.vue'),
+      meta: { ...defaultMeta, title: '课件详情' },
     },
     {
       path: '/uppt',
-      name: 'uppt',
+      name: 'material-upload',
       component: () => import('@/views/UpLoadMaterials.vue'),
-      meta: { layout: 'DefaultLayout', hideBanner: true, requiresAuth: true, roles: [0, 1] } // 指定布局
+      meta: { ...defaultMeta, title: '上传课件', requiresAuth: true, roles: [0, 1] },
     },
     {
-      path: '/showm',   //  课件
-      name: 'showm',
-      component: () => import('@/views/ShowMaterials.vue'),
-      meta: { layout: 'DefaultLayout', hideBanner: true } // 指定布局
-    },
-    {
-      path: '/mdetail/:id',   //  课件详细页
-      name: 'mdetail',
-      component: () => import('@/views/MaterialDetail.vue'),
-      meta: { layout: 'EmptyLayout', hideBanner: true } // 指定布局
-    },
-    {
-      path: '/mmanage/',   //  课件管理
-      name: 'mmanage',
+      path: '/mmanage',
+      alias: '/mmanage/',
+      name: 'material-manage',
       component: () => import('@/views/MaterialManage.vue'),
-      meta: { layout: 'DefaultLayout', hideBanner: true, requiresAuth: true, roles: [0, 1] } // 指定布局
+      meta: { ...defaultMeta, title: '课件管理', requiresAuth: true, roles: [0, 1] },
     },
     {
-      path: '/logh',    //日志与荣誉
-      name: 'logh',
-      component: () => import('@/views/LogHonor.vue'),
-      meta: { layout: 'DefaultLayout', hideBanner: true, requiresAuth: true, roles: [0, 1] } // 指定布局
+      path: '/team-content-manage',
+      name: 'team-content-manage',
+      component: () => import('@/views/TeamContentManage.vue'),
+      meta: { ...defaultMeta, title: '团队内容管理', requiresAuth: true, roles: [0, 1] },
     },
     {
-      path: '/photo',   //队员照片与执教照片
-      name: 'photo',
-      component: () => import('@/views/Photos.vue'),
-      meta: { layout: 'DefaultLayout', hideBanner: true, requiresAuth: true, roles: [0, 1] } // 指定布局
+      path: '/admin/team-content',
+      name: 'admin-team-content',
+      component: () => import('@/views/TeamContentManage.vue'),
+      meta: { ...defaultMeta, title: '团队内容审核', requiresAuth: true, roles: [0] },
     },
     {
-      path: '/fengcai',   //团队风采
+      path: '/fengcai',
       name: 'fengcai',
       component: () => import('@/views/FengCai.vue'),
-      meta: { layout: 'DefaultLayout', hideBanner: true } // 指定布局
+      meta: { ...defaultMeta, title: '团队风采' },
     },
     {
-      path: '/fengcaidetail/:id/:name',   //风采详细
-      name: 'fengcaidetail',
+      path: '/fengcai/:year(\\d{4})',
+      name: 'fengcai-year',
+      component: () => import('@/views/FengCaiTeamList.vue'),
+      meta: { ...defaultMeta, title: '年度小队' },
+    },
+    {
+      path: '/fengcai/team/:teamId',
+      name: 'fengcai-team-detail',
       component: () => import('@/views/FengCaiDetail.vue'),
-      meta: { layout: 'EmptyLayout', hideBanner: true } // 指定布局
+      meta: { ...defaultMeta, title: '小队详情' },
     },
     {
-      path: '/messageboard',   //留言
-      name: 'messageboard',
+      path: '/fengcaidetail/:id/:name?',
+      redirect: (to) => `/fengcai/team/${to.params.id}`,
+    },
+    {
+      path: '/messageboard',
+      name: 'message-board',
       component: () => import('@/views/MessageBoard.vue'),
-      meta: { layout: 'DefaultLayout', hideBanner: true } // 指定布局
+      meta: { ...defaultMeta, title: '互动留言' },
     },
     {
-      path: '/muser',   //团队（用户）管理
-      name: 'muser',
+      path: '/muser',
+      name: 'team-account-manage',
       component: () => import('@/views/ManageUser.vue'),
-      meta: { layout: 'DefaultLayout', hideBanner: true, requiresAuth: true, roles: [0] } // 指定布局
+      meta: { ...defaultMeta, title: '团队账号管理', requiresAuth: true, roles: [0] },
     },
     {
-      path: '/mstudent',   //学生（用户）管理
-      name: 'mstudent',
+      path: '/mstudent',
+      name: 'student-account-manage',
       component: () => import('@/views/ManageStudents.vue'),
-      meta: { layout: 'DefaultLayout', hideBanner: true, requiresAuth: true, roles: [0, 1] } // 指定布局
+      meta: { ...defaultMeta, title: '学生账号管理', requiresAuth: true, roles: [0, 1] },
     },
     {
-      path: '/mbanner',   //轮播图管理
-      name: 'mbanner',
+      path: '/mbanner',
+      name: 'banner-manage',
       component: () => import('@/views/BannerManagement.vue'),
-      meta: { layout: 'DefaultLayout', hideBanner: true, requiresAuth: true, roles: [0] } // 指定布局
+      meta: { ...defaultMeta, title: '轮播图管理', requiresAuth: true, roles: [0] },
     },
     {
-      path: '/mnews',   //新闻管理
-      name: 'mnews',
+      path: '/mnews',
+      name: 'news-manage',
       component: () => import('@/views/ManageNews.vue'),
-      meta: { layout: 'DefaultLayout', hideBanner: true, requiresAuth: true, roles: [0] } // 指定布局
+      meta: { ...defaultMeta, title: '新闻管理', requiresAuth: true, roles: [0] },
     },
-    // {
-    //   path: '/about',
-    //   name: 'about',
-    //   // route level code-splitting
-    //   // this generates a separate chunk (About.[hash].js) for this route
-    //   // which is lazy-loaded when the route is visited.
-    //   component: () => import('../views/AboutView.vue'),
-    // },
+    {
+      path: '/applications',
+      name: 'volunteer-applications',
+      component: () => import('@/views/ManageVolunteerApplications.vue'),
+      meta: { ...defaultMeta, title: '志愿者报名管理', requiresAuth: true, roles: [0] },
+    },
+    {
+      path: '/logh',
+      name: 'team-log-manage',
+      redirect: '/team-content-manage',
+    },
+    {
+      path: '/photo',
+      name: 'team-photo-manage',
+      redirect: '/team-content-manage',
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: () => import('@/views/NotFound.vue'),
+      meta: { ...defaultMeta, title: '页面不存在' },
+    },
   ],
 })
 
 router.beforeEach((to) => {
+  document.title = `${to.meta.title || '甘露支教'} - 甘露支教`
+
   if (!to.meta.requiresAuth) return true
 
   const userStore = userinfoStore()
@@ -125,8 +181,9 @@ router.beforeEach((to) => {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
 
-  if (Array.isArray(to.meta.roles) && !to.meta.roles.includes(userStore.currentUser.level)) {
-    return { path: '/' }
+  const level = Number(userStore.currentUser?.level)
+  if (Array.isArray(to.meta.roles) && !to.meta.roles.includes(level)) {
+    return { path: '/', query: { denied: '1' } }
   }
 
   return true

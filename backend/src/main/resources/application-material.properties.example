@@ -1,0 +1,18 @@
+# Merge these keys into the active application-<profile>.properties file.
+# Keep machine-specific values in environment variables; do not commit real paths or secrets.
+
+# Windows example: C:/Program Files/LibreOffice/program/soffice.exe
+# Linux example: /usr/bin/soffice
+material.libreoffice.executable=${LIBREOFFICE_EXECUTABLE:}
+material.libreoffice.timeout-seconds=${LIBREOFFICE_TIMEOUT_SECONDS:90}
+
+# Each HTTP request contains a 5 MB chunk. The assembled file limit is enforced at 200 MB.
+spring.servlet.multipart.max-file-size=8MB
+spring.servlet.multipart.max-request-size=8MB
+
+# Interrupted chunks and uncommitted staged files are cleaned automatically.
+material.upload.session-ttl-hours=${MATERIAL_UPLOAD_SESSION_TTL_HOURS:24}
+material.upload.staging-ttl-hours=${MATERIAL_UPLOAD_STAGING_TTL_HOURS:24}
+material.upload.cleanup-interval-ms=${MATERIAL_UPLOAD_CLEANUP_INTERVAL_MS:3600000}
+material.upload.user-temp-quota-mb=${MATERIAL_UPLOAD_USER_TEMP_QUOTA_MB:1024}
+material.upload.max-active-sessions-per-user=${MATERIAL_UPLOAD_MAX_ACTIVE_SESSIONS:5}

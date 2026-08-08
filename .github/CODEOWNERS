@@ -1,0 +1,5 @@
+# The repository owner reviews all changes.
+* @tangmuguo
+
+# Explicitly protect the ownership rules themselves.
+/.github/CODEOWNERS @tangmuguo

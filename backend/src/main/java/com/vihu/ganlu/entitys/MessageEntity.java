@@ -22,5 +22,7 @@ public class MessageEntity {
     // 非数据库字段
     private String username;
     private String teamname;
+    private Integer userLevel;
+    private String displayName;
     private List<ReplyEntity> replies;
 }

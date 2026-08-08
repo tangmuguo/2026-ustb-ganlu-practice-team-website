@@ -1,22 +1,31 @@
-
-file.upload-dir=${UPLOAD_DIR:/usr/share/ganlu/uploads}
-file.chunk-dir=${file.upload-dir}/temp_chunks
-file.materials-dir=${file.upload-dir}/materials
-file.images-dir=${file.upload-dir}/images
-
+# 生产环境不提供任何数据库密码、跨域来源或 JWT 密钥的默认值。
+server.port=${SERVER_PORT:8080}
 spring.datasource.url=${GANLU_DB_URL}
 spring.datasource.username=${GANLU_DB_USERNAME}
 spring.datasource.password=${GANLU_DB_PASSWORD}
 spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
 
-server.port=-1
+file.upload-dir=${UPLOAD_DIR:/usr/share/ganlu/uploads}
+spring.servlet.multipart.max-file-size=${GANLU_MAX_UPLOAD_FILE_SIZE:200MB}
+spring.servlet.multipart.max-request-size=${GANLU_MAX_UPLOAD_REQUEST_SIZE:210MB}
+spring.servlet.multipart.file-size-threshold=${GANLU_UPLOAD_MEMORY_THRESHOLD:10MB}
+spring.servlet.multipart.location=${GANLU_MULTIPART_TEMP_DIR:/var/tmp/ganlu-multipart}
+app.allowed-origins=${GANLU_ALLOWED_ORIGINS}
 
-spring.servlet.multipart.max-request-size=200MB
-spring.servlet.multipart.max-file-size=200MB
-# \u5185\u5B58\u7F13\u51B2\u5927\u5C0F\uFF08\u8D85\u8FC7\u540E\u4F1A\u5199\u5165\u4E34\u65F6\u6587\u4EF6\uFF09
-spring.servlet.multipart.file-size-threshold=10MB
-
+# 生产环境建议把 GANLU_MULTIPART_TEMP_DIR 挂载到独立、有限额且不可公开访问的文件系统。
+team.media.owner-max-files=${TEAM_MEDIA_OWNER_MAX_FILES:50}
+team.media.owner-max-total-mb=${TEAM_MEDIA_OWNER_MAX_TOTAL_MB:2048}
+team.media.global-max-files=${TEAM_MEDIA_GLOBAL_MAX_FILES:2000}
+team.media.global-max-total-mb=${TEAM_MEDIA_GLOBAL_MAX_TOTAL_MB:20480}
+team.media.upload-min-free-disk-mb=${TEAM_MEDIA_UPLOAD_MIN_FREE_DISK_MB:1024}
+team.media.multipart-min-free-disk-mb=${TEAM_MEDIA_MULTIPART_MIN_FREE_DISK_MB:1024}
+team.media.archived-retention-days=${TEAM_MEDIA_ARCHIVED_RETENTION_DAYS:30}
+team.media.max-concurrent-uploads=${TEAM_MEDIA_MAX_CONCURRENT_UPLOADS:4}
+team.media.max-requests-per-user-per-minute=${TEAM_MEDIA_MAX_REQUESTS_PER_USER_PER_MINUTE:12}
+# 反向代理读取请求体的超时必须小于此值，避免崩溃回收后旧请求继续写盘。
+team.media.upload-reservation-ttl-minutes=${TEAM_MEDIA_UPLOAD_RESERVATION_TTL_MINUTES:120}
+# 仅在维护窗口、预检无阻断项时临时设为 true；迁移完成后立即恢复 false。
+team.public-image.migration-enabled=${TEAM_PUBLIC_IMAGE_MIGRATION_ENABLED:false}
+file-deletion.retry-interval-ms=${FILE_DELETION_RETRY_INTERVAL_MS:60000}
 app.base-url=${GANLU_APP_BASE_URL}
-
-# Do not start production with a built-in/default signing key.
 security.jwt.secret=${GANLU_JWT_SECRET}

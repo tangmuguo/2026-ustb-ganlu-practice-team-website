@@ -10,29 +10,36 @@ import com.vihu.ganlu.security.AuthInterceptor;
 import com.vihu.ganlu.security.PublicEndpoint;
 import com.vihu.ganlu.security.RequireRoles;
 import com.vihu.ganlu.service.impl.MessageServiceImpl;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
-import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
-import java.util.NoSuchElementException;
 import java.util.Map;
+import java.util.NoSuchElementException;
 
 @RestController
 @RequestMapping("/message")
 public class MessageAction {
     private static final Logger LOGGER = LoggerFactory.getLogger(MessageAction.class);
 
-    @Autowired
-    private MessageServiceImpl messageService;
+    private final MessageServiceImpl messageService;
 
-    // 添加留言
+    public MessageAction(MessageServiceImpl messageService) {
+        this.messageService = messageService;
+    }
+
     @RequireRoles({0, 1, 2})
     @PostMapping("/add")
     public ResponseEntity<?> addMessage(@RequestBody MessageCreateRequest message, HttpServletRequest request) {
@@ -44,24 +51,24 @@ public class MessageAction {
         }
     }
 
-    // 获取留言列表
     @PublicEndpoint
     @GetMapping("/list")
-    public ResponseEntity<?> getMessages(@RequestParam(defaultValue = "1") int page,
-                              @RequestParam(defaultValue = "10") int pageSize) {
+    public ResponseEntity<?> getMessages(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int pageSize) {
         try {
-            Map<String, Object> maps = messageService.getMessages(page, pageSize);
-            return ok("查询成功", maps);
+            Map<String, Object> messages = messageService.getMessages(page, pageSize);
+            return ok("查询成功", messages);
         } catch (RuntimeException ex) {
             return error(ex);
         }
     }
 
-    // 删除留言（管理员）
     @RequireRoles({0, 1})
     @PostMapping("/deleteMessage")
-    public ResponseEntity<?> deleteMessage(@RequestBody DeleteContentRequest deleteRequest,
-                                           HttpServletRequest request) {
+    public ResponseEntity<?> deleteMessage(
+            @RequestBody DeleteContentRequest deleteRequest,
+            HttpServletRequest request) {
         try {
             messageService.deleteMessage(deleteRequest.getId(), currentUser(request).getId());
             return ok("删除成功", null);
@@ -70,7 +77,6 @@ public class MessageAction {
         }
     }
 
-    // 添加回复
     @RequireRoles({0, 1, 2})
     @PostMapping("/addReply")
     public ResponseEntity<?> addReply(@RequestBody ReplyCreateRequest reply, HttpServletRequest request) {
@@ -82,11 +88,11 @@ public class MessageAction {
         }
     }
 
-    // 删除回复（管理员）
     @RequireRoles({0, 1})
     @PostMapping("/deleteReply")
-    public ResponseEntity<?> deleteReply(@RequestBody DeleteContentRequest deleteRequest,
-                                         HttpServletRequest request) {
+    public ResponseEntity<?> deleteReply(
+            @RequestBody DeleteContentRequest deleteRequest,
+            HttpServletRequest request) {
         try {
             messageService.deleteReply(deleteRequest.getId(), currentUser(request).getId());
             return ok("删除成功", null);
@@ -155,4 +161,3 @@ public class MessageAction {
         ));
     }
 }
-

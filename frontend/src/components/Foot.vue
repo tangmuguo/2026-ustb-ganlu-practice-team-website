@@ -1,76 +1,124 @@
 <script setup>
-
+import { siteContent } from '@/config/siteContent'
 </script>
 
 <template>
-  <footer class="bg-dark text-white py-12 mt-20">
-        <div class="container mx-auto px-4">
-            <!-- 三列布局（内容空出，等待后端填充） -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
-                <!-- 第一列：关于甘露 -->
-                <div>
-                    <h3 class="text-xl font-bold mb-4">关于甘露</h3>
-                    <ul class="space-y-3">
-                        <li><a href="#" class="text-gray-400 hover:text-white transition-colors flex items-center">
-                            <i class="fa fa-angle-right mr-2"></i><span id="about-ganlu">关于甘露</span>
-                        </a></li>
-                        <li><a href="#" class="text-gray-400 hover:text-white transition-colors flex items-center">
-                            <i class="fa fa-angle-right mr-2"></i><span id="contact-us">联系我们</span>
-                        </a></li>
-                        <li><a href="#" class="text-gray-400 hover:text-white transition-colors flex items-center">
-                            <i class="fa fa-angle-right mr-2"></i><span id="join-ganlu">加入甘露</span>
-                        </a></li>
-                    </ul>
-                </div>
-                
-                <!-- 第二列：快速链接 -->
-                <div>
-                    <h3 class="text-xl font-bold mb-4">快速链接</h3>
-                    <ul class="space-y-3">
-                        <li><a href="/" class="text-gray-400 hover:text-white transition-colors flex items-center">
-                            <i class="fa fa-angle-right mr-2"></i><span id="quick-link1">首页</span>
-                        </a></li>
-                        <li><a href="/showm" class="text-gray-400 hover:text-white transition-colors flex items-center">
-                            <i class="fa fa-angle-right mr-2"></i><span id="quick-link2">课件</span>
-                        </a></li>
-                        <li><a href="/fengcai" class="text-gray-400 hover:text-white transition-colors flex items-center">
-                            <i class="fa fa-angle-right mr-2"></i><span id="quick-link3">风采</span>
-                        </a></li>
-                        <li><a href="/messageboard" class="text-gray-400 hover:text-white transition-colors flex items-center">
-                            <i class="fa fa-angle-right mr-2"></i><span id="quick-link4">互动</span>
-                        </a></li>
-                    </ul>
-                </div>
-                
-                <!-- 第三列：联系方式 -->
-                <div>
-                    <h3 class="text-xl font-bold mb-4">联系方式</h3>
-                    <ul class="space-y-3">
-                        <li class="flex items-start">
-                            <i class="fa fa-map-marker text-gray-400 mt-1 mr-3"></i>
-                            <span id="contact-address" class="text-gray-400">北京市海淀区学院路30号北京科技大学</span>
-                        </li>
-                        <li class="flex items-center">
-                            <i class="fa fa-phone text-gray-400 mr-3"></i>
-                            <span id="contact-phone" class="text-gray-400">16601298002</span>
-                        </li>
-                        <li class="flex items-center">
-                            <i class="fa fa-envelope text-gray-400 mr-3"></i>
-                            <span id="contact-email" class="text-gray-400">AdlineWu@163.com</span>
-                        </li>
-                    </ul>
-                </div>
-            </div>
-            
-            <!-- 版权所有和备案号 -->
-            <div class="border-t border-gray-700 pt-8 text-center text-gray-500">
-                <p>版权所有</p>
-                <p>公安网站备案号</p>
-            </div>
+  <footer class="site-footer">
+    <div class="footer-grid">
+      <section>
+        <h2>{{ siteContent.name }}</h2>
+        <p class="footer-intro">{{ siteContent.shortDescription }}</p>
+      </section>
+
+      <section>
+        <h2>网站导航</h2>
+        <div class="footer-links">
+          <RouterLink to="/about">关于甘露</RouterLink>
+          <RouterLink to="/contact">联系我们</RouterLink>
+          <RouterLink to="/join">加入甘露</RouterLink>
+          <RouterLink to="/showm">课件共享</RouterLink>
+          <RouterLink to="/fengcai">团队风采</RouterLink>
+          <RouterLink to="/messageboard">互动留言</RouterLink>
         </div>
-    </footer>
+      </section>
+
+      <section>
+        <h2>联系信息</h2>
+        <ul class="contact-list">
+          <li><strong>地址：</strong>{{ siteContent.contact.address }}</li>
+          <li><strong>电话：</strong>{{ siteContent.contact.phone }}</li>
+          <li><strong>邮箱：</strong>{{ siteContent.contact.email }}</li>
+        </ul>
+      </section>
+    </div>
+    <div class="copyright">
+      <span>© {{ new Date().getFullYear() }} 甘露支教</span>
+      <span>备案信息待负责人确认</span>
+    </div>
+  </footer>
 </template>
 
 <style scoped>
+.site-footer {
+  margin-top: 72px;
+  color: #d7e4ea;
+  background: #123747;
+}
 
+.footer-grid {
+  display: grid;
+  max-width: 1200px;
+  grid-template-columns: 1.2fr 1fr 1.4fr;
+  gap: 56px;
+  margin: 0 auto;
+  padding: 56px 24px 44px;
+}
+
+h2 {
+  margin: 0 0 18px;
+  color: white;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.footer-intro {
+  max-width: 360px;
+  margin: 0;
+  color: #a9c0ca;
+  line-height: 1.9;
+}
+
+.footer-links {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 20px;
+}
+
+.footer-links a {
+  color: #a9c0ca;
+}
+
+.footer-links a:hover {
+  color: #f4d35e;
+}
+
+.contact-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  color: #a9c0ca;
+  list-style: none;
+  line-height: 1.7;
+}
+
+.contact-list strong {
+  color: #d7e4ea;
+}
+
+.copyright {
+  display: flex;
+  max-width: 1200px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 auto;
+  padding: 22px 24px;
+  color: #7896a3;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 13px;
+}
+
+@media (max-width: 800px) {
+  .footer-grid {
+    grid-template-columns: 1fr;
+    gap: 32px;
+    padding-top: 44px;
+  }
+
+  .copyright {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
 </style>

@@ -4,7 +4,7 @@ import { Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { AddNews, GetAllNews, DeleteNews, UpdateNews } from '@/apis/newsAPI'
 import { access } from '@/utils/access'
-import UploadWidget from "@/components/UploadWidget.vue"
+import PublicImageUploadWidget from "@/components/PublicImageUploadWidget.vue"
 import { formatTime } from '@/utils/date'
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
 
@@ -51,9 +51,11 @@ const newsForm = ref({
   content: '',
   publishTime: '',
   imageUrl: '',
+  imageUploadToken: '',
   status: 1 // 1-发布 0-草稿
 })
 const newsFormRef = ref(null)
+const uploadWidget = ref(null)
 
 // 表单验证规则
 const rules = {
@@ -87,7 +89,8 @@ const handleAdd = () => {
     caption: '',
     content: '',
     createAt: new Date().toISOString().slice(0, 10),
-    imageUrl: ''
+    imageUrl: '',
+    imageUploadToken: ''
   }
   dialogVisible.value = true
 }
@@ -95,7 +98,7 @@ const handleAdd = () => {
 // 编辑新闻
 const handleEdit = (row) => {
   isEdit.value = true
-  newsForm.value = { ...row }
+  newsForm.value = { ...row, imageUploadToken: '' }
   dialogVisible.value = true
 }
 
@@ -120,6 +123,7 @@ async function addNews() {
     if (valid) {
       const res = await AddNews(newsForm.value)
       if (res.data.code === 200) {
+        uploadWidget.value?.markConsumed()
         ElMessage.success('添加成功')
         dialogVisible.value = false
         loadNews()
@@ -136,6 +140,7 @@ async function updateNews() {
     if (valid) {
       const res = await UpdateNews(newsForm.value)
       if (res.data.code === 200) {
+        uploadWidget.value?.markConsumed()
         ElMessage.success('更新成功')
         dialogVisible.value = false
         loadNews()
@@ -153,7 +158,7 @@ const submitForm = () => {
     return
   }
 
-  if (!newsForm.value.imageUrl) {
+  if (!newsForm.value.imageUrl && !newsForm.value.imageUploadToken) {
     ElMessage.warning('请上传新闻封面图片')
     return
   }
@@ -183,8 +188,12 @@ async function loadNews() {
 }
 
 // 处理图片上传
-const handleImageUpload = (url) => {
-  newsForm.value.imageUrl = url
+const handleImageUpload = (stagedImage) => {
+  newsForm.value.imageUploadToken = stagedImage?.token || ''
+}
+
+const handleDialogClosed = () => {
+  uploadWidget.value?.clearFile()
 }
 
 onMounted(() => {
@@ -281,6 +290,7 @@ onBeforeMount(() => {
         v-model="dialogVisible"
         :title="isEdit ? '编辑新闻' : '添加新闻'"
         width="700px"
+        @closed="handleDialogClosed"
       >
         <el-form
           ref="newsFormRef"
@@ -295,11 +305,11 @@ onBeforeMount(() => {
             <el-input v-model="newsForm.linkUrl" />
           </el-form-item>
           <el-form-item label="封面图片" prop="imageUrl">
-            <UploadWidget
+            <PublicImageUploadWidget
               ref="uploadWidget"
-              accept="image/*"
+              accept=".jpg,.jpeg,.png,.webp"
               tipText="请上传新闻封面图片，大小不超过5MB"
-              max-size-mb="5"
+              :max-size-mb="5"
               @upload="handleImageUpload"
             />
             <el-image

@@ -81,14 +81,14 @@ DELIMITER ;
 
 CALL ganlu_add_index_if_missing(
     'message',
-    'idx_message_status_create_id',
-    'ALTER TABLE message ADD INDEX idx_message_status_create_id (status, create_time, id)'
+    'idx_message_status_time',
+    'ALTER TABLE message ADD INDEX idx_message_status_time (status, create_time, id)'
 );
 
 CALL ganlu_add_index_if_missing(
     'reply',
-    'idx_reply_message_status_create_id',
-    'ALTER TABLE reply ADD INDEX idx_reply_message_status_create_id (message_id, status, create_time, id)'
+    'idx_reply_message_status_time',
+    'ALTER TABLE reply ADD INDEX idx_reply_message_status_time (message_id, status, create_time, id)'
 );
 
 -- Add only the reply -> message foreign key after confirming the missing-message

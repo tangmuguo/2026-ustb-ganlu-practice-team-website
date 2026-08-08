@@ -36,8 +36,7 @@ class MessageActionTests {
     @BeforeEach
     void setUp() {
         messageService = mock(MessageServiceImpl.class);
-        MessageAction action = new MessageAction();
-        ReflectionTestUtils.setField(action, "messageService", messageService);
+        MessageAction action = new MessageAction(messageService);
         mockMvc = standaloneSetup(action).build();
     }
 
@@ -173,8 +172,7 @@ class MessageActionTests {
     }
 
     private MockMvc mockMvcWithAuthInterceptor() {
-        MessageAction action = new MessageAction();
-        ReflectionTestUtils.setField(action, "messageService", messageService);
+        MessageAction action = new MessageAction(messageService);
         TokenService tokenService = new TokenService();
         ReflectionTestUtils.setField(tokenService, "secret", "test-token-secret-with-more-than-32-bytes");
         ReflectionTestUtils.setField(tokenService, "expirationSeconds", 3600L);

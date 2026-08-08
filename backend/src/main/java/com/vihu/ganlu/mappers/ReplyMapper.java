@@ -5,6 +5,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
+
 @Mapper
 public interface ReplyMapper {
     // 新增回复
@@ -12,7 +13,6 @@ public interface ReplyMapper {
 
     // 获取留言的所有回复
     List<ReplyEntity> selectRepliesByMessageId(Integer messageId);
-
     // 获取当前页留言的所有回复
     List<ReplyEntity> selectRepliesByMessageIds(@Param("messageIds") List<Integer> messageIds);
 
@@ -21,6 +21,7 @@ public interface ReplyMapper {
 
     // 逻辑删除回复（管理员）
     int deleteReply(Integer id);
+    int deleteRepliesByMessageId(Integer messageId);
 
     // 获取用户回复
     List<ReplyEntity> selectRepliesByUserId(Integer userId);

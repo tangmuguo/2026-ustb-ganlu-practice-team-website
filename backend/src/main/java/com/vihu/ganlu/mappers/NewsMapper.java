@@ -12,6 +12,7 @@ public interface NewsMapper {
 
     // 根据ID查询新闻
     NewsEntity findById(int id);
+    NewsEntity findByIdForUpdate(int id);
 
     // 新增新闻
     int insert(NewsEntity news);

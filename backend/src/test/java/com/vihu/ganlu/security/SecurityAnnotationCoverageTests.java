@@ -1,11 +1,15 @@
 package com.vihu.ganlu.security;
 
+import com.vihu.ganlu.actions.AiAction;
 import com.vihu.ganlu.actions.BannerAction;
 import com.vihu.ganlu.actions.CourseDetailAction;
-import com.vihu.ganlu.actions.FengCaiAction;
+import com.vihu.ganlu.actions.CourseCategoryAction;
 import com.vihu.ganlu.actions.MessageAction;
 import com.vihu.ganlu.actions.NewsAction;
+import com.vihu.ganlu.actions.TeamAction;
+import com.vihu.ganlu.actions.TeamContentAction;
 import com.vihu.ganlu.actions.UserAction;
+import com.vihu.ganlu.actions.VolunteerApplicationAction;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,8 +31,12 @@ class SecurityAnnotationCoverageTests {
             BannerAction.class,
             NewsAction.class,
             CourseDetailAction.class,
-            FengCaiAction.class,
-            MessageAction.class
+            CourseCategoryAction.class,
+            MessageAction.class,
+            TeamAction.class,
+            TeamContentAction.class,
+            AiAction.class,
+            VolunteerApplicationAction.class
     );
 
     @Test

@@ -11,7 +11,6 @@ import com.vihu.ganlu.mappers.UserMapper;
 import com.vihu.ganlu.service.impl.MessageServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -38,10 +37,7 @@ class MessageServiceTests {
         messageMapper = mock(MessageMapper.class);
         replyMapper = mock(ReplyMapper.class);
         userMapper = mock(UserMapper.class);
-        service = new MessageServiceImpl();
-        ReflectionTestUtils.setField(service, "messageMapper", messageMapper);
-        ReflectionTestUtils.setField(service, "replyMapper", replyMapper);
-        ReflectionTestUtils.setField(service, "userMapper", userMapper);
+        service = new MessageServiceImpl(messageMapper, replyMapper, userMapper);
     }
 
     @Test

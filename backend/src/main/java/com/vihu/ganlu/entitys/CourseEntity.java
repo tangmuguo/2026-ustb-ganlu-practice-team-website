@@ -6,4 +6,5 @@ import lombok.Data;
 public class CourseEntity {
     private Integer id;
     private String courseName;
+    private Integer status;
 }

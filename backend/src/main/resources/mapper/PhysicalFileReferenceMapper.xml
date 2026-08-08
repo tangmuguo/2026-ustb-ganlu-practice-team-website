@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.vihu.ganlu.mappers.PhysicalFileReferenceMapper">
+    <!-- All comparisons trim whitespace, normalize Windows separators, and remove leading slashes. -->
+    <select id="countActiveCourseReferences" resultType="int">
+        SELECT COUNT(*)
+        FROM course_detail cd
+        WHERE cd.status = 1
+          <if test="excludeCourseId != null">
+            AND cd.id &lt;&gt; #{excludeCourseId}
+          </if>
+          AND (
+            TRIM(LEADING '/' FROM REPLACE(COALESCE(NULLIF(TRIM(cd.cover_path), ''), NULLIF(TRIM(cd.thumbnail_url), '')), CHAR(92), '/')) = #{relativePath}
+            OR TRIM(LEADING '/' FROM REPLACE(COALESCE(NULLIF(TRIM(cd.original_file_path), ''), NULLIF(TRIM(cd.files), '')), CHAR(92), '/')) = #{relativePath}
+            OR TRIM(LEADING '/' FROM REPLACE(NULLIF(TRIM(cd.preview_file_path), ''), CHAR(92), '/')) = #{relativePath}
+          )
+    </select>
+
+    <select id="countPublicBusinessReferences" resultType="int">
+        SELECT SUM(reference_count)
+        FROM (
+            SELECT COUNT(*) AS reference_count FROM team_page_images
+            WHERE TRIM(LEADING '/' FROM REPLACE(NULLIF(TRIM(imageUrl), ''), CHAR(92), '/')) = #{relativePath}
+            UNION ALL
+            SELECT COUNT(*) FROM banner
+            WHERE TRIM(LEADING '/' FROM REPLACE(NULLIF(TRIM(imageUrl), ''), CHAR(92), '/')) = #{relativePath}
+            UNION ALL
+            SELECT COUNT(*) FROM news
+            WHERE TRIM(LEADING '/' FROM REPLACE(NULLIF(TRIM(imageUrl), ''), CHAR(92), '/')) = #{relativePath}
+            UNION ALL
+            SELECT COUNT(*) FROM `user`
+            WHERE TRIM(LEADING '/' FROM REPLACE(NULLIF(TRIM(imageUrl), ''), CHAR(92), '/')) = #{relativePath}
+        ) public_references
+    </select>
+
+    <select id="countPublicAssetReferences" resultType="int">
+        SELECT COUNT(*)
+        FROM public_image_asset asset
+        WHERE TRIM(LEADING '/' FROM REPLACE(NULLIF(TRIM(asset.relative_path), ''), CHAR(92), '/')) = #{relativePath}
+          <if test="excludeAssetId != null">
+            AND asset.asset_id &lt;&gt; #{excludeAssetId}
+          </if>
+    </select>
+</mapper>

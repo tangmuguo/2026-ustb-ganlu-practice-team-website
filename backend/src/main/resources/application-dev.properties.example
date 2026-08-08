@@ -1,14 +1,10 @@
-
-file.upload-dir=${user.dir}\\uploads
-file.chunk-dir=${file.upload-dir}/temp_chunks
-file.materials-dir=${file.upload-dir}/materials
-file.images-dir=${file.upload-dir}/images
-
-
-spring.datasource.url=${GANLU_DB_URL}
-spring.datasource.username=${GANLU_DB_USERNAME}
-spring.datasource.password=${GANLU_DB_PASSWORD}
+# Windows 本地开发示例。真实密码和密钥只通过环境变量提供。
+server.port=${SERVER_PORT:8080}
+spring.datasource.url=${GANLU_DB_URL:jdbc:mysql://127.0.0.1:3306/ganlu?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai}
+spring.datasource.username=${GANLU_DB_USERNAME:ganlu_local}
+spring.datasource.password=${GANLU_DB_PASSWORD:}
 spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
 
-# Development-only signing key. Production must provide GANLU_JWT_SECRET.
-security.jwt.secret=${GANLU_JWT_SECRET}
+file.upload-dir=${UPLOAD_DIR:${user.dir}/uploads}
+app.allowed-origins=${GANLU_ALLOWED_ORIGINS:http://localhost:5173}
+security.jwt.secret=${GANLU_JWT_SECRET:ganlu-local-development-secret-change-me-2026}

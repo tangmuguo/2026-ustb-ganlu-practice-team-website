@@ -3,6 +3,8 @@ package com.vihu.ganlu.actions;
 
 import com.google.common.collect.ImmutableMap;
 import com.vihu.ganlu.entitys.BannerEntity;
+import com.vihu.ganlu.entitys.UserEntity;
+import com.vihu.ganlu.security.AuthInterceptor;
 import com.vihu.ganlu.security.PublicEndpoint;
 import com.vihu.ganlu.security.RequireRoles;
 import com.vihu.ganlu.service.BannerService;
@@ -13,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
 import java.util.List;
 
 @RestController
@@ -41,13 +44,16 @@ public class BannerAction {
 
     @RequireRoles({0})
     @RequestMapping("/add")
-    public ResponseEntity<?> addBanner(@RequestBody BannerEntity banner) {
+    public ResponseEntity<?> addBanner(
+            @RequestBody BannerEntity banner,
+            HttpServletRequest request) {
         if (bannerService.getBannerCount() >= 5) {
             return ResponseEntity.ok().body(ImmutableMap.of(
                     "code", 202,
                     "message", "轮播图最多只能添加5张"
             ));
         }
+        banner.setImageUploadUserId(currentUser(request).getId());
         int i = bannerService.addBanner(banner);
         if(i>0){
             return ResponseEntity.ok().body(ImmutableMap.of(
@@ -64,7 +70,10 @@ public class BannerAction {
 
     @RequireRoles({0})
     @RequestMapping("/update")
-    public ResponseEntity<?> updateBanner(@RequestBody BannerEntity banner) {
+    public ResponseEntity<?> updateBanner(
+            @RequestBody BannerEntity banner,
+            HttpServletRequest request) {
+        banner.setImageUploadUserId(currentUser(request).getId());
         int i = bannerService.updateBanner(banner);
 
         if(i>0){
@@ -147,5 +156,9 @@ public class BannerAction {
                     "message", "更新失败"
             ));
         }
+    }
+
+    private UserEntity currentUser(HttpServletRequest request) {
+        return (UserEntity) request.getAttribute(AuthInterceptor.CURRENT_USER_ATTRIBUTE);
     }
 }
