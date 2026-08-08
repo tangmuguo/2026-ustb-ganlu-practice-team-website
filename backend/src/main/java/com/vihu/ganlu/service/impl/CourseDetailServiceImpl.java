@@ -3,283 +3,364 @@ package com.vihu.ganlu.service.impl;
 import com.github.pagehelper.PageHelper;
 import com.github.pagehelper.PageInfo;
 import com.vihu.ganlu.entitys.CourseDetailEntity;
+import com.vihu.ganlu.entitys.CourseEntity;
+import com.vihu.ganlu.entitys.MaterialCreateRequest;
+import com.vihu.ganlu.entitys.MaterialSearchQuery;
+import com.vihu.ganlu.entitys.UploadedFileInfo;
+import com.vihu.ganlu.entitys.UserEntity;
 import com.vihu.ganlu.mappers.CourseDetailMapper;
 import com.vihu.ganlu.service.CourseDetailService;
+import com.vihu.ganlu.service.CourseService;
+import com.vihu.ganlu.service.OfficePreviewService;
 import com.vihu.ganlu.utils.FileStorageUtil;
+import com.vihu.ganlu.utils.MaterialFileValidator;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
-import javax.annotation.Resource;
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.nio.file.Files;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-
-import static com.google.common.io.Files.getFileExtension;
+import java.nio.file.Path;
+import java.time.Year;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.regex.Pattern;
+import java.util.UUID;
 
 @Slf4j
 @Service
 public class CourseDetailServiceImpl implements CourseDetailService {
-    @Resource
-    CourseDetailMapper courseDetailMapper;
-    @Resource
-    FileStorageUtil fileStorageUtil;
+    private static final Pattern FILE_IDENTIFIER = Pattern.compile("^[a-fA-F0-9]{32}$");
+    private static final String ORIGINAL_ROOT = "protected/materials";
+    private static final String COVER_ROOT = "images/materials";
+    private static final String PREVIEW_ROOT = "protected/material-previews";
 
-    @Value("${file.upload-dir}")
-    private String uploadDir;
-    @Value("${file.chunk-dir}")
-    private String chunkDir;
-    @Value("${file.materials-dir}")
-    private String materialsDir;
-    @Value("${file.images-dir}")
-    private String imagesDir;
+    private final CourseDetailMapper courseDetailMapper;
+    private final CourseService courseService;
+    private final FileStorageUtil fileStorageUtil;
+    private final MaterialFileValidator fileValidator;
+    private final OfficePreviewService officePreviewService;
+    private final MaterialUploadStorageService uploadStorageService;
 
-    private static final String CHUNK_DIR = "/tmp/upload_chunks/";
-    private static final String FINAL_DIR = "/upload/files/";
-
-    // 在服务层保存分片信息
-    private final Map<String, Set<Integer>> receivedChunks = new ConcurrentHashMap<>();
-
-    @Override
-    public int insertCourseDetail(CourseDetailEntity entity) {
-        return courseDetailMapper.insertCourseDetail(entity);
+    public CourseDetailServiceImpl(
+            CourseDetailMapper courseDetailMapper,
+            CourseService courseService,
+            FileStorageUtil fileStorageUtil,
+            MaterialFileValidator fileValidator,
+            OfficePreviewService officePreviewService,
+            MaterialUploadStorageService uploadStorageService) {
+        this.courseDetailMapper = courseDetailMapper;
+        this.courseService = courseService;
+        this.fileStorageUtil = fileStorageUtil;
+        this.fileValidator = fileValidator;
+        this.officePreviewService = officePreviewService;
+        this.uploadStorageService = uploadStorageService;
     }
 
     @Override
-    public List<CourseDetailEntity> findAllCourse() {
-        return courseDetailMapper.findAllCourse();
-    }
-
-    @Override
-    public PageInfo<CourseDetailEntity> getCourseList(Integer page, Integer size) {
-        PageHelper.startPage(page, size);
-        List<CourseDetailEntity> materials = courseDetailMapper.findCourseList();
-        return new PageInfo<CourseDetailEntity>(materials);
-    }
-
-    @Override
-    public boolean uploadCourseMaterial(CourseDetailEntity courseDetail, MultipartFile imageFile, MultipartFile courseFile) {
-        try {
-            // 1. 保存缩略图
-            String thumbnailPath = fileStorageUtil.storeFile(imageFile, "images");
-            // 2. 保存课件文件
-            String filePath = fileStorageUtil.storeFile(courseFile, "materials");
-
-            // 3. 设置实体属性
-            courseDetail.setThumbnailUrl(thumbnailPath);
-            courseDetail.setFiles(filePath);
-            courseDetail.setFileSize(courseFile.getSize());
-            courseDetail.setFileType(courseFile.getContentType());
-
-            // 4. 插入数据库
-            return courseDetailMapper.insertCourseDetail(courseDetail) > 0;
-        } catch (RuntimeException e) {
-            throw new RuntimeException("文件存储失败", e);
-        }
-    }
-
-
-
-
-    public String uploadImage(MultipartFile imageFile){
-        try{
-            String thumbnailPath = fileStorageUtil.storeFile(imageFile, "images");
-            return thumbnailPath;
-
-        }catch (RuntimeException e) {
-            throw new RuntimeException("文件存储失败", e);
-        }
-    }
-
-    public String uploadCourseFile(MultipartFile courseFile){
-        try{
-            String filePath = fileStorageUtil.storeFile(courseFile, "materials");
-            return filePath;
-
-        }catch (RuntimeException e) {
-            throw new RuntimeException("文件存储失败", e);
-        }
+    public PageInfo<CourseDetailEntity> search(MaterialSearchQuery query) {
+        normalizeSearchQuery(query);
+        PageHelper.startPage(query.getPage(), query.getPageSize());
+        List<CourseDetailEntity> materials = courseDetailMapper.search(query);
+        materials.forEach(this::decoratePublicFields);
+        return new PageInfo<>(materials);
     }
 
     @Override
     public CourseDetailEntity getCourseById(int id) {
-        return courseDetailMapper.getCourseById(id);
+        CourseDetailEntity material = courseDetailMapper.getCourseById(id);
+        if (material != null) {
+            decoratePublicFields(material);
+        }
+        return material;
     }
 
     @Override
-    public int deleteCourseById(int id) {
-        CourseDetailEntity courseById = courseDetailMapper.getCourseById(id);
-        fileStorageUtil.deleteFile(courseById.getFiles());
-        fileStorageUtil.deleteFile(courseById.getThumbnailUrl());
+    @Transactional
+    public CourseDetailEntity createMaterial(MaterialCreateRequest request, UserEntity uploader) throws IOException {
+        validateCreateRequest(request, uploader);
+        MaterialUploadStorageService.StagedFile cover = uploadStorageService.loadStagedFile(
+                uploader.getId(), "COVER", request.getCoverToken());
+        MaterialUploadStorageService.StagedFile materialFile = uploadStorageService.loadStagedFile(
+                uploader.getId(), "MATERIAL", request.getFileToken());
 
-        return courseDetailMapper.deleteCourseById(id);
-    }
+        String coverPath = null;
+        String originalPath = null;
+        String previewPath = null;
+        try {
+            coverPath = fileStorageUtil.moveInto(
+                    cover.getPath(), COVER_ROOT, cover.getInfo().getExtension());
+            originalPath = fileStorageUtil.moveInto(
+                    materialFile.getPath(), ORIGINAL_ROOT, materialFile.getInfo().getExtension());
+            Path storedOriginal = fileStorageUtil.loadFile(originalPath);
 
-    @Override
-    public String saveChunk(MultipartFile chunk, int chunkNumber, int totalChunks,String identifier) throws IOException {
-        // 记录已接收的分片
-        receivedChunks.computeIfAbsent(identifier, k -> new HashSet<>())
-                .add(chunkNumber);
-        // 创建分片临时目录
-        File chunkDirectory = new File(chunkDir + File.separator + identifier);
-        if (!chunkDirectory.exists()) {
-            chunkDirectory.mkdirs();
-        }
-
-        // 保存分片
-        String chunkPath = chunkDirectory.getPath() + File.separator + chunkNumber;
-        File dest = new File(chunkPath);
-        chunk.transferTo(dest);
-        // 可以在这里检查是否已收到全部分片
-        if(receivedChunks.get(identifier).size() == totalChunks) {
-            log.info("文件 {} 的所有分片已上传完成", identifier);
-        }
-        return chunkPath;
-    }
-
-    @Override
-    public String mergeChunks(String filename, String identifier) throws IOException {
-        // 1. 生成最终文件名
-        String safeFilename = generateSafeFilename(filename, identifier);
-
-        File chunkDirectory = new File(chunkDir + File.separator + identifier);
-        File[] chunks = chunkDirectory.listFiles();
-
-        if (chunks == null || chunks.length == 0) {
-            throw new IOException("没有找到分片文件");
-        }
-
-        // 按分片序号排序
-        Arrays.sort(chunks, Comparator.comparingInt(f -> Integer.parseInt(f.getName())));
-        // 根据文件类型确定存储目录
-        String fileExtension = getFileExtension(filename).toLowerCase();
-        boolean isImage = isImageFile(fileExtension);
-
-        String targetDir = isImage ? imagesDir : materialsDir;
-        String relativePath = isImage ? "images/" + safeFilename : "materials/" + safeFilename;
-        String absolutePath = targetDir + File.separator + safeFilename;
-
-        // 确保最终目录存在
-        File finalDir = new File(FINAL_DIR);
-        if (!finalDir.exists()) {
-            finalDir.mkdirs();
-        }
-
-        try (OutputStream out = new FileOutputStream(absolutePath)) {
-            for (File chunk : chunks) {
-                Files.copy(chunk.toPath(), out);
-                chunk.delete(); // 合并后删除分片
-            }
-        }
-
-        // 删除临时目录
-        deleteDirectory(chunkDirectory);
-        return relativePath; // 返回相对路径
-    }
-
-    @Override
-    public Map<String, Object> checkFileExist(String fileMd5) {
-        Map<String, Object> result = new HashMap<>();
-        String md5Prefix = fileMd5.substring(0, 8); // 只使用前8位匹配
-
-        // 1. 检查已合并的文件
-        String[] dirsToCheck = {imagesDir, materialsDir};
-        for (String dir : dirsToCheck) {
-            File directory = new File(dir);
-            if (directory.exists()) {
-                // 优化后的文件名匹配逻辑
-                File[] files = directory.listFiles((d, name) -> {
-                    // 匹配格式：*_MD5前8位_*.ext
-                    int underscore1 = name.lastIndexOf('_');
-                    int underscore2 = name.lastIndexOf('_', underscore1 - 1);
-
-                    if (underscore2 != -1) {
-                        String extractedMd5 = name.substring(underscore2 + 1, underscore1);
-                        return extractedMd5.equals(md5Prefix);
-                    }
-                    return false;
-                });
-
-                if (files != null && files.length > 0) {
-                    result.put("exist", true);
-                    result.put("path", dir.equals(imagesDir) ?
-                            "images/" + files[0].getName() :
-                            "materials/" + files[0].getName());
-                    return result;
+            String previewStatus = "READY";
+            if ("ppt".equals(materialFile.getInfo().getExtension())
+                    || "pptx".equals(materialFile.getInfo().getExtension())) {
+                Path previewTarget = fileStorageUtil.createDirectory(PREVIEW_ROOT)
+                        .resolve(UUID.randomUUID().toString() + ".pdf");
+                try {
+                    officePreviewService.convertToPdf(storedOriginal, previewTarget);
+                    previewPath = fileStorageUtil.toRelativePath(previewTarget);
+                } catch (IOException | RuntimeException conversionError) {
+                    previewStatus = "FAILED";
+                    log.warn("课件 {} 的预览转换失败: {}",
+                            materialFile.getInfo().getOriginalName(), conversionError.getMessage());
                 }
+            } else {
+                previewPath = fileStorageUtil.copyInto(
+                        storedOriginal, PREVIEW_ROOT, materialFile.getInfo().getExtension());
             }
-        }
 
-        // 2. 检查分片目录（保持原逻辑）
-        File chunkDir = new File(this.chunkDir, fileMd5); // 分片目录仍用完整MD5
-        if (chunkDir.exists()) {
-            File[] chunks = chunkDir.listFiles();
-            if (chunks != null && chunks.length > 0) {
-                result.put("exist", false);
-                result.put("uploadedChunks", chunks.length);
-                return result;
+            CourseDetailEntity entity = new CourseDetailEntity();
+            entity.setTitle(request.getTitle().trim());
+            entity.setCourseType(request.getCourseType());
+            entity.setCourseId(request.getCourseType() == 1 ? request.getCourseId() : null);
+            entity.setCustomSubject(request.getCourseType() == 2 ? request.getCustomSubject().trim() : null);
+            entity.setYear(request.getYear());
+            entity.setUploaderUserId(uploader.getId());
+            entity.setUploaderName(displayName(uploader));
+            entity.setThumbnailUrl(coverPath);
+            entity.setOriginalFilePath(originalPath);
+            entity.setPreviewFilePath(previewPath);
+            entity.setOriginalFilename(materialFile.getInfo().getOriginalName());
+            entity.setFileSize(materialFile.getInfo().getSize());
+            entity.setFileExtension(materialFile.getInfo().getExtension());
+            entity.setMimeType(materialFile.getInfo().getMimeType());
+            entity.setPreviewStatus(previewStatus);
+            entity.setStatus(1);
+
+            if (courseDetailMapper.insertCourseDetail(entity) != 1) {
+                throw new IllegalStateException("保存课件记录失败");
             }
+            uploadStorageService.consumeStagedFile(cover);
+            uploadStorageService.consumeStagedFile(materialFile);
+            decoratePublicFields(entity);
+            return entity;
+        } catch (RuntimeException | IOException e) {
+            safeDelete(coverPath);
+            safeDelete(originalPath);
+            safeDelete(previewPath);
+            discardMovedStagedMetadata(cover);
+            discardMovedStagedMetadata(materialFile);
+            throw e;
         }
-
-        // 3. 文件不存在
-        result.put("exist", false);
-        return result;
     }
 
-    private void deleteDirectory(File directory) throws IOException {
-        if (directory.isDirectory()) {
-            File[] files = directory.listFiles();
-            if (files != null) {
-                for (File file : files) {
-                    deleteDirectory(file);
-                }
+    @Override
+    @Transactional
+    public boolean deleteCourseById(int id) {
+        CourseDetailEntity existing = courseDetailMapper.getCourseById(id);
+        if (existing == null) {
+            throw new NoSuchElementException("课件不存在");
+        }
+        if (courseDetailMapper.softDeleteCourseById(id) != 1) {
+            return false;
+        }
+        safeDelete(existing.getOriginalFilePath());
+        safeDelete(existing.getPreviewFilePath());
+        safeDelete(existing.getThumbnailUrl());
+        return true;
+    }
+
+    @Override
+    public String saveChunk(MultipartFile chunk, int chunkNumber, int totalChunks, String identifier,
+                            String filename, long expectedSize, String purpose, int userId) throws IOException {
+        validateUploadParameters(chunkNumber, totalChunks, identifier, filename, expectedSize, purpose);
+        return uploadStorageService.saveChunk(
+                chunk, chunkNumber, totalChunks, identifier, filename, expectedSize, purpose, userId);
+    }
+
+    @Override
+    public UploadedFileInfo mergeChunks(String filename, String identifier, int totalChunks,
+                                        long expectedSize, String purpose, int userId) throws IOException {
+        validateUploadParameters(1, totalChunks, identifier, filename, expectedSize, purpose);
+        return uploadStorageService.mergeChunks(
+                filename, identifier, totalChunks, expectedSize, purpose, userId);
+    }
+
+    @Override
+    public Map<String, Object> checkFileExist(String fileMd5, String purpose, int userId) throws IOException {
+        requireIdentifier(fileMd5);
+        return uploadStorageService.checkFileExist(fileMd5, purpose, userId);
+    }
+
+    @Override
+    public void cancelUpload(String identifier, String purpose, String token, int userId) throws IOException {
+        if (identifier != null && !identifier.trim().isEmpty()) {
+            requireIdentifier(identifier);
+        }
+        uploadStorageService.cancelUpload(userId, purpose, identifier, token);
+    }
+
+    @Override
+    public Path getDownloadPath(int id) {
+        CourseDetailEntity existing = courseDetailMapper.getCourseById(id);
+        if (existing == null) {
+            throw new NoSuchElementException("课件不存在");
+        }
+        Path path = fileStorageUtil.loadFile(existing.getOriginalFilePath());
+        if (!Files.isRegularFile(path)) {
+            throw new NoSuchElementException("课件原文件不存在");
+        }
+        return path;
+    }
+
+    @Override
+    public Path getPreviewPath(int id) {
+        CourseDetailEntity existing = courseDetailMapper.getCourseById(id);
+        if (existing == null) {
+            throw new NoSuchElementException("课件不存在");
+        }
+        if (!"READY".equals(existing.getPreviewStatus())) {
+            throw new NoSuchElementException("课件预览暂不可用");
+        }
+        Path path = fileStorageUtil.loadFile(existing.getPreviewFilePath());
+        if (!Files.isRegularFile(path)) {
+            throw new NoSuchElementException("课件预览文件不存在");
+        }
+        return path;
+    }
+
+    private void validateCreateRequest(MaterialCreateRequest request, UserEntity uploader) {
+        if (request == null || uploader == null || uploader.getId() == null) {
+            throw new IllegalArgumentException("上传参数不完整");
+        }
+        if (!StringUtils.hasText(request.getTitle())
+                || request.getTitle().trim().length() < 2
+                || request.getTitle().trim().length() > 100) {
+            throw new IllegalArgumentException("标题长度应为 2～100 字");
+        }
+        if (request.getCourseType() == null
+                || (request.getCourseType() != 1 && request.getCourseType() != 2)) {
+            throw new IllegalArgumentException("课程类型不合法");
+        }
+        int currentYear = Year.now().getValue();
+        if (request.getYear() == null
+                || request.getYear() < currentYear - 9
+                || request.getYear() > currentYear) {
+            throw new IllegalArgumentException("年份必须在最近 10 年内");
+        }
+        if (request.getCourseType() == 1) {
+            if (request.getCourseId() == null) {
+                throw new IllegalArgumentException("通识课程必须选择科目");
             }
+            CourseEntity category = courseService.getCourseById(request.getCourseId());
+            if (category == null || category.getStatus() == null || category.getStatus() != 1) {
+                throw new IllegalArgumentException("所选科目不存在或已停用");
+            }
+        } else if (!StringUtils.hasText(request.getCustomSubject())
+                || request.getCustomSubject().trim().length() < 2
+                || request.getCustomSubject().trim().length() > 30) {
+            throw new IllegalArgumentException("特色课程科目长度应为 2～30 字");
         }
-        if (!directory.delete()) {
-            throw new IOException("无法删除目录: " + directory);
+        requireToken(request.getCoverToken());
+        requireToken(request.getFileToken());
+    }
+
+    private void normalizeSearchQuery(MaterialSearchQuery query) {
+        if (query == null) {
+            throw new IllegalArgumentException("查询参数不能为空");
+        }
+        if (query.getPage() == null || query.getPage() < 1
+                || query.getPageSize() == null || query.getPageSize() < 1 || query.getPageSize() > 50) {
+            throw new IllegalArgumentException("分页参数不合法");
+        }
+        if (query.getCourseType() != null && query.getCourseType() != 1 && query.getCourseType() != 2) {
+            throw new IllegalArgumentException("课程类型不合法");
+        }
+        int currentYear = Year.now().getValue();
+        query.setMinYear(currentYear - 9);
+        query.setMaxYear(currentYear);
+        if (query.getYear() != null
+                && (query.getYear() < query.getMinYear() || query.getYear() > query.getMaxYear())) {
+            throw new IllegalArgumentException("年份必须在最近 10 年内");
+        }
+        if (StringUtils.hasText(query.getKeyword())) {
+            String keyword = query.getKeyword().trim();
+            if (keyword.length() > 50) {
+                throw new IllegalArgumentException("关键词不能超过 50 字");
+            }
+            query.setKeyword(keyword);
+        } else {
+            query.setKeyword(null);
         }
     }
 
-    // 获取文件扩展名
-    private String getFileExtension(String filename) {
-        int dotIndex = filename.lastIndexOf('.');
-        return (dotIndex == -1) ? "" : filename.substring(dotIndex + 1);
+    private void validateUploadParameters(int chunkNumber, int totalChunks, String identifier,
+                                          String filename, long expectedSize, String purpose) {
+        requireIdentifier(identifier);
+        fileValidator.normalizePurpose(purpose);
+        if (!StringUtils.hasText(filename) || filename.length() > 255) {
+            throw new IllegalArgumentException("文件名不合法");
+        }
+        if (chunkNumber < 1 || totalChunks < 1 || chunkNumber > totalChunks || totalChunks > 1000) {
+            throw new IllegalArgumentException("分片参数不合法");
+        }
+        long maxSize = "COVER".equalsIgnoreCase(purpose)
+                ? MaterialFileValidator.MAX_COVER_SIZE
+                : MaterialFileValidator.MAX_MATERIAL_SIZE;
+        if (expectedSize <= 0 || expectedSize > maxSize) {
+            throw new IllegalArgumentException("文件大小不合法");
+        }
     }
 
-    // 判断是否为图片文件
-    private boolean isImageFile(String extension) {
-        Set<String> imageExtensions = new HashSet<>(Arrays.asList(
-                "jpg", "jpeg", "png", "gif", "bmp", "webp"
-        ));
-        return imageExtensions.contains(extension);
+    private void decoratePublicFields(CourseDetailEntity material) {
+        material.setPreviewUrl(StringUtils.hasText(material.getPreviewFilePath())
+                ? "/courseDetail/materials/" + material.getId() + "/preview"
+                : null);
+        material.setDownloadUrl("/courseDetail/materials/" + material.getId() + "/download");
+        if (!StringUtils.hasText(material.getUploaderName())) {
+            material.setUploaderName(material.getAuthor());
+        }
     }
 
-    private String generateSafeFilename(String originalFilename, String fileMd5) {
-        String leafName = originalFilename.replace('\\', '/');
-        leafName = leafName.substring(leafName.lastIndexOf('/') + 1);
-        int dotIndex = leafName.lastIndexOf('.');
-        String name = (dotIndex <= 0) ? leafName : leafName.substring(0, dotIndex);
-        String ext = (dotIndex <= 0) ? "" : leafName.substring(dotIndex + 1)
-                .replaceAll("[^A-Za-z0-9]", "");
-        if (ext.length() > 10) {
-            ext = ext.substring(0, 10);
+    private String displayName(UserEntity user) {
+        if (StringUtils.hasText(user.getTeamname())) {
+            return user.getTeamname().trim();
         }
-
-        // 新正则表达式：过滤特殊字符,保留中文、日文、韩文字符，字母数字和常用符号
-        String cleanName = name.replaceAll("[^\\p{L}\\p{Nd}\\- _]", "_").trim();
-        if (cleanName.isEmpty()) {
-            cleanName = "file";
+        if (StringUtils.hasText(user.getRealname())) {
+            return user.getRealname().trim();
         }
+        return StringUtils.hasText(user.getUsername()) ? user.getUsername().trim() : "用户" + user.getId();
+    }
 
-        return String.format("%s_%s_%s%s",
-                cleanName,
-                fileMd5.substring(0, 8),
-                UUID.randomUUID().toString().substring(0, 4),
-                ext.isEmpty() ? "" : "." + ext);
+    private void safeDelete(String relativePath) {
+        if (!StringUtils.hasText(relativePath)) {
+            return;
+        }
+        try {
+            fileStorageUtil.deleteFile(relativePath);
+        } catch (RuntimeException e) {
+            log.warn("清理文件失败 {}: {}", relativePath, e.getMessage());
+        }
+    }
+
+    private void discardMovedStagedMetadata(MaterialUploadStorageService.StagedFile staged) {
+        if (staged == null || Files.isRegularFile(staged.getPath())) {
+            return;
+        }
+        try {
+            uploadStorageService.consumeStagedFile(staged);
+        } catch (IOException cleanupError) {
+            log.warn("清理已移动暂存文件的元数据失败: {}", cleanupError.getMessage());
+        }
+    }
+
+    private void requireIdentifier(String identifier) {
+        if (identifier == null || !FILE_IDENTIFIER.matcher(identifier).matches()) {
+            throw new IllegalArgumentException("文件标识不合法");
+        }
+    }
+
+    private void requireToken(String token) {
+        try {
+            UUID.fromString(token);
+        } catch (RuntimeException e) {
+            throw new IllegalArgumentException("上传文件凭证不合法");
+        }
     }
 }
