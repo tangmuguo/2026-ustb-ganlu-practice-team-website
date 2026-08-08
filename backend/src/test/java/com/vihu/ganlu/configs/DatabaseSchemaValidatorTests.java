@@ -36,7 +36,7 @@ class DatabaseSchemaValidatorTests {
         assertTrue(exception.getMessage().contains("team_media"));
         assertTrue(exception.getMessage().contains("course.status"));
         assertTrue(exception.getMessage().contains("course_detail.status"));
-        assertTrue(exception.getMessage().contains("00 → 10 → 11 → 12 → 13 → 14 → 15 → 20 → 30 → 31 → 40"));
+        assertTrue(exception.getMessage().contains("00 → 10 → 11 → 12 → 13 → 14 → 15 → 20 → 30 → 31"));
     }
 
     private Set<String> requiredTables() {

@@ -61,11 +61,7 @@ const AllPATH = {
   newsDeletePath:"news/delete",
   newsGetPath:"news/get",
   newsListPath:"news/list",
-  newsLimitPath:"news/limit",
-
-  // 志愿者报名
-  volunteerApplicationPath:"volunteer-applications",
-  volunteerApplicationManagePath:"admin/volunteer-applications"
+  newsLimitPath:"news/limit"
 }
 
 export default AllPATH;

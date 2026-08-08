@@ -15,7 +15,6 @@ const publicLinks = [
   { to: '/fengcai', label: '团队风采' },
   { to: '/messageboard', label: '互动留言' },
   { to: '/about', label: '关于甘露' },
-  { to: '/join', label: '加入甘露' },
 ]
 
 const displayName = computed(() => userStore.currentUser?.teamname
@@ -40,7 +39,6 @@ const managementItems = computed(() => {
       { command: '/muser', label: '团队账号管理' },
       { command: '/regt', label: '创建团队账号' },
       { command: '/mstudent', label: '学生账号管理' },
-      { command: '/applications', label: '志愿者报名管理' },
       { command: '/admin/team-content', label: '团队内容审核' },
       ...common,
     ]
@@ -49,6 +47,7 @@ const managementItems = computed(() => {
   if (level.value === 1) {
     return [
       { command: '/mstudent', label: '学生账号管理' },
+      { command: '/mnews', label: '新闻管理' },
       { command: '/team-content-manage', label: '团队内容管理' },
       ...common,
     ]
@@ -94,6 +93,7 @@ watch(() => route.fullPath, () => {
           {{ item.label }}
         </RouterLink>
         <RouterLink v-if="userStore.isLoggedIn" to="/ai" class="nav-link">AI 小助手</RouterLink>
+        <RouterLink to="/news" class="nav-link">新闻</RouterLink>
       </nav>
 
       <div class="account-area">
@@ -128,6 +128,7 @@ watch(() => route.fullPath, () => {
       <nav class="mobile-nav" aria-label="移动端导航">
         <RouterLink v-for="item in publicLinks" :key="item.to" :to="item.to">{{ item.label }}</RouterLink>
         <RouterLink v-if="userStore.isLoggedIn" to="/ai">AI 小助手</RouterLink>
+        <RouterLink to="/news">新闻</RouterLink>
         <template v-if="userStore.isLoggedIn">
           <div class="mobile-divider">账号功能</div>
           <RouterLink v-for="item in managementItems" :key="item.command" :to="item.command">

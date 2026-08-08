@@ -15,7 +15,6 @@ import { siteContent } from '@/config/siteContent'
         <div class="footer-links">
           <RouterLink to="/about">关于甘露</RouterLink>
           <RouterLink to="/contact">联系我们</RouterLink>
-          <RouterLink to="/join">加入甘露</RouterLink>
           <RouterLink to="/showm">课件共享</RouterLink>
           <RouterLink to="/fengcai">团队风采</RouterLink>
           <RouterLink to="/messageboard">互动留言</RouterLink>

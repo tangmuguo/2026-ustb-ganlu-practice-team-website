@@ -18,8 +18,7 @@ const features = [
         <h1>把知识分享出去，<br>让成长彼此发生</h1>
         <p>{{ siteContent.shortDescription }}</p>
         <div class="intro-actions">
-          <RouterLink class="primary-action" to="/join">加入甘露</RouterLink>
-          <RouterLink class="secondary-action" to="/about">了解我们</RouterLink>
+          <RouterLink class="primary-action" to="/about">了解我们</RouterLink>
         </div>
         <div class="intro-tags" aria-label="甘露支教服务方向">
           <span><i></i>资源共建</span>
@@ -64,15 +63,6 @@ const features = [
       </div>
       <NewsList />
     </section>
-
-    <section class="join-section">
-      <div>
-        <span>期待与你相遇</span>
-        <h2>把你的热爱，带到需要它的地方</h2>
-        <p>填写志愿者报名信息后，负责人会通过确认后的正式联系方式与你沟通。</p>
-      </div>
-      <RouterLink to="/join">填写报名信息</RouterLink>
-    </section>
   </div>
 </template>
 
@@ -83,8 +73,7 @@ const features = [
 }
 
 .intro-section,
-.content-section,
-.join-section {
+.content-section {
   max-width: 1200px;
   margin: 0 auto;
   padding-right: 24px;
@@ -154,8 +143,7 @@ const features = [
   margin-top: 34px;
 }
 
-.primary-action,
-.secondary-action {
+.primary-action {
   display: inline-flex;
   min-height: 48px;
   align-items: center;
@@ -172,27 +160,13 @@ const features = [
   box-shadow: 0 13px 28px rgba(35, 114, 232, 0.25);
 }
 
-.secondary-action {
-  color: #255486;
-  background: white;
-  border: 1px solid #d4e5fb;
-  box-shadow: 0 9px 20px rgba(39, 93, 161, 0.05);
-}
-
-.primary-action:hover,
-.secondary-action:hover {
+.primary-action:hover {
   transform: translateY(-2px);
 }
 
 .primary-action:hover {
   color: white;
   box-shadow: 0 17px 32px rgba(35, 114, 232, 0.32);
-}
-
-.secondary-action:hover {
-  color: #1d65d6;
-  background: #f6faff;
-  box-shadow: 0 13px 24px rgba(39, 93, 161, 0.1);
 }
 
 .intro-tags {
@@ -355,8 +329,7 @@ const features = [
   margin-bottom: 34px;
 }
 
-.section-heading h2,
-.join-section h2 {
+.section-heading h2 {
   margin: 9px 0 0;
   color: #133d72;
   font-size: clamp(28px, 4vw, 40px);
@@ -431,54 +404,6 @@ const features = [
   padding-top: 88px;
 }
 
-.join-section {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 32px;
-  margin-top: 44px;
-  padding-top: 48px;
-  padding-bottom: 48px;
-  overflow: hidden;
-  color: white;
-  background:
-    radial-gradient(circle at 91% 14%, rgba(155, 211, 255, 0.42), transparent 18%),
-    linear-gradient(125deg, #103b76, #1d67d1);
-  border: 1px solid rgba(188, 221, 255, 0.42);
-  border-radius: 26px;
-  box-shadow: 0 24px 60px rgba(25, 81, 160, 0.23);
-}
-
-.join-section h2,
-.join-section span {
-  color: white;
-}
-
-.join-section p {
-  margin: 16px 0 0;
-  color: #cfe5ff;
-}
-
-.join-section > a {
-  position: relative;
-  z-index: 1;
-  flex: none;
-  padding: 14px 24px;
-  color: #1b5ebf;
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 12px 24px rgba(7, 46, 106, 0.18);
-  font-weight: 750;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.join-section > a:hover {
-  color: #1557b7;
-  box-shadow: 0 16px 28px rgba(7, 46, 106, 0.26);
-  transform: translateY(-2px);
-}
-
 @media (max-width: 960px) {
   .intro-section {
     grid-template-columns: 1fr;
@@ -497,12 +422,6 @@ const features = [
     padding-bottom: 54px;
   }
 
-  .intro-actions,
-  .join-section {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
   .feature-grid {
     grid-template-columns: 1fr;
   }
@@ -511,13 +430,5 @@ const features = [
     min-height: 260px;
   }
 
-  .join-section {
-    margin-right: 16px;
-    margin-left: 16px;
-  }
-
-  .join-section > a {
-    text-align: center;
-  }
 }
 </style>

@@ -28,12 +28,6 @@ const router = createRouter({
       meta: { ...defaultMeta, title: '联系我们' },
     },
     {
-      path: '/join',
-      name: 'join-ganlu',
-      component: () => import('@/views/JoinGanlu.vue'),
-      meta: { ...defaultMeta, title: '加入甘露' },
-    },
-    {
       path: '/login',
       name: 'login',
       component: () => import('@/views/Login.vue'),
@@ -56,6 +50,12 @@ const router = createRouter({
       name: 'ai-assistant',
       component: () => import('@/views/AiAssistant.vue'),
       meta: { ...defaultMeta, title: 'AI 小助手', requiresAuth: true, roles: [0, 1, 2] },
+    },
+    {
+      path: '/news',
+      name: 'news',
+      component: () => import('@/views/News.vue'),
+      meta: { ...defaultMeta, title: '新闻' },
     },
     {
       path: '/showm',
@@ -144,13 +144,7 @@ const router = createRouter({
       path: '/mnews',
       name: 'news-manage',
       component: () => import('@/views/ManageNews.vue'),
-      meta: { ...defaultMeta, title: '新闻管理', requiresAuth: true, roles: [0] },
-    },
-    {
-      path: '/applications',
-      name: 'volunteer-applications',
-      component: () => import('@/views/ManageVolunteerApplications.vue'),
-      meta: { ...defaultMeta, title: '志愿者报名管理', requiresAuth: true, roles: [0] },
+      meta: { ...defaultMeta, title: '新闻管理', requiresAuth: true, roles: [0, 1] },
     },
     {
       path: '/logh',

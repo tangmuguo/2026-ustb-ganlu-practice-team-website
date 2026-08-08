@@ -81,7 +81,7 @@ public class NewsAction {
     }
 
     // 添加新闻
-    @RequireRoles({0})
+    @RequireRoles({0, 1})
     @RequestMapping("/add")
     public ResponseEntity<?> addNews(
             @RequestBody NewsEntity news,
@@ -102,7 +102,7 @@ public class NewsAction {
     }
 
     // 修改新闻
-    @RequireRoles({0})
+    @RequireRoles({0, 1})
     @RequestMapping("/update")
     public ResponseEntity<?> updateNews(
             @RequestBody NewsEntity news,
@@ -123,7 +123,7 @@ public class NewsAction {
     }
 
     // 删除新闻
-    @RequireRoles({0})
+    @RequireRoles({0, 1})
     @RequestMapping("/delete")
     public ResponseEntity<?> deleteNews(@RequestBody NewsEntity news) {
         int i = newsService.deleteNews(news.getId());

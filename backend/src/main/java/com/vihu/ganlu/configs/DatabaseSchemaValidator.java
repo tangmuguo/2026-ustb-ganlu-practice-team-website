@@ -100,7 +100,7 @@ public class DatabaseSchemaValidator implements InitializingBean {
                 message.append(" 缺少字段: ").append(String.join(", ", missingColumns)).append("。");
             }
             message.append(" 请先备份现有库，再按 database/patches/README.md 的固定顺序执行：")
-                    .append("00 → 10 → 11 → 12 → 13 → 14 → 15 → 20 → 30 → 31 → 40。")
+                    .append("00 → 10 → 11 → 12 → 13 → 14 → 15 → 20 → 30 → 31。")
                     .append(" 仅排障时可设置 GANLU_SCHEMA_VALIDATION_ENABLED=false；这不会修复数据库，不能用于正常运行。");
             throw new IllegalStateException(message.toString());
         }
@@ -132,9 +132,6 @@ public class DatabaseSchemaValidator implements InitializingBean {
         require(requirements, "team_page_images", "team_id", "status", "reject_reason", "log_date");
         require(requirements, "team_page_word", "team_id", "status", "reject_reason", "log_date");
         require(requirements, "user");
-        require(requirements, "volunteer_application", "id", "name", "phone", "organization", "grade_or_major",
-                "preferred_region", "skills", "introduction", "privacy_agreed", "status", "active_phone", "created_at",
-                "updated_at");
         return Collections.unmodifiableMap(requirements);
     }
 
