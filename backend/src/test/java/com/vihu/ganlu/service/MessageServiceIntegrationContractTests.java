@@ -56,7 +56,7 @@ class MessageServiceIntegrationContractTests {
         when(messageMapper.insertMessage(any())).thenReturn(1);
 
         assertEquals("一条合规留言", service.addMessage("一条合规留言", 3).getContent());
-        assertThrows(IllegalArgumentException.class, () -> service.deleteMessage(1, 3));
+        assertThrows(SecurityException.class, () -> service.deleteMessage(1, 3));
     }
 
     @Test

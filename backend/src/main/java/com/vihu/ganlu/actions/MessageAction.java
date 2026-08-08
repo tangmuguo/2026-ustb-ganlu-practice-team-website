@@ -1,29 +1,39 @@
 package com.vihu.ganlu.actions;
 
-import com.vihu.ganlu.entitys.DeleteReplyEntity;
+import com.google.common.collect.ImmutableMap;
 import com.vihu.ganlu.entitys.MessageEntity;
-import com.vihu.ganlu.entitys.ReplyEntity;
 import com.vihu.ganlu.entitys.UserEntity;
+import com.vihu.ganlu.entitys.message.DeleteContentRequest;
+import com.vihu.ganlu.entitys.message.MessageCreateRequest;
+import com.vihu.ganlu.entitys.message.ReplyCreateRequest;
 import com.vihu.ganlu.security.AuthInterceptor;
 import com.vihu.ganlu.security.PublicEndpoint;
 import com.vihu.ganlu.security.RequireRoles;
 import com.vihu.ganlu.service.impl.MessageServiceImpl;
-import com.vihu.ganlu.utils.ApiResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import javax.servlet.http.HttpServletRequest;
 import java.util.Map;
+import java.util.NoSuchElementException;
 
 @RestController
 @RequestMapping("/message")
 public class MessageAction {
+    private static final Logger LOGGER = LoggerFactory.getLogger(MessageAction.class);
+
     private final MessageServiceImpl messageService;
 
     public MessageAction(MessageServiceImpl messageService) {
@@ -32,50 +42,122 @@ public class MessageAction {
 
     @RequireRoles({0, 1, 2})
     @PostMapping("/add")
-    public ApiResponse<MessageEntity> addMessage(@RequestBody MessageEntity request, HttpServletRequest httpRequest) {
-        MessageEntity result = messageService.addMessage(request.getContent(), currentUser(httpRequest).getId());
-        return ApiResponse.success("留言发布成功", result);
+    public ResponseEntity<?> addMessage(@RequestBody MessageCreateRequest message, HttpServletRequest request) {
+        try {
+            MessageEntity created = messageService.addMessage(message, currentUser(request).getId());
+            return ok("添加成功", ImmutableMap.of("id", created.getId()));
+        } catch (RuntimeException ex) {
+            return error(ex);
+        }
     }
 
     @PublicEndpoint
     @GetMapping("/list")
-    public ApiResponse<Map<String, Object>> getMessages(
+    public ResponseEntity<?> getMessages(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int pageSize) {
-        return ApiResponse.success("查询成功", messageService.getMessages(page, pageSize));
+        try {
+            Map<String, Object> messages = messageService.getMessages(page, pageSize);
+            return ok("查询成功", messages);
+        } catch (RuntimeException ex) {
+            return error(ex);
+        }
     }
 
     @RequireRoles({0, 1})
     @PostMapping("/deleteMessage")
-    public ResponseEntity<ApiResponse<Void>> deleteMessage(
-            @RequestBody DeleteReplyEntity request,
-            HttpServletRequest httpRequest) {
-        boolean deleted = messageService.deleteMessage(request.getId(), currentUser(httpRequest).getId());
-        return deleted
-                ? ResponseEntity.ok(ApiResponse.success("留言已删除", null))
-                : ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error(404, "留言不存在"));
+    public ResponseEntity<?> deleteMessage(
+            @RequestBody DeleteContentRequest deleteRequest,
+            HttpServletRequest request) {
+        try {
+            messageService.deleteMessage(deleteRequest.getId(), currentUser(request).getId());
+            return ok("删除成功", null);
+        } catch (RuntimeException ex) {
+            return error(ex);
+        }
     }
 
     @RequireRoles({0, 1, 2})
     @PostMapping("/addReply")
-    public ApiResponse<ReplyEntity> addReply(@RequestBody ReplyEntity request, HttpServletRequest httpRequest) {
-        ReplyEntity result = messageService.addReply(
-                request.getMessageId(), request.getContent(), currentUser(httpRequest).getId());
-        return ApiResponse.success("回复发布成功", result);
+    public ResponseEntity<?> addReply(@RequestBody ReplyCreateRequest reply, HttpServletRequest request) {
+        try {
+            Integer replyId = messageService.addReply(reply, currentUser(request).getId()).getId();
+            return ok("添加成功", ImmutableMap.of("id", replyId));
+        } catch (RuntimeException ex) {
+            return error(ex);
+        }
     }
 
     @RequireRoles({0, 1})
     @PostMapping("/deleteReply")
-    public ResponseEntity<ApiResponse<Void>> deleteReply(
-            @RequestBody DeleteReplyEntity request,
-            HttpServletRequest httpRequest) {
-        boolean deleted = messageService.deleteReply(request.getId(), currentUser(httpRequest).getId());
-        return deleted
-                ? ResponseEntity.ok(ApiResponse.success("回复已删除", null))
-                : ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error(404, "回复不存在"));
+    public ResponseEntity<?> deleteReply(
+            @RequestBody DeleteContentRequest deleteRequest,
+            HttpServletRequest request) {
+        try {
+            messageService.deleteReply(deleteRequest.getId(), currentUser(request).getId());
+            return ok("删除成功", null);
+        } catch (RuntimeException ex) {
+            return error(ex);
+        }
     }
 
     private UserEntity currentUser(HttpServletRequest request) {
         return (UserEntity) request.getAttribute(AuthInterceptor.CURRENT_USER_ATTRIBUTE);
+    }
+
+    private ResponseEntity<?> ok(String message, Object content) {
+        return ResponseEntity.ok(ImmutableMap.of(
+                "code", HttpStatus.OK.value(),
+                "message", message,
+                "content", content == null ? ImmutableMap.of() : content
+        ));
+    }
+
+    private ResponseEntity<?> error(RuntimeException ex) {
+        HttpStatus status;
+        String message;
+        if (ex instanceof IllegalArgumentException) {
+            status = HttpStatus.BAD_REQUEST;
+            message = ex.getMessage();
+        } else if (ex instanceof NoSuchElementException) {
+            status = HttpStatus.NOT_FOUND;
+            message = ex.getMessage();
+        } else if (ex instanceof SecurityException) {
+            status = HttpStatus.FORBIDDEN;
+            message = ex.getMessage();
+        } else {
+            status = HttpStatus.INTERNAL_SERVER_ERROR;
+            message = "服务器内部错误";
+            LOGGER.error("Message board request failed", ex);
+        }
+        if (message == null || message.trim().isEmpty()) {
+            message = status == HttpStatus.INTERNAL_SERVER_ERROR ? "服务器内部错误" : status.getReasonPhrase();
+        }
+        return ResponseEntity.status(status).body(ImmutableMap.of(
+                "code", status.value(),
+                "message", message,
+                "content", ImmutableMap.of()
+        ));
+    }
+
+    @ExceptionHandler({
+            HttpMessageNotReadableException.class,
+            MethodArgumentTypeMismatchException.class
+    })
+    public ResponseEntity<?> handleBadRequest(Exception ex) {
+        return ResponseEntity.badRequest().body(ImmutableMap.of(
+                "code", HttpStatus.BAD_REQUEST.value(),
+                "message", "请求参数格式错误",
+                "content", ImmutableMap.of()
+        ));
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<?> handleUnsupportedMediaType(Exception ex) {
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body(ImmutableMap.of(
+                "code", HttpStatus.UNSUPPORTED_MEDIA_TYPE.value(),
+                "message", "不支持的 Content-Type",
+                "content", ImmutableMap.of()
+        ));
     }
 }

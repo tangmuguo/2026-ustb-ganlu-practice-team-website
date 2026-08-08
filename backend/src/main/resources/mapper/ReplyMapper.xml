@@ -58,9 +58,11 @@
           AND
             r.status = 1
         ORDER BY
-            r.create_time ASC
+            r.create_time DESC,
+            r.id DESC
     </select>
 
+    <!-- 获取当前页留言的所有回复 -->
     <select id="selectRepliesByMessageIds" resultMap="replymap">
         SELECT r.id, r.message_id, r.user_id, r.content, r.create_time, r.update_time, r.status,
                u.username, u.teamname, u.level AS user_level,
@@ -76,13 +78,19 @@
         <foreach collection="messageIds" item="messageId" open="(" separator="," close=")">
             #{messageId}
         </foreach>
-        ORDER BY r.create_time ASC, r.id ASC
+        ORDER BY r.message_id ASC, r.create_time DESC, r.id DESC
     </select>
 
     <!-- 根据ID获取回复 -->
     <select id="selectReplyById" parameterType="int" resultMap="replymap">
         SELECT
-            *
+            id,
+            message_id,
+            user_id,
+            content,
+            create_time,
+            update_time,
+            status
         FROM
             reply
         WHERE
@@ -100,6 +108,8 @@
             update_time = NOW()
         WHERE
             id = #{id}
+          AND
+            status = 1
     </update>
 
     <update id="deleteRepliesByMessageId" parameterType="int">
@@ -128,7 +138,8 @@
           AND
             r.status = 1
         ORDER BY
-            r.create_time DESC
+            r.create_time DESC,
+            r.id DESC
     </select>
 
 </mapper>
