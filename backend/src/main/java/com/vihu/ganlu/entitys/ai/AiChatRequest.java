@@ -1,7 +1,6 @@
 package com.vihu.ganlu.entitys.ai;
 
 import com.fasterxml.jackson.annotation.JsonAnySetter;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import java.util.List;
 
