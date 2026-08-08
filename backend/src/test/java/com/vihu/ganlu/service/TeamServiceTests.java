@@ -125,6 +125,7 @@ class TeamServiceTests {
         existing.setName("星火小队");
         existing.setStatus(TeamEntity.Status.PUBLISHED);
         when(teamMapper.findById(10)).thenReturn(existing);
+        when(teamPageService.findByTeamId(10)).thenReturn(new TeamPageEntity());
 
         teamService.archiveTeam(10);
 
@@ -132,6 +133,34 @@ class TeamServiceTests {
         ArgumentCaptor<TeamEntity> teamCaptor = ArgumentCaptor.forClass(TeamEntity.class);
         verify(teamPageService).ensureTeamPage(teamCaptor.capture());
         assertEquals(TeamEntity.Status.ARCHIVED, teamCaptor.getValue().getStatus());
+    }
+
+    @Test
+    void archiveDoesNotCreateMissingTeamPage() {
+        TeamEntity existing = new TeamEntity();
+        existing.setId(10);
+        existing.setStatus(TeamEntity.Status.PUBLISHED);
+        when(teamMapper.findById(10)).thenReturn(existing);
+        when(teamPageService.findByTeamId(10)).thenReturn(null);
+
+        teamService.archiveTeam(10);
+
+        verify(teamMapper).archiveTeam(10);
+        verify(teamPageService, never()).ensureTeamPage(any(TeamEntity.class));
+    }
+
+    @Test
+    void archiveIsIdempotentForAlreadyArchivedTeam() {
+        TeamEntity existing = new TeamEntity();
+        existing.setId(10);
+        existing.setStatus(TeamEntity.Status.ARCHIVED);
+        when(teamMapper.findById(10)).thenReturn(existing);
+
+        teamService.archiveTeam(10);
+
+        verify(teamMapper, never()).archiveTeam(10);
+        verify(teamPageService, never()).findByTeamId(10);
+        verify(teamPageService, never()).ensureTeamPage(any(TeamEntity.class));
     }
 
     @Test

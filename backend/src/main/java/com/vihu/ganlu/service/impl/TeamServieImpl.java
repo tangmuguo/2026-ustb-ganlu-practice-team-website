@@ -111,8 +111,10 @@ public class TeamServieImpl implements TeamServie {
         if (existing.getStatus() != TeamEntity.Status.ARCHIVED) {
             teamMapper.archiveTeam(teamId);
             existing.setStatus(TeamEntity.Status.ARCHIVED);
+            if (teamPageService.findByTeamId(teamId) != null) {
+                teamPageService.ensureTeamPage(existing);
+            }
         }
-        teamPageService.ensureTeamPage(existing);
     }
 
     private TeamEntity validatedTeam(Integer teamId, TeamSaveRequest request) {
