@@ -3,19 +3,29 @@ package com.vihu.ganlu.utils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.*;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
+
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
+
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
@@ -27,167 +37,266 @@ public class FileStorageUtil {
     private final Path uploadRoot;
     private final String activeProfile;
 
-    // ---- 文件类型白名单 ----
     public static final List<String> IMAGE_EXT = Arrays.asList("jpg", "jpeg", "png", "webp");
     public static final List<String> VIDEO_EXT = Arrays.asList("mp4", "mov");
     public static final List<String> DOC_EXT = Arrays.asList("pdf", "doc", "docx", "ppt", "pptx", "zip");
+    public static final long MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+    public static final long MAX_VIDEO_SIZE = 200 * 1024 * 1024;
+    public static final long MAX_DOCUMENT_SIZE = 200 * 1024 * 1024;
 
-    // ---- 魔数签名 ----
     private static final byte[] MAGIC_JPEG = new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF};
     private static final byte[] MAGIC_PNG = new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
     private static final byte[] MAGIC_WEBP_RIFF = "RIFF".getBytes();
     private static final byte[] MAGIC_WEBP_WEBP = "WEBP".getBytes();
     private static final byte[] MAGIC_MP4_FTYP = "ftyp".getBytes();
     private static final byte[] MAGIC_PDF = "%PDF".getBytes();
-    // OOXML（docx/pptx/zip）本质是 ZIP 容器，魔数为 PK\x03\x04
     private static final byte[] MAGIC_ZIP = new byte[]{0x50, 0x4B, 0x03, 0x04};
-    // 老式 DOC/PPT 为 OLE Compound File，魔数为 D0 CF 11 E0 A1 B1 1A E1
     private static final byte[] MAGIC_OLE = new byte[]{(byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0,
             (byte) 0xA1, (byte) 0xB1, 0x1A, (byte) 0xE1};
-
-    // ---- 大小限制 ----
-    public static final long MAX_IMAGE_SIZE = 10 * 1024 * 1024;      // 10MB
-    public static final long MAX_VIDEO_SIZE = 200 * 1024 * 1024;     // 200MB
-    public static final long MAX_DOCUMENT_SIZE = 200 * 1024 * 1024;  // 200MB
+    private static final int MAX_OOXML_ENTRIES = 1000;
 
     public FileStorageUtil(
             @Value("${file.upload-dir}") String uploadDir,
             @Value("${spring.profiles.active:dev}") String activeProfile) {
-
         this.activeProfile = activeProfile;
         this.uploadRoot = Paths.get(uploadDir).toAbsolutePath().normalize();
 
         try {
             Files.createDirectories(uploadRoot);
             log.info("当前运行环境: {}", this.activeProfile);
-            log.info("文件上传目录已初始化:{}",uploadRoot);
-
-            // 生产环境额外检查权限
+            log.info("文件上传目录已初始化: {}", uploadRoot);
             if ("prod".equals(this.activeProfile)) {
                 checkDirectoryPermissions();
             }
         } catch (IOException e) {
-            throw new RuntimeException("无法创建上传目录: " + uploadRoot, e);
+            throw new StorageException("无法创建上传目录: " + uploadRoot, e);
         }
     }
 
-    private void checkDirectoryPermissions() throws IOException {
-        Path testFile = uploadRoot.resolve(".permission-test");
+    public Path getUploadRoot() {
+        return uploadRoot;
+    }
+
+    public long getUsableSpace() {
+        return getUsableSpace(uploadRoot);
+    }
+
+    public long getUsableSpace(Path directory) {
         try {
-            Files.createFile(testFile);
-            Files.delete(testFile);
-        } catch (AccessDeniedException e) {
-            String errorMsg = String.format(
-                    "上传目录权限不足。请执行: sudo chown -R tomcat8:tomcat8 %s",
-                    uploadRoot.getParent());
-            throw new IOException(errorMsg, e);
+            return Files.getFileStore(directory.toAbsolutePath().normalize()).getUsableSpace();
+        } catch (IOException e) {
+            throw new StorageException("无法读取磁盘剩余空间: " + directory, e);
+        }
+    }
+
+    public Path createDirectory(String relativeDirectory) {
+        Path directory = resolveSafe(relativeDirectory);
+        try {
+            Files.createDirectories(directory);
+            return directory;
+        } catch (IOException e) {
+            throw new StorageException("无法创建目录: " + relativeDirectory, e);
         }
     }
 
     public String storeFile(MultipartFile file, String subDir) {
+        String originalName = safeLeafName(file == null ? null : file.getOriginalFilename());
+        return storeFile(file, subDir, extensionOf(originalName));
+    }
+
+    public String storeFile(MultipartFile file, String subDir, String forcedExtension) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("上传文件不能为空");
+        }
+        String originalName = safeLeafName(file.getOriginalFilename());
+        String extension = sanitizeExtension(forcedExtension);
+        String targetName = UUID.randomUUID().toString()
+                + (extension.isEmpty() ? "" : "." + extension);
+        Path target = createDirectory(subDir).resolve(targetName).normalize();
+        ensureInsideRoot(target);
+
+        Path staging = null;
         try {
-            // 子目录也需做边界校验，防止 subDir 中的 ../ 逃出 uploadRoot
-            Path targetDir = uploadRoot.resolve(subDir).toAbsolutePath().normalize();
-            if (!targetDir.startsWith(uploadRoot)) {
-                throw new StorageException("非法的存储子目录: " + subDir);
+            // Staging lives outside /images/**, so a failed or partial copy is never same-origin public.
+            staging = Files.createTempFile(uploadRoot, ".upload-", ".tmp");
+            try (InputStream input = file.getInputStream()) {
+                Files.copy(input, staging, StandardCopyOption.REPLACE_EXISTING);
             }
-            Files.createDirectories(targetDir);
-
-            // 物理文件名完全由服务端生成（UUID + 验证后的扩展名），
-            // 原始文件名仅作为元数据保存到数据库，避免路径穿越和同名覆盖。
-            String ext = extractExtension(file.getOriginalFilename());
-            String safeFilename = UUID.randomUUID().toString()
-                    + (ext.isEmpty() ? "" : "." + ext);
-
-            Path targetPath = targetDir.resolve(safeFilename).toAbsolutePath().normalize();
-            if (!targetPath.startsWith(uploadRoot)) {
-                throw new StorageException("非法的存储路径: " + targetPath);
+            try {
+                Files.move(staging, target, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException ex) {
+                Files.move(staging, target);
             }
-            file.transferTo(targetPath);
-
-            // 统一为 URL 风格的相对路径（正斜杠），兼容 Windows 历史反斜杠路径
-            // （loadFile / 发布校验 / serveImage 都按正斜杠解析）。
-            return uploadRoot.relativize(targetPath).toString().replace('\\', '/');
+            return toRelativePath(target);
         } catch (IOException e) {
-            throw new StorageException("存储文件失败: " + file.getOriginalFilename(), e);
+            deleteQuietly(staging);
+            deleteQuietly(target);
+            throw new StorageException("存储文件失败: " + originalName, e);
+        } finally {
+            deleteQuietly(staging);
         }
     }
 
-    /**
-     * 由相对路径relativePath与uploadRoot的根路径 组合成完整的绝对路径，多用于读取或者下载文件。
-     * 校验结果路径必须仍在 uploadRoot 之下，防止路径穿越。
-     * @param relativePath 存储时返回的相对路径
-     * @return 规范化后的绝对路径
-     */
-    public Path loadFile(String relativePath) {
-        // 兼容 DB 中可能残留的反斜杠路径（Windows 旧数据），统一成正斜杠再解析
-        String normalized = relativePath == null ? "" : relativePath.replace('\\', '/');
-        Path filePath = uploadRoot.resolve(normalized).toAbsolutePath().normalize();
-        if (!filePath.startsWith(uploadRoot)) {
-            throw new StorageException("尝试访问上传目录之外的文件: " + relativePath);
-        }
-        return filePath;
-    }
-
-    /**
-     * 根据相对路径删除文件
-     * @param relativePath 要删除文件的相对路径
-     * @return 是否删除成功
-     * @throws StorageException 如果删除过程中出现错误
-     */
-    public boolean deleteFile(String relativePath) {
+    public String moveInto(Path source, String subDir, String extension) {
+        ensureExistingSource(source);
+        String safeExtension = sanitizeExtension(extension);
+        Path target = createDirectory(subDir).resolve(
+                UUID.randomUUID().toString() + (safeExtension.isEmpty() ? "" : "." + safeExtension)
+        ).normalize();
+        ensureInsideRoot(target);
         try {
-            Path filePath = loadFile(relativePath);
+            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+            return toRelativePath(target);
+        } catch (IOException e) {
+            throw new StorageException("移动文件失败", e);
+        }
+    }
 
-            // 安全检查：确保文件路径在uploadRoot目录下
-            if (!filePath.startsWith(uploadRoot)) {
-                throw new SecurityException("尝试删除不在上传目录下的文件: " + filePath);
+    public String copyInto(Path source, String subDir, String extension) {
+        ensureExistingSource(source);
+        String safeExtension = sanitizeExtension(extension);
+        Path target = createDirectory(subDir).resolve(
+                UUID.randomUUID().toString() + (safeExtension.isEmpty() ? "" : "." + safeExtension)
+        ).normalize();
+        ensureInsideRoot(target);
+        try {
+            Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+            return toRelativePath(target);
+        } catch (IOException e) {
+            throw new StorageException("复制文件失败", e);
+        }
+    }
+
+    /** Allocates a collision-resistant path without creating the file, so recovery intent can be persisted first. */
+    public String allocatePath(String subDir, String extension) {
+        String safeExtension = sanitizeExtension(extension);
+        Path target = createDirectory(subDir).resolve(
+                UUID.randomUUID().toString() + (safeExtension.isEmpty() ? "" : "." + safeExtension)
+        ).normalize();
+        ensureInsideRoot(target);
+        if (Files.exists(target)) {
+            throw new StorageException("目标文件已存在: " + toRelativePath(target));
+        }
+        return toRelativePath(target);
+    }
+
+    /** Copies into a previously allocated path. The staged source remains available until DB commit succeeds. */
+    public void copyToAllocatedPath(Path source, String relativePath) {
+        ensureExistingSource(source);
+        Path target = loadFile(relativePath);
+        if (Files.exists(target)) {
+            throw new StorageException("目标文件已存在: " + relativePath);
+        }
+        try {
+            Files.createDirectories(target.getParent());
+            Files.copy(source, target);
+        } catch (IOException error) {
+            deleteQuietly(target);
+            throw new StorageException("复制文件失败: " + relativePath, error);
+        }
+    }
+
+    public Path moveFile(String fromRelativePath, String toRelativePath) {
+        Path source = loadFile(fromRelativePath);
+        Path target = loadFile(toRelativePath);
+        if (!Files.isRegularFile(source)) {
+            throw new StorageException("源文件不存在: " + fromRelativePath);
+        }
+        if (Files.exists(target)) {
+            throw new StorageException("目标文件已存在: " + toRelativePath);
+        }
+        try {
+            Files.createDirectories(target.getParent());
+            try {
+                return Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException ex) {
+                return Files.move(source, target);
             }
+        } catch (IOException e) {
+            throw new StorageException("移动文件失败: " + fromRelativePath + " -> " + toRelativePath, e);
+        }
+    }
 
-            // 检查文件是否存在
+    public Path loadFile(String relativePath) {
+        if (!StringUtils.hasText(relativePath)) {
+            throw new IllegalArgumentException("文件路径不能为空");
+        }
+        // 兼容数据库中 Windows 历史数据残留的反斜杠路径。
+        String normalizedPath = relativePath.replace('\\', '/');
+        Path resolved = uploadRoot.resolve(normalizedPath).toAbsolutePath().normalize();
+        ensureInsideRoot(resolved);
+        return resolved;
+    }
+
+    public boolean deleteFile(String relativePath) {
+        if (!StringUtils.hasText(relativePath)) {
+            return false;
+        }
+        Path filePath = loadFile(relativePath);
+        try {
             if (!Files.exists(filePath)) {
-                log.warn("文件不存在，无法删除: {}", filePath);
+                log.warn("文件不存在，跳过删除: {}", filePath);
                 return false;
             }
-
-            // 删除文件
             Files.delete(filePath);
-            log.info("文件删除成功: {}", filePath);
-
             return true;
         } catch (IOException e) {
             throw new StorageException("删除文件失败: " + relativePath, e);
         }
     }
 
-    /**
-     * 递归删除空的父目录
-     * @param directory 要检查的目录
-     * @throws IOException 如果删除过程中出现错误
-     */
-    private void deleteEmptyParentDirectories(Path directory) throws IOException {
-        // 确保目录在uploadRoot下
-        if (directory != null && directory.startsWith(uploadRoot) && !directory.equals(uploadRoot)) {
-            // 检查目录是否为空
-            try (DirectoryStream<Path> dirStream = Files.newDirectoryStream(directory)) {
-                if (!dirStream.iterator().hasNext()) {
-                    // 目录为空，删除它
-                    Files.delete(directory);
-                    log.info("已删除空目录: {}", directory);
-
-                    // 递归检查上级目录
-                    deleteEmptyParentDirectories(directory.getParent());
-                }
-            }
+    public void deleteTree(Path directory) {
+        if (directory == null || !Files.exists(directory)) {
+            return;
+        }
+        Path normalized = directory.toAbsolutePath().normalize();
+        ensureInsideRoot(normalized);
+        if (normalized.equals(uploadRoot)) {
+            throw new SecurityException("禁止删除上传根目录");
+        }
+        try (Stream<Path> paths = Files.walk(normalized)) {
+            paths
+                    .sorted(Comparator.reverseOrder())
+                    .forEach(path -> {
+                        try {
+                            Files.deleteIfExists(path);
+                        } catch (IOException e) {
+                            throw new StorageException("清理临时文件失败: " + path, e);
+                        }
+                    });
+        } catch (IOException e) {
+            throw new StorageException("清理临时目录失败: " + normalized, e);
         }
     }
 
-    // =====================================================================
-    // 文件校验增强
-    // =====================================================================
+    public String toRelativePath(Path path) {
+        Path normalized = path.toAbsolutePath().normalize();
+        ensureInsideRoot(normalized);
+        return uploadRoot.relativize(normalized).toString().replace('\\', '/');
+    }
+
+    public static String safeLeafName(String originalName) {
+        String cleaned = StringUtils.cleanPath(originalName == null ? "file" : originalName)
+                .replace('\\', '/');
+        String leaf = cleaned.substring(cleaned.lastIndexOf('/') + 1).trim();
+        if (!StringUtils.hasText(leaf) || ".".equals(leaf) || "..".equals(leaf)) {
+            return "file";
+        }
+        return leaf.replaceAll("[\\r\\n\\t]", "_");
+    }
+
+    public static String extensionOf(String filename) {
+        String leaf = safeLeafName(filename);
+        int dot = leaf.lastIndexOf('.');
+        return dot < 0 ? "" : sanitizeExtension(leaf.substring(dot + 1));
+    }
+
+    public String extractExtension(String filename) {
+        return extensionOf(filename);
+    }
 
     public enum FileCategory {
-        IMAGE, VIDEO, DOCUMENT, REJECTED
+        IMAGE, VIDEO, DOCUMENT
     }
 
     public static class ValidatedFile {
@@ -209,129 +318,84 @@ public class FileStorageUtil {
         public void setRaw(MultipartFile raw) { this.raw = raw; }
     }
 
-    /**
-     * 从文件名提取小写扩展名（不含点号）。
-     * @param filename 文件名，如 "photo.JPG"
-     * @return 小写扩展名，如 "jpg"；无法提取时返回空字符串
-     */
-    public String extractExtension(String filename) {
-        if (filename == null || filename.isEmpty()) {
-            return "";
-        }
-        int dot = filename.lastIndexOf('.');
-        if (dot >= 0 && dot < filename.length() - 1) {
-            return filename.substring(dot + 1).toLowerCase();
-        }
-        return "";
-    }
-
-    /**
-     * 综合校验文件：扩展名 + MIME + 魔数 + 大小。
-     * @param file 上传文件
-     * @param maxSizeBytes 允许的最大字节数
-     * @return 校验通过的文件信息
-     * @throws IllegalArgumentException 校验失败时抛出
-     */
     public ValidatedFile validate(MultipartFile file, long maxSizeBytes) {
-        if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("文件为空");
-        }
-
+        if (file == null || file.isEmpty()) throw new IllegalArgumentException("文件为空");
         String originalFilename = file.getOriginalFilename();
-        if (originalFilename == null || originalFilename.isEmpty()) {
-            throw new IllegalArgumentException("文件名为空");
-        }
+        if (!StringUtils.hasText(originalFilename)) throw new IllegalArgumentException("文件名为空");
+        if (file.getSize() > maxSizeBytes) throw new IllegalArgumentException("文件大小超过限制");
 
-        // 1. 提取扩展名
-        String ext = "";
-        int dot = originalFilename.lastIndexOf('.');
-        if (dot >= 0 && dot < originalFilename.length() - 1) {
-            ext = originalFilename.substring(dot + 1).toLowerCase();
-        }
-
-        // 2. 大小校验
-        if (file.getSize() > maxSizeBytes) {
-            throw new IllegalArgumentException(
-                    String.format("文件大小超过限制: %d > %d bytes", file.getSize(), maxSizeBytes));
-        }
-
-        // 3. 确定类别 + 校验扩展名白名单
+        String extension = extractExtension(originalFilename);
         FileCategory category;
-        if (IMAGE_EXT.contains(ext)) {
-            category = FileCategory.IMAGE;
-        } else if (VIDEO_EXT.contains(ext)) {
-            category = FileCategory.VIDEO;
-        } else if (DOC_EXT.contains(ext)) {
-            category = FileCategory.DOCUMENT;
-        } else {
-            throw new IllegalArgumentException("不支持的文件类型: " + ext);
+        if (IMAGE_EXT.contains(extension)) category = FileCategory.IMAGE;
+        else if (VIDEO_EXT.contains(extension)) category = FileCategory.VIDEO;
+        else if (DOC_EXT.contains(extension)) category = FileCategory.DOCUMENT;
+        else throw new IllegalArgumentException("不支持的文件类型: " + extension);
+
+        byte[] header = new byte[12];
+        try (InputStream input = file.getInputStream()) {
+            int length = input.read(header);
+            if (length < 8) throw new IllegalArgumentException("文件头过短，无法校验");
+        } catch (IOException error) {
+            throw new IllegalArgumentException("读取文件失败", error);
+        }
+        if (!matchesMagic(header, category, extension)) {
+            throw new IllegalArgumentException("文件内容与实际扩展名不符（魔数校验失败）");
+        }
+        if (category == FileCategory.DOCUMENT
+                && ("docx".equals(extension) || "pptx".equals(extension))
+                && !isRealOoxml(file, extension)) {
+            throw new IllegalArgumentException("文件不是有效的 " + extension + "（OOXML 结构校验失败）");
         }
 
-        // 4. 魔数校验（防伪装）— 只读文件头，避免大文件 OOM
-        try {
-            byte[] header = new byte[12];
-            try (InputStream is = file.getInputStream()) {
-                int n = is.read(header);
-                if (n < 8) {
-                    throw new IllegalArgumentException("文件头过短，无法校验");
-                }
-            }
-            if (!matchesMagic(header, category, ext)) {
-                throw new IllegalArgumentException("文件内容与实际扩展名不符（魔数校验失败）");
-            }
-            // Item 9: docx/pptx 仅凭 ZIP 头不够（任意 ZIP 改后缀即可通过），
-            // 追加 OOXML 真实结构校验：检查 ZIP 内含 [Content_Types].xml 和 word/(docx)/ppt/(pptx)。
-            if (category == FileCategory.DOCUMENT && ("docx".equals(ext) || "pptx".equals(ext))) {
-                if (!isRealOoxml(file, ext)) {
-                    throw new IllegalArgumentException("文件不是有效的 " + ext + "（OOXML 结构校验失败）");
-                }
-            }
-        } catch (IOException e) {
-            throw new IllegalArgumentException("读取文件失败: " + e.getMessage());
-        }
-
-        ValidatedFile vf = new ValidatedFile();
-        vf.setCategory(category);
-        vf.setExtension(ext);
-        vf.setMimeType(file.getContentType());
-        vf.setSize(file.getSize());
-        vf.setRaw(file);
-        return vf;
+        ValidatedFile validated = new ValidatedFile();
+        validated.setCategory(category);
+        validated.setExtension(extension);
+        validated.setMimeType(file.getContentType());
+        validated.setSize(file.getSize());
+        validated.setRaw(file);
+        return validated;
     }
 
-    private boolean matchesMagic(byte[] header, FileCategory category, String ext) {
+    public ValidatedFile isAllowedImage(MultipartFile file) {
+        ValidatedFile validated = validate(file, MAX_IMAGE_SIZE);
+        if (validated.getCategory() != FileCategory.IMAGE) {
+            throw new IllegalArgumentException("仅支持图片文件");
+        }
+        return validated;
+    }
+
+    public ValidatedFile isAllowedVideo(MultipartFile file) {
+        ValidatedFile validated = validate(file, MAX_VIDEO_SIZE);
+        if (validated.getCategory() != FileCategory.VIDEO) {
+            throw new IllegalArgumentException("仅支持视频文件");
+        }
+        return validated;
+    }
+
+    public ValidatedFile isAllowedDocument(MultipartFile file) {
+        ValidatedFile validated = validate(file, MAX_DOCUMENT_SIZE);
+        if (validated.getCategory() != FileCategory.DOCUMENT) {
+            throw new IllegalArgumentException("仅支持文档文件");
+        }
+        return validated;
+    }
+
+    private boolean matchesMagic(byte[] header, FileCategory category, String extension) {
         switch (category) {
             case IMAGE:
-                if ("jpg".equals(ext) || "jpeg".equals(ext)) {
-                    return startsWith(header, MAGIC_JPEG);
-                } else if ("png".equals(ext)) {
-                    return startsWith(header, MAGIC_PNG);
-                } else if ("webp".equals(ext)) {
-                    // RIFF....WEBP
-                    return startsWith(header, MAGIC_WEBP_RIFF)
-                            && header.length >= 12
-                            && matchBytes(header, 8, MAGIC_WEBP_WEBP);
-                }
-                return false;
+                if ("jpg".equals(extension) || "jpeg".equals(extension)) return startsWith(header, MAGIC_JPEG);
+                if ("png".equals(extension)) return startsWith(header, MAGIC_PNG);
+                return "webp".equals(extension)
+                        && startsWith(header, MAGIC_WEBP_RIFF)
+                        && matchBytes(header, 8, MAGIC_WEBP_WEBP);
             case VIDEO:
-                // MP4/MOV: ftyp box at offset 4
-                if (header.length >= 12) {
-                    return matchBytes(header, 4, MAGIC_MP4_FTYP);
-                }
-                return false;
+                return matchBytes(header, 4, MAGIC_MP4_FTYP);
             case DOCUMENT:
-                if ("pdf".equals(ext)) {
-                    return startsWith(header, MAGIC_PDF);
-                }
-                // docx/pptx/zip 均为 ZIP 容器（OOXML），校验 PK 头
-                if ("docx".equals(ext) || "pptx".equals(ext) || "zip".equals(ext)) {
+                if ("pdf".equals(extension)) return startsWith(header, MAGIC_PDF);
+                if ("docx".equals(extension) || "pptx".equals(extension) || "zip".equals(extension)) {
                     return startsWith(header, MAGIC_ZIP);
                 }
-                // 老式 doc/ppt 为 OLE Compound File，校验 OLE 头
-                if ("doc".equals(ext) || "ppt".equals(ext)) {
-                    return startsWith(header, MAGIC_OLE);
-                }
-                return false;
+                return startsWith(header, MAGIC_OLE);
             default:
                 return false;
         }
@@ -352,7 +416,6 @@ public class FileStorageUtil {
      *   - 保留 !name.contains("..") 守卫（只读内存无 Zip Slip 风险，但守卫已有，不删）。
      * 普通 zip 不走此方法（继续只验 ZIP 容器）。
      */
-    private static final int MAX_OOXML_ENTRIES = 1000;
     // exy v5 Item 6：hasRootElement 流式完整解析（未闭合即拒），前缀上限决定 document.xml
     // 超过多大时会被误拒（前缀截断 → SAX 报未闭合）。50MB 覆盖几乎所有合法 docx。
     // 代价：校验时每文件最多读 50MB 前缀到内存（流式解析不建 DOM，内存≈输入字节）。
@@ -621,32 +684,64 @@ public class FileStorageUtil {
     }
 
     private boolean startsWith(byte[] data, byte[] prefix) {
-        if (data.length < prefix.length) return false;
-        for (int i = 0; i < prefix.length; i++) {
-            if (data[i] != prefix[i]) return false;
-        }
-        return true;
+        return matchBytes(data, 0, prefix);
     }
 
     private boolean matchBytes(byte[] data, int offset, byte[] pattern) {
         if (data.length < offset + pattern.length) return false;
-        for (int i = 0; i < pattern.length; i++) {
-            if (data[offset + i] != pattern[i]) return false;
+        for (int index = 0; index < pattern.length; index++) {
+            if (data[offset + index] != pattern[index]) return false;
         }
         return true;
     }
 
-    // ---- 便捷方法 ----
-    public ValidatedFile isAllowedImage(MultipartFile file) {
-        return validate(file, MAX_IMAGE_SIZE);
+    private Path resolveSafe(String relativePath) {
+        if (!StringUtils.hasText(relativePath)) {
+            throw new IllegalArgumentException("相对目录不能为空");
+        }
+        Path resolved = uploadRoot.resolve(relativePath).toAbsolutePath().normalize();
+        ensureInsideRoot(resolved);
+        return resolved;
     }
 
-    public ValidatedFile isAllowedVideo(MultipartFile file) {
-        return validate(file, MAX_VIDEO_SIZE);
+    private void ensureInsideRoot(Path path) {
+        if (!path.startsWith(uploadRoot)) {
+            throw new StorageException("非法文件路径: " + path);
+        }
     }
 
-    public ValidatedFile isAllowedDocument(MultipartFile file) {
-        return validate(file, MAX_DOCUMENT_SIZE);
+    private void ensureExistingSource(Path source) {
+        if (source == null || !Files.isRegularFile(source)) {
+            throw new IllegalArgumentException("源文件不存在");
+        }
+        ensureInsideRoot(source.toAbsolutePath().normalize());
+    }
+
+    private static String sanitizeExtension(String extension) {
+        if (extension == null) {
+            return "";
+        }
+        String safe = extension.toLowerCase().replaceAll("[^a-z0-9]", "");
+        return safe.length() > 10 ? safe.substring(0, 10) : safe;
+    }
+
+    private void checkDirectoryPermissions() throws IOException {
+        Path testFile = uploadRoot.resolve(".permission-test");
+        try {
+            Files.createFile(testFile);
+            Files.delete(testFile);
+        } catch (AccessDeniedException e) {
+            throw new IOException("上传目录不可写: " + uploadRoot, e);
+        }
+    }
+
+    private void deleteQuietly(Path path) {
+        if (path == null) return;
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException cleanupError) {
+            log.warn("清理上传暂存文件失败: {}", path, cleanupError);
+        }
     }
 
     /**
@@ -709,6 +804,7 @@ public class FileStorageUtil {
         public StorageException(String message) {
             super(message);
         }
+
         public StorageException(String message, Throwable cause) {
             super(message, cause);
         }

@@ -29,4 +29,7 @@ public interface TeamMediaService {
     int deleteByIdsAndUploader(List<Integer> ids, int uploaderId);
 
     boolean archiveByIdAndTeamId(int id, int teamId);
+
+    /** 仅归档附件可进入持久化物理删除任务。 */
+    boolean purgeById(int id);
 }

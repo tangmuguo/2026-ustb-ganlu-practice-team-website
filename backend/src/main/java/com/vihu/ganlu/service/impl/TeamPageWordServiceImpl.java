@@ -54,7 +54,8 @@ public class TeamPageWordServiceImpl implements TeamPageWordService {
     @Override
     @Transactional
     public boolean archiveById(int id) {
-        TeamPageWordEntity e = teamPageWordMapper.findById(id);
+        TeamPageWordEntity e = teamPageWordMapper.findByIdForUpdate(id);
+        if (e == null) return false;
         int n = teamPageWordMapper.archiveById(id);
         if (n > 0 && e != null && e.getTeamId() != null) {
             teamMediaMapper.archiveByRelated("WORD", id, e.getTeamId()); // 级联归档关联 media
@@ -65,6 +66,8 @@ public class TeamPageWordServiceImpl implements TeamPageWordService {
     @Override
     @Transactional
     public boolean archiveByIdAndTeamId(int id, int teamId) {
+        TeamPageWordEntity e = teamPageWordMapper.findByIdForUpdate(id);
+        if (e == null || !Integer.valueOf(teamId).equals(e.getTeamId())) return false;
         int n = teamPageWordMapper.archiveByIdAndTeamId(id, teamId);
         if (n > 0) {
             teamMediaMapper.archiveByRelated("WORD", id, teamId); // 级联归档关联 media
@@ -75,7 +78,8 @@ public class TeamPageWordServiceImpl implements TeamPageWordService {
     @Override
     @Transactional
     public boolean updateStatus(int id, String status, String rejectReason) {
-        TeamPageWordEntity e = teamPageWordMapper.findById(id);
+        TeamPageWordEntity e = teamPageWordMapper.findByIdForUpdate(id);
+        if (e == null) return false;
         int n = teamPageWordMapper.updateWordStatus(id, status, rejectReason);
         // 父内容被驳回/归档时，级联隐藏关联附件；父内容发布时不自动提升附件，
         // 附件需保持自身的独立审核结果，避免已驳回/已归档附件被复活。

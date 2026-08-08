@@ -29,6 +29,10 @@
         select * from user where id=#{id}
     </select>
 
+    <select id="findUserByIdForUpdate" parameterType="Integer" resultMap="usermap">
+        select * from user where id=#{id} for update
+    </select>
+
     <select id="findUserByLevel" parameterType="Integer" resultMap="usermap">
         select * from user where level=#{level}
     </select>
@@ -37,10 +41,21 @@
         select * from user where level>#{level}
     </select>
 
-    <select id="login" resultMap="usermap" parameterType="com.vihu.ganlu.entitys.UserEntity" >
-        select * from user
-        where username=#{username} and password=#{password}
+    <select id="findUserByUsername" resultMap="usermap">
+        select * from user where username=#{username} limit 1
     </select>
+
+    <select id="countByUsername" resultType="int">
+        select count(1) from user where username=#{username}
+    </select>
+
+    <select id="countByPhone" resultType="int">
+        select count(1) from user where phone=#{phone}
+    </select>
+
+    <update id="updatePasswordById">
+        update user set password=#{password} where id=#{id}
+    </update>
 
     <select id="findCountUserByPage" parameterType="com.vihu.ganlu.entitys.UserQueryVo" resultType="Integer">
         select count(1) from user
@@ -73,7 +88,7 @@
         limit #{startRow},#{rows}
     </select>
 
-    <insert id="addUser" parameterType="com.vihu.ganlu.entitys.UserEntity">
+    <insert id="addUser" parameterType="com.vihu.ganlu.entitys.UserEntity" useGeneratedKeys="true" keyProperty="id">
         insert into user(username,password,imageUrl,teamname,helplocation,helpschool,realname,belongschool,grade,phone,level)
         values (#{username},#{password},#{imageUrl},#{teamname},#{helplocation},#{helpschool},#{realname},#{belongschool},#{grade},#{phone},#{level})
     </insert>
@@ -81,7 +96,7 @@
     <update id="updateUserById" parameterType="com.vihu.ganlu.entitys.UserEntity" >
         update user
         set username=#{username},
-        <if test="password != null">
+        <if test="password != null and password != ''">
             password=#{password},
         </if>
         <if test="imageUrl != null">
@@ -106,6 +121,15 @@
             phone=#{phone}
         where id=#{id}
     </update>
+
+    <select id="countTeamBindingsByUserIds" resultType="int">
+        select count(1)
+        from team
+        where owner_user_id in
+        <foreach collection="ids" item="id" separator="," open="(" close=")">
+            #{id}
+        </foreach>
+    </select>
 
     <delete id="deleteUserByIds" parameterType="com.vihu.ganlu.entitys.UserQueryVo">
         delete from user

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import UploadWidget from '@/components/UploadWidget.vue'
+import PublicImageUploadWidget from '@/components/PublicImageUploadWidget.vue'
 import { 
   getBannerList, 
   addBanner, 
@@ -19,6 +19,7 @@ const currentBanner = ref({
   id: null,
   title: '',
   imageUrl: '',
+  imageUploadToken: '',
   linkUrl: '',
   sortOrder: 1,
   isVisible: 1
@@ -50,6 +51,7 @@ const handleAddBanner = () => {
     id: null,
     title: '',
     imageUrl: '',
+    imageUploadToken: '',
     linkUrl: '',
     sortOrder: bannerList.value.length > 0 
       ? Math.max(...bannerList.value.map(b => b.sortOrder)) + 1 
@@ -63,7 +65,7 @@ const handleAddBanner = () => {
 
 // 编辑轮播图
 const handleEditBanner = (banner) => {
-  currentBanner.value = { ...banner }
+  currentBanner.value = { ...banner, imageUploadToken: '' }
   dialogTitle.value = '编辑轮播图'
   isEditing.value = true
   dialogVisible.value = true
@@ -88,30 +90,37 @@ const handleDeleteBanner = async (banner) => {
 }
 
 // 图片上传成功处理
-const handleImageUpload = (url) => {
-  currentBanner.value.imageUrl = url
+const handleImageUpload = (stagedImage) => {
+  currentBanner.value.imageUploadToken = stagedImage?.token || ''
 }
 
 // 提交表单
 const handleSubmit = async () => {
-  if (!currentBanner.value.imageUrl) {
+  if (!currentBanner.value.imageUrl && !currentBanner.value.imageUploadToken) {
     ElMessage.warning('请上传图片')
     return
   }
 
   try {
     if (isEditing.value) {
-      await updateBanner(currentBanner.value)
+      const response = await updateBanner(currentBanner.value)
+      if (response.data.code !== 200) throw new Error(response.data.message || '更新失败')
       ElMessage.success('更新成功')
     } else {
-      await addBanner(currentBanner.value)
+      const response = await addBanner(currentBanner.value)
+      if (response.data.code !== 200) throw new Error(response.data.message || '添加失败')
       ElMessage.success('添加成功')
     }
+    uploadWidget.value?.markConsumed()
     dialogVisible.value = false
     loadBannerList()
   } catch (error) {
     ElMessage.error(isEditing.value ? '更新失败' : '添加失败')
   }
+}
+
+const handleDialogClosed = () => {
+  uploadWidget.value?.clearFile()
 }
 
 // 排序改变
@@ -228,6 +237,7 @@ onMounted(() => {
       :title="dialogTitle" 
       width="50%"
       :close-on-click-modal="false"
+      @closed="handleDialogClosed"
     >
       <el-form :model="currentBanner" label-width="100px">
         <el-form-item label="轮播图标题">
@@ -240,11 +250,11 @@ onMounted(() => {
           <el-input-number v-model="currentBanner.sortOrder" :min="1" :max="100"/>
         </el-form-item>
         <el-form-item label="上传图片">
-          <UploadWidget
+          <PublicImageUploadWidget
             ref="uploadWidget"
-            accept="image/*"
+            accept=".jpg,.jpeg,.png,.webp"
             tipText="请上传图片文件，大小不超过5MB"
-            max-size-mb="5"
+            :max-size-mb="5"
             @upload="handleImageUpload"
           />
         </el-form-item>

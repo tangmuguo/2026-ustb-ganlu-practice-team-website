@@ -2,6 +2,8 @@ package com.vihu.ganlu.actions;
 
 import com.google.common.collect.ImmutableMap;
 import com.vihu.ganlu.entitys.NewsEntity;
+import com.vihu.ganlu.entitys.UserEntity;
+import com.vihu.ganlu.security.AuthInterceptor;
 import com.vihu.ganlu.security.PublicEndpoint;
 import com.vihu.ganlu.security.RequireRoles;
 import com.vihu.ganlu.service.NewService;
@@ -12,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import javax.servlet.http.HttpServletRequest;
 import java.util.List;
 
 @RestController
@@ -80,7 +83,10 @@ public class NewsAction {
     // 添加新闻
     @RequireRoles({0})
     @RequestMapping("/add")
-    public ResponseEntity<?> addNews(@RequestBody NewsEntity news) {
+    public ResponseEntity<?> addNews(
+            @RequestBody NewsEntity news,
+            HttpServletRequest request) {
+        news.setImageUploadUserId(currentUser(request).getId());
         int i = newsService.addNews(news);
         if(i>0){
             return ResponseEntity.ok().body(ImmutableMap.of(
@@ -98,7 +104,10 @@ public class NewsAction {
     // 修改新闻
     @RequireRoles({0})
     @RequestMapping("/update")
-    public ResponseEntity<?> updateNews(@RequestBody NewsEntity news) {
+    public ResponseEntity<?> updateNews(
+            @RequestBody NewsEntity news,
+            HttpServletRequest request) {
+        news.setImageUploadUserId(currentUser(request).getId());
         int i = newsService.updateNews(news);
         if(i>0){
             return ResponseEntity.ok().body(ImmutableMap.of(
@@ -129,5 +138,9 @@ public class NewsAction {
                     "message", "添加失败"
             ));
         }
+    }
+
+    private UserEntity currentUser(HttpServletRequest request) {
+        return (UserEntity) request.getAttribute(AuthInterceptor.CURRENT_USER_ATTRIBUTE);
     }
 }

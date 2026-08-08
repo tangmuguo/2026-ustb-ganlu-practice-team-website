@@ -14,6 +14,8 @@
         <result column="status" property="status"/>
         <result column="username" property="username"/>
         <result column="teamname" property="teamname"/>
+        <result column="user_level" property="userLevel"/>
+        <result column="display_name" property="displayName"/>
     </resultMap>
 
     <!-- 新增回复 -->
@@ -56,13 +58,39 @@
           AND
             r.status = 1
         ORDER BY
-            r.create_time ASC
+            r.create_time DESC,
+            r.id DESC
+    </select>
+
+    <!-- 获取当前页留言的所有回复 -->
+    <select id="selectRepliesByMessageIds" resultMap="replymap">
+        SELECT r.id, r.message_id, r.user_id, r.content, r.create_time, r.update_time, r.status,
+               u.username, u.teamname, u.level AS user_level,
+               CASE
+                 WHEN u.level = 1 THEN COALESCE(NULLIF(u.teamname, ''), u.username)
+                 WHEN u.level = 2 THEN COALESCE(NULLIF(u.realname, ''), u.username)
+                 WHEN u.level = 0 THEN COALESCE(NULLIF(u.realname, ''), '系统管理员')
+                 ELSE '已注销用户'
+               END AS display_name
+        FROM reply r
+        LEFT JOIN user u ON r.user_id = u.id
+        WHERE r.status = 1 AND r.message_id IN
+        <foreach collection="messageIds" item="messageId" open="(" separator="," close=")">
+            #{messageId}
+        </foreach>
+        ORDER BY r.message_id ASC, r.create_time DESC, r.id DESC
     </select>
 
     <!-- 根据ID获取回复 -->
     <select id="selectReplyById" parameterType="int" resultMap="replymap">
         SELECT
-            *
+            id,
+            message_id,
+            user_id,
+            content,
+            create_time,
+            update_time,
+            status
         FROM
             reply
         WHERE
@@ -80,6 +108,13 @@
             update_time = NOW()
         WHERE
             id = #{id}
+          AND
+            status = 1
+    </update>
+
+    <update id="deleteRepliesByMessageId" parameterType="int">
+        UPDATE reply SET status = 0, update_time = NOW()
+        WHERE message_id = #{messageId} AND status = 1
     </update>
 
     <!-- 获取用户回复 -->
@@ -103,7 +138,8 @@
           AND
             r.status = 1
         ORDER BY
-            r.create_time DESC
+            r.create_time DESC,
+            r.id DESC
     </select>
 
 </mapper>

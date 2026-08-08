@@ -6,7 +6,6 @@
 <mapper namespace="com.vihu.ganlu.mappers.MessageMapper">
     <resultMap type="com.vihu.ganlu.entitys.MessageEntity" id="messagemap">
         <id column="id" property="id"/>
-        <result column="name" property="name"/>
         <result column="user_id" property="userId"/>
         <result column="content" property="content"/>
         <result column="create_time" property="createTime"/>
@@ -14,6 +13,8 @@
         <result column="status" property="status"/>
         <result column="username" property="username"/>
         <result column="teamname" property="teamname"/>
+        <result column="user_level" property="userLevel"/>
+        <result column="display_name" property="displayName"/>
     </resultMap>
 
     <!-- 新增留言 -->
@@ -43,7 +44,14 @@
             m.update_time,
             m.status,
             u.username,
-            u.teamname
+            u.teamname,
+            u.level AS user_level,
+            CASE
+              WHEN u.level = 1 THEN COALESCE(NULLIF(u.teamname, ''), u.username)
+              WHEN u.level = 2 THEN COALESCE(NULLIF(u.realname, ''), u.username)
+              WHEN u.level = 0 THEN COALESCE(NULLIF(u.realname, ''), '系统管理员')
+              ELSE '已注销用户'
+            END AS display_name
         FROM
             message m
                 LEFT JOIN
@@ -51,8 +59,9 @@
         WHERE
             m.status = 1
         ORDER BY
-            m.create_time DESC
-            LIMIT #{offset}, #{pageSize}
+            m.create_time DESC,
+            m.id DESC
+        LIMIT #{offset}, #{pageSize}
     </select>
 
     <!-- 获取留言总数 -->
@@ -68,7 +77,12 @@
     <!-- 根据ID获取留言 -->
     <select id="selectMessageById" parameterType="int" resultMap="messagemap">
         SELECT
-            *
+            id,
+            user_id,
+            content,
+            create_time,
+            update_time,
+            status
         FROM
             message
         WHERE
@@ -86,6 +100,8 @@
             update_time = NOW()
         WHERE
             id = #{id}
+          AND
+            status = 1
     </update>
 
     <!-- 获取用户留言 -->
@@ -108,7 +124,8 @@
           AND
             m.status = 1
         ORDER BY
-            m.create_time DESC
+            m.create_time DESC,
+            m.id DESC
     </select>
 
 </mapper>

@@ -8,10 +8,6 @@ const AllPATH = {
   addStudentPath:"user/add_student",
   deleteTeamPath:"user/delete_team",
   regPath: "user/reg",
-  hotProduct: "pro/hot",
-  signleProduct: "pro/single",
-  addOrders: "order/add",
-
   //课件
   uploadImagePath:"courseDetail/uploadImage",
   uploadMaterialPath:"courseDetail/uploadFile",
@@ -25,31 +21,24 @@ const AllPATH = {
   getMaterialDetailPath:"courseDetail/getDetail",
   getAllCourseTypePath:"courseDetail/allCourse",
 
-  //团队风采内容管理（已下线旧 fengcai 接口，统一使用 team-content 系列）
+  // 团队风采统一接口
+  uploadTeamImagePath:"team-content/images/stage",
   teamContentMinePath:"team-content/mine",
   teamContentMembersPath:"team-content/members",
   teamContentPhotosPath:"team-content/photos",
   teamContentLogsPath:"team-content/logs",
   teamContentHonorsPath:"team-content/honors",
   teamContentMediaPath:"team-content/media",
-  teamContentDeletePath: (type, id) => `team-content/${type}/${id}/delete`,
-  teamContentPublicPath: (teamId) => `team-content/public/${teamId}`,
-  teamContentMediaDownloadPath: (mediaId) => `team-content/media/${mediaId}/download`,
-  // 团队端/管理员端私有下载（含 PENDING/REJECTED 附件，用于审核前查看）
-  teamContentMediaOwnerDownloadPath: (mediaId) => `team-content/media/${mediaId}/owner-download`,
-  adminTeamContentMediaDownloadPath: (mediaId) => `admin/team-content/media/${mediaId}/download`,
-
-  //管理員端
-  adminTeamContentPath:"admin/team-content",
+  teamContentDeletePath:(type, id) => `team-content/${type}/${id}/delete`,
+  teamContentPublicPath:(teamId) => `team-content/public/${teamId}`,
+  teamContentMediaDownloadPath:(mediaId) => `team-content/media/${mediaId}/download`,
+  teamContentMediaOwnerDownloadPath:(mediaId) => `team-content/media/${mediaId}/owner-download`,
+  adminTeamContentMediaDownloadPath:(mediaId) => `admin/team-content/media/${mediaId}/download`,
   adminTeamContentTeamsPath:"admin/team-content/teams",
-  adminTeamContentPublishPath: (type, id) => `admin/team-content/${type}/${id}/publish`,
-  adminTeamContentRejectPath: (type, id) => `admin/team-content/${type}/${id}/reject`,
-  adminTeamContentArchivePath: (type, id) => `admin/team-content/${type}/${id}/archive`,
-
-  //团队核心公开接口（来自王嘉阳 PR#5 TeamAction）
-  teamsYearsPath: "teams/years",
-  teamsByYearPath: "teams",
-
+  adminTeamContentPath:"admin/team-content",
+  adminTeamContentPublishPath:(type, id) => `admin/team-content/${type}/${id}/publish`,
+  adminTeamContentRejectPath:(type, id) => `admin/team-content/${type}/${id}/reject`,
+  adminTeamContentArchivePath:(type, id) => `admin/team-content/${type}/${id}/archive`,
   //轮播图
   bannerListPath:"banner/list",
   bannerAddPath:"banner/add",
@@ -72,7 +61,11 @@ const AllPATH = {
   newsDeletePath:"news/delete",
   newsGetPath:"news/get",
   newsListPath:"news/list",
-  newsLimitPath:"news/limit"
+  newsLimitPath:"news/limit",
+
+  // 志愿者报名
+  volunteerApplicationPath:"volunteer-applications",
+  volunteerApplicationManagePath:"admin/volunteer-applications"
 }
 
 export default AllPATH;

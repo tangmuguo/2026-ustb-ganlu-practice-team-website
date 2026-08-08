@@ -3,6 +3,7 @@ package com.vihu.ganlu.security;
 import com.vihu.ganlu.entitys.UserEntity;
 import com.vihu.ganlu.service.UserService;
 import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -21,10 +22,17 @@ public class AuthInterceptor implements HandlerInterceptor {
 
     private final TokenService tokenService;
     private final UserService userService;
+    private final AuthContext authContext;
 
-    public AuthInterceptor(TokenService tokenService, UserService userService) {
+    @Autowired
+    public AuthInterceptor(TokenService tokenService, UserService userService, AuthContext authContext) {
         this.tokenService = tokenService;
         this.userService = userService;
+        this.authContext = authContext;
+    }
+
+    public AuthInterceptor(TokenService tokenService, UserService userService) {
+        this(tokenService, userService, new AuthContext());
     }
 
     @Override
@@ -44,61 +52,52 @@ public class AuthInterceptor implements HandlerInterceptor {
             return true;
         }
 
-        String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
-        if (authorization == null || !authorization.startsWith("Bearer ")) {
-            return reject(response, HttpStatus.UNAUTHORIZED, "请先登录");
-        }
-
-        UserEntity currentUser = resolveUserFromRequest(request, tokenService, userService);
+        UserEntity currentUser = request.getAttribute(CURRENT_USER_ATTRIBUTE) instanceof UserEntity
+                ? (UserEntity) request.getAttribute(CURRENT_USER_ATTRIBUTE) : null;
         if (currentUser == null) {
-            return reject(response, HttpStatus.UNAUTHORIZED, "Token无效或已过期");
+            String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
+            if (authorization == null || !authorization.startsWith("Bearer ")) {
+                return reject(response, HttpStatus.UNAUTHORIZED, "请先登录");
+            }
+            try {
+                String token = authorization.substring("Bearer ".length()).trim();
+                if (token.isEmpty()) {
+                    return reject(response, HttpStatus.UNAUTHORIZED, "Token无效或已过期");
+                }
+                Integer userId = tokenService.verifyAndGetUserId(token);
+                currentUser = userService.findUserById(userId);
+            } catch (RuntimeException ex) {
+                return reject(response, HttpStatus.UNAUTHORIZED, "Token无效或已过期");
+            }
         }
 
-        if (currentUser.getLevel() == null) {
+        if (currentUser == null || currentUser.getLevel() == null) {
             return reject(response, HttpStatus.UNAUTHORIZED, "账号不存在或已失效");
         }
 
         RequireRoles requireRoles = findAnnotation(handlerMethod, RequireRoles.class);
+        int currentLevel = currentUser.getLevel();
         if (requireRoles != null && Arrays.stream(requireRoles.value())
-                .noneMatch(level -> level == currentUser.getLevel())) {
+                .noneMatch(level -> level == currentLevel)) {
             return reject(response, HttpStatus.FORBIDDEN, "无访问权限");
         }
 
         request.setAttribute(CURRENT_USER_ATTRIBUTE, currentUser);
+        authContext.setCurrentUser(currentUser);
         return true;
     }
 
-    /**
-     * 从 Authorization header 解析当前用户（Bearer 校验 + 查库），失败返回 null。
-     * 拦截器（强校验：失败 401）与 @PublicEndpoint 端点内自行解析（弱校验：匿名兜底）
-     * 共用同一实现，避免鉴权逻辑出现第二份副本而漂移（如 token 吊销/账号停用规则变更时
-     * 只改拦截器、遗漏端点内解析）。解析规则：无 header / 非 Bearer / token 空 /
-     * 校验失败 / 用户不存在 → null。
-     */
-    public static UserEntity resolveUserFromRequest(HttpServletRequest request,
-                                                    TokenService tokenService,
-                                                    UserService userService) {
-        String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
-        if (authorization == null || !authorization.startsWith("Bearer ")) {
-            return null;
-        }
-        String token = authorization.substring("Bearer ".length()).trim();
-        if (token.isEmpty()) {
-            return null;
-        }
-        try {
-            Integer userId = tokenService.verifyAndGetUserId(token);
-            return userService.findUserById(userId);
-        } catch (RuntimeException ex) {
-            return null;
-        }
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
+        authContext.clear();
     }
 
     private boolean reject(HttpServletResponse response, HttpStatus status, String message) throws IOException {
         response.setStatus(status.value());
         response.setCharacterEncoding("UTF-8");
         response.setContentType("application/json;charset=UTF-8");
-        response.getWriter().write("{\"code\":" + status.value() + ",\"message\":\"" + message + "\"}");
+        response.getWriter().write("{\"code\":" + status.value()
+                + ",\"message\":\"" + message + "\",\"content\":null}");
         return false;
     }
 

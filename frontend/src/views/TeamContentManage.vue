@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getMyTeamContent, getTeamContentImage, deleteContent, adminListContent, adminListTeams, adminPublish, adminReject, adminArchive, downloadMediaOwner, downloadMediaAdmin } from '@/apis/fengcaiAPI'
+import { getMyTeamContent, getTeamContentImage, deleteContent, adminListContent, adminListTeams, adminPublish, adminReject, adminArchive, adminPurgeMedia, downloadMediaOwner, downloadMediaAdmin } from '@/apis/fengcaiAPI'
 import { userinfoStore } from '@/stores/userStore'
 import ContentStatusTag from '@/components/fengcai/ContentStatusTag.vue'
 import TeamAttachmentUpload from '@/components/fengcai/TeamAttachmentUpload.vue'
@@ -125,7 +125,7 @@ async function loadMyContent() {
       images.value = res.data.content.images || []
       words.value = res.data.content.words || []
       media.value = res.data.content.media || []
-      refreshImagePreviews(images.value)
+      await refreshImagePreviews(images.value)
     } else {
       ElMessage.error(res.data.message || '加载失败')
     }
@@ -156,7 +156,7 @@ async function loadAdminContent() {
       images.value = res.data.content.images || []
       words.value = res.data.content.words || []
       media.value = res.data.content.media || []
-      refreshImagePreviews(images.value)
+      await refreshImagePreviews(images.value)
     } else {
       ElMessage.error(res.data.message || '加载失败')
     }
@@ -242,6 +242,25 @@ async function handleArchive(type, id) {
   }
 }
 
+async function handlePurgeMedia(id) {
+  try {
+    await ElMessageBox.confirm('彻底清理会删除物理文件并释放额度，确定继续吗？', '彻底清理附件', {
+      confirmButtonText: '确定清理',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    const res = await adminPurgeMedia(id)
+    if (res.data.code === 200) {
+      ElMessage.success('附件已进入持久化删除队列')
+      await loadAdminContent()
+    } else {
+      ElMessage.error(res.data.message || '清理失败')
+    }
+  } catch (error) {
+    if (error !== 'cancel') ElMessage.error('清理失败: ' + error.message)
+  }
+}
+
 function convertImageType(type) {
   return { 1: '队员照片', 2: '支教照片', 3: '地区照片' }[type] || '未知'
 }
@@ -304,7 +323,7 @@ onBeforeUnmount(() => {
             <template #default="{ row }">
               <el-image
                 :src="imagePreviewUrl(row)"
-                :preview-src-list="[imagePreviewUrl(row)]"
+                :preview-src-list="imagePreviewUrl(row) ? [imagePreviewUrl(row)] : []"
                 :preview-teleported="true"
                 fit="cover"
                 style="width: 80px; height: 60px; border-radius: 4px;"
@@ -423,11 +442,12 @@ onBeforeUnmount(() => {
             </template>
           </el-table-column>
           <el-table-column prop="createdAt" label="上传时间" width="180" />
-          <el-table-column label="操作" width="200">
+          <el-table-column label="操作" width="300">
             <template #default="{ row }">
               <el-button size="small" type="primary" @click="handleDownload(row)">下载</el-button>
               <el-button v-if="isAdmin" size="small" type="success" @click="handlePublish('media', row.id)">发布</el-button>
               <el-button size="small" type="danger" @click="handleDelete('media', row.id)">删除</el-button>
+              <el-button v-if="isAdmin && row.status === 'ARCHIVED'" size="small" type="danger" plain @click="handlePurgeMedia(row.id)">彻底清理</el-button>
             </template>
           </el-table-column>
         </el-table>

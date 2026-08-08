@@ -2,7 +2,10 @@ package com.vihu.ganlu.actions;
 
 import com.google.common.collect.ImmutableMap;
 import com.vihu.ganlu.entitys.TeamEntity;
+import com.vihu.ganlu.entitys.FileDeletionTaskEntity;
 import com.vihu.ganlu.entitys.TeamMediaEntity;
+import com.vihu.ganlu.entitys.PublicImageUploadInfo;
+import com.vihu.ganlu.entitys.PublicImageMigrationReport;
 import com.vihu.ganlu.entitys.TeamPageImageEntity;
 import com.vihu.ganlu.entitys.TeamPageWordEntity;
 import com.vihu.ganlu.entitys.UserEntity;
@@ -15,11 +18,15 @@ import com.vihu.ganlu.service.TeamMediaService;
 import com.vihu.ganlu.service.TeamPageImageService;
 import com.vihu.ganlu.service.TeamPageWordService;
 import com.vihu.ganlu.service.UserService;
+import com.vihu.ganlu.service.impl.FileDeletionTaskService;
+import com.vihu.ganlu.service.impl.PublicImageMigrationService;
 import com.vihu.ganlu.utils.FileStorageUtil;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -56,6 +63,10 @@ public class TeamContentAction {
     private TokenService tokenService;
     @Resource
     private UserService userService;
+    @Resource
+    private FileDeletionTaskService fileDeletionTaskService;
+    @Resource
+    private PublicImageMigrationService publicImageMigrationService;
 
     // =====================================================================
     // 团队端 @RequireRoles({0,1}) — teamId 从 Token 推导，不信任任何客户端输入
@@ -82,7 +93,26 @@ public class TeamContentAction {
     }
 
     @RequireRoles({0, 1})
-    @PostMapping("/team-content/members")
+    @PostMapping("/team-content/images/stage")
+    public ResponseEntity<?> stageImage(
+            @RequestParam("imageFile") MultipartFile imageFile,
+            HttpServletRequest request) {
+        PublicImageUploadInfo staged = teamPageImageService.stageTeamImage(
+                imageFile, currentUser(request).getId());
+        return ok("图片已暂存，请完成内容保存", staged);
+    }
+
+    @RequireRoles({0, 1})
+    @DeleteMapping("/team-content/images/stage")
+    public ResponseEntity<?> cancelStagedImage(
+            @RequestParam("token") String token,
+            HttpServletRequest request) {
+        teamPageImageService.cancelStagedTeamImage(token, currentUser(request).getId());
+        return ok("临时图片已清理");
+    }
+
+    @RequireRoles({0, 1})
+    @PostMapping(value = "/team-content/members", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> uploadMember(@RequestParam("file") MultipartFile file,
                                           @RequestParam(value = "caption", required = false) String caption,
                                           @RequestParam(value = "content", required = false) String content,
@@ -92,7 +122,7 @@ public class TeamContentAction {
     }
 
     @RequireRoles({0, 1})
-    @PostMapping("/team-content/photos")
+    @PostMapping(value = "/team-content/photos", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> uploadPhoto(@RequestParam("file") MultipartFile file,
                                          @RequestParam(value = "caption", required = false) String caption,
                                          @RequestParam(value = "content", required = false) String content,
@@ -103,6 +133,26 @@ public class TeamContentAction {
             return badRequest("无效的图片类型: " + type + "（仅支持 2=支教照片, 3=地区照片）");
         }
         return uploadImage(file, caption, content, logDate, type, request);
+    }
+
+    @RequireRoles({0, 1})
+    @PostMapping(value = "/team-content/members", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> saveStagedMember(
+            @RequestBody TeamPageImageEntity image,
+            HttpServletRequest request) {
+        return saveStagedImage(image, 1, request);
+    }
+
+    @RequireRoles({0, 1})
+    @PostMapping(value = "/team-content/photos", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> saveStagedPhoto(
+            @RequestBody TeamPageImageEntity image,
+            HttpServletRequest request) {
+        int type = image == null || image.getType() == null ? 2 : image.getType();
+        if (type != 2 && type != 3) {
+            return badRequest("无效的图片类型: " + type + "（仅支持 2=支教照片, 3=地区照片）");
+        }
+        return saveStagedImage(image, type, request);
     }
 
     @RequireRoles({0, 1})
@@ -135,34 +185,8 @@ public class TeamContentAction {
             return badRequest("当前用户未绑定小队");
         }
 
-        // 校验父内容归属：附件只能关联到当前团队的内容。
-        // relatedType 与 relatedId 必须同时为空或同时非空，避免产生半关联记录。
-        if ((relatedType == null) != (relatedId == null)) {
-            return badRequest("relatedType 与 relatedId 必须同时提供或同时省略");
-        }
-        if (relatedType != null && relatedId != null) {
-            if (!"IMAGE".equals(relatedType) && !"WORD".equals(relatedType)) {
-                return badRequest("无效的关联类型: " + relatedType);
-            }
-            if (!parentExistsAndBelongsToTeam(relatedType, relatedId, teamId)) {
-                return badRequest("关联的父内容不存在或不属于当前团队");
-            }
-        }
-
         TeamMediaEntity media;
         try {
-            if (file.getSize() > FileStorageUtil.MAX_VIDEO_SIZE) {
-                return badRequest("文件大小超过限制");
-            }
-            // 服务端文件类型校验（扩展名 + 魔数，防伪装）
-            String ext = fileStorageUtil.extractExtension(file.getOriginalFilename());
-            if (FileStorageUtil.VIDEO_EXT.contains(ext)) {
-                fileStorageUtil.isAllowedVideo(file);
-            } else if (FileStorageUtil.DOC_EXT.contains(ext)) {
-                fileStorageUtil.isAllowedDocument(file);
-            } else {
-                return badRequest("不支持的文件类型: " + ext);
-            }
             media = teamMediaService.uploadMedia(file, u.getId(), teamId, relatedType, relatedId);
         } catch (IllegalArgumentException e) {
             return badRequest(e.getMessage());
@@ -276,10 +300,9 @@ public class TeamContentAction {
      * - 管理员（level=0）→ 任意状态可看
      * - 团队负责人（level=1）→ 仅自己 teamId 的图片可看（任意状态）
      *
-     * 鉴权方式（Item 2 exy v4）：@PublicEndpoint 保留匿名看公开图能力；
-     * 但私有图片预览只接受 Authorization header，禁止从 URL query 读取登录 JWT——
-     * query 会进入浏览器历史/日志/Referer，泄露可直接当 Bearer 用的长期凭证。
-     * 前端用带 header 的 axios 请求 Blob，再 URL.createObjectURL 交给 el-image。
+     * 鉴权方式：@PublicEndpoint 保留公开 PUBLISHED 图片能力；私有图片只接受
+     * Authorization header，禁止从 URL query 读取登录 JWT，避免凭证进入历史、日志或 Referer。
+     * 前端用带 header 的 Blob 请求预览；返回 inline（非 attachment）。
      */
     @PublicEndpoint
     @GetMapping("/team-content/image/{imageId}")
@@ -339,16 +362,31 @@ public class TeamContentAction {
     }
 
     /**
-     * 只从 Authorization header 解析当前用户（Item 2 exy v4）。
-     * 查询参数中的 token 永不读取——避免登录 JWT 通过 URL 泄露到日志/历史/Referer。
-     * 前端改用 axios 带 header 请求 Blob。
+     * 只从 Authorization header 解析当前用户。查询参数中的 token 永不读取。
      * 解析失败返回 null（调用方按匿名处理）。
      *
-     * 本端点 @PublicEndpoint，拦截器不预处理（不设置 CURRENT_USER_ATTRIBUTE），
-     * 直接复用 AuthInterceptor 的解析实现（单一实现，避免鉴权逻辑漂移）。
+     * 本端点 @PublicEndpoint，拦截器通常不预处理，因此这里按同一 Bearer 规则做弱校验；
+     * 解析失败按匿名用户处理。
      */
     private UserEntity resolveUserFromAuthorization(HttpServletRequest request) {
-        return AuthInterceptor.resolveUserFromRequest(request, tokenService, userService);
+        UserEntity attr = (UserEntity) request.getAttribute(AuthInterceptor.CURRENT_USER_ATTRIBUTE);
+        if (attr != null) {
+            return attr;
+        }
+        String auth = request.getHeader(HttpHeaders.AUTHORIZATION);
+        if (auth == null || !auth.startsWith("Bearer ")) {
+            return null;
+        }
+        String token = auth.substring("Bearer ".length()).trim();
+        if (token == null || token.isEmpty()) {
+            return null;
+        }
+        try {
+            Integer userId = tokenService.verifyAndGetUserId(token);
+            return userService.findUserById(userId);
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 
     private String guessImageContentType(String imageUrl) {
@@ -518,6 +556,63 @@ public class TeamContentAction {
         return ok ? ok("归档成功") : badRequest("操作失败");
     }
 
+    @RequireRoles({0})
+    @PostMapping("/admin/team-content/image/{id}/purge")
+    public ResponseEntity<?> adminPurgeImage(@PathVariable int id) {
+        return teamPageImageService.purgeById(id)
+                ? ok("图片已进入持久化删除队列")
+                : badRequest("图片不存在");
+    }
+
+    @RequireRoles({0})
+    @PostMapping("/admin/team-content/media/{id}/purge")
+    public ResponseEntity<?> adminPurgeMedia(@PathVariable int id) {
+        return teamMediaService.purgeById(id)
+                ? ok("附件已进入持久化删除队列")
+                : badRequest("附件不存在");
+    }
+
+    @RequireRoles({0})
+    @GetMapping("/admin/file-deletion-tasks")
+    public ResponseEntity<?> adminListDeletionTasks(
+            @RequestParam(value = "limit", defaultValue = "100") int limit) {
+        List<FileDeletionTaskEntity> tasks = fileDeletionTaskService.listTasks(limit);
+        return ok("查询成功", tasks);
+    }
+
+    @RequireRoles({0})
+    @PostMapping("/admin/file-deletion-tasks/{id}/retry")
+    public ResponseEntity<?> adminRetryDeletionTask(@PathVariable long id) {
+        return fileDeletionTaskService.retryNow(id)
+                ? ok("删除任务已完成或不存在")
+                : badRequest("本次重试仍失败，系统将继续自动重试");
+    }
+
+    @RequireRoles({0})
+    @GetMapping("/admin/public-image-migration/preflight")
+    public ResponseEntity<?> adminPreflightPublicImages() {
+        PublicImageMigrationReport report = publicImageMigrationService.preflight();
+        return report.isMigrationAllowed()
+                ? ok(report.isConsistent() ? "公共图片账本已一致" : "预检通过，可以在维护窗口执行迁移", report)
+                : ResponseEntity.status(HttpStatus.CONFLICT).body(ImmutableMap.of(
+                        "code", HttpStatus.CONFLICT.value(),
+                        "message", "公共图片预检存在阻断项，禁止迁移和发布",
+                        "content", report));
+    }
+
+    @RequireRoles({0})
+    @PostMapping("/admin/public-image-migration/migrate")
+    public ResponseEntity<?> adminMigratePublicImages() {
+        try {
+            return ok("公共图片迁移完成并通过一致性断言", publicImageMigrationService.migrate());
+        } catch (PublicImageMigrationService.MigrationBlockedException error) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(ImmutableMap.of(
+                    "code", HttpStatus.CONFLICT.value(),
+                    "message", error.getMessage(),
+                    "content", error.getReport()));
+        }
+    }
+
     // =====================================================================
     // 私有辅助方法
     // =====================================================================
@@ -536,17 +631,18 @@ public class TeamContentAction {
         if (!withinLength(caption, 255) || !withinLength(content, 255)) {
             return badRequest("标题或说明长度不能超过255字符");
         }
+        PublicImageUploadInfo staged;
         try {
-            fileStorageUtil.isAllowedImage(file);
-        } catch (IllegalArgumentException e) {
+            staged = teamPageImageService.stageTeamImage(file, u.getId());
+        } catch (IllegalArgumentException | IllegalStateException e) {
             return badRequest(e.getMessage());
         }
-        String imagePath = teamPageImageService.uploadTeamImage(file);
         try {
             TeamPageImageEntity entity = new TeamPageImageEntity();
             entity.setTeamId(teamId);
             entity.setUserId(u.getId());
-            entity.setImageUrl(imagePath);
+            entity.setImageUploadUserId(u.getId());
+            entity.setImageUploadToken(staged.getToken());
             entity.setCaption(caption);
             entity.setContent(content);
             entity.setLogDate(logDate);
@@ -556,8 +652,37 @@ public class TeamContentAction {
             teamPageImageService.insertTeamImage(entity);
             return ok("上传成功", entity);
         } catch (Exception e) {
-            fileStorageUtil.deleteFile(imagePath); // DB 失败清理孤立文件
+            teamPageImageService.cancelStagedTeamImage(staged.getToken(), u.getId());
             return badRequest("上传失败: " + e.getMessage());
+        }
+    }
+
+    private ResponseEntity<?> saveStagedImage(
+            TeamPageImageEntity image, int type, HttpServletRequest request) {
+        if (image == null || requireTextOrNull(image.getCaption()) == null) {
+            return badRequest("标题不能为空");
+        }
+        if (!withinLength(image.getCaption(), 255) || !withinLength(image.getContent(), 255)) {
+            return badRequest("标题或说明长度不能超过255字符");
+        }
+        if (requireTextOrNull(image.getImageUploadToken()) == null) {
+            return badRequest("请先完成图片暂存上传");
+        }
+        UserEntity user = currentUser(request);
+        Integer teamId = resolveTeamId(user);
+        if (teamId == null) return badRequest("当前用户未绑定小队");
+
+        image.setTeamId(teamId);
+        image.setUserId(user.getId());
+        image.setImageUploadUserId(user.getId());
+        image.setType(type);
+        image.setStatus("PENDING");
+        image.setRejectReason(null);
+        try {
+            teamPageImageService.insertTeamImage(image);
+            return ok("上传成功", image);
+        } catch (IllegalArgumentException | IllegalStateException error) {
+            return badRequest(error.getMessage());
         }
     }
 
@@ -592,22 +717,6 @@ public class TeamContentAction {
             return ok("上传成功", entity);
         }
         return badRequest("上传失败");
-    }
-
-    /**
-     * 校验父内容存在且属于指定 team（用于上传附件的归属校验）。
-     */
-    private boolean parentExistsAndBelongsToTeam(String relatedType, int relatedId, int teamId) {
-        if ("IMAGE".equals(relatedType)) {
-            TeamPageImageEntity e = teamPageImageService.findById(relatedId);
-            return e != null && Integer.valueOf(teamId).equals(e.getTeamId())
-                    && !"ARCHIVED".equals(e.getStatus());
-        } else if ("WORD".equals(relatedType)) {
-            TeamPageWordEntity e = teamPageWordService.findById(relatedId);
-            return e != null && Integer.valueOf(teamId).equals(e.getTeamId())
-                    && !"ARCHIVED".equals(e.getStatus());
-        }
-        return false;
     }
 
     /**

@@ -7,7 +7,7 @@
 **核心设计原则：**
 - 不 DROP 旧表，增量 patch 新增列
 - 团队端接口不含 teamId，从 Token 推导（防越权）
-- 删除 = 逻辑删除（status=ARCHIVED），保留审计追溯
+- 普通删除 = 逻辑归档（status=ARCHIVED），保留审计且继续占用文件额度；物理 purge 走持久化任务
 - 视频/附件强制下载（Content-Disposition: attachment），不在网页在线播放
 
 ---
@@ -32,6 +32,7 @@
 |--------|------|------|
 | GET | `/team-content/public/{teamId}` | 仅 PUBLISHED 内容 |
 | GET | `/team-content/media/{mediaId}/download` | 视频/附件下载（强制 attachment） |
+| GET | `/team-content/image/{imageId}` | PUBLISHED 可公开读取；私有状态必须用 Authorization 获取 Blob |
 
 ### 管理员端 @RequireRoles({0})
 
@@ -41,6 +42,12 @@
 | POST | `/admin/team-content/{type}/{id}/publish` | 发布 |
 | POST | `/admin/team-content/{type}/{id}/reject?reason=` | 驳回（reason 必填） |
 | POST | `/admin/team-content/{type}/{id}/archive` | 归档 |
+| POST | `/admin/team-content/image/{id}/purge` | 图片进入持久化物理删除队列 |
+| POST | `/admin/team-content/media/{id}/purge` | 已归档附件进入持久化物理删除队列 |
+| GET | `/admin/file-deletion-tasks` | 查询待处理/失败任务、次数和最后错误 |
+| POST | `/admin/file-deletion-tasks/{id}/retry` | 手动立即重试 |
+| GET | `/admin/public-image-migration/preflight` | 扫描四类业务引用、课件封面保护边界、资产账本和磁盘，输出阻断清单 |
+| POST | `/admin/public-image-migration/migrate` | 仅维护窗口启用；按真实文件大小迁移并重建精确配额 |
 
 ---
 
@@ -113,6 +120,29 @@ ALTER TABLE `team_page_word`
 
 **下载接口防御**：media 自身 PUBLISHED 但父内容 REJECTED → 返回 404（级联检查作为防御性兜底）。
 
+## 图片生命周期与配额
+
+- `/team-content/members`、`/team-content/photos` 的直接文件上传和前端“先暂存、后保存”两种方式都进入 `PublicImageLifecycleService`，不存在绕开配额的正式入口。
+- 新图片保存为 `PENDING`，物理文件位于 `images_pending/<userId>/`；只有 `PUBLISHED` 位于 `images/<userId>/`。`REJECTED`、`ARCHIVED` 仍在私有目录。
+- PENDING、PUBLISHED、REJECTED、ARCHIVED 只要物理文件仍存在，就都占用账号的永久文件数和容量；审核状态切换不释放配额。
+- `public_image_asset.asset_id` 是稳定资源编号。文件在私有和公开目录之间移动时只更新 `relative_path`，所有者、字节数和配额不会丢失。
+- 只有管理员彻底删除图片文件与记录时才释放配额；持久删除任务先确认物理文件已经删除，再删除资源记录并释放账本额度。磁盘删除或数据库清理失败时任务会保留并重试，普通“归档”也只隐藏内容、不删除文件。
+- 业务事务会先把稳定 `asset_id` 写入 `file_deletion_task`。提交后立即尝试，失败则保留任务、错误、次数和下次执行时间并自动退避重试；文件已经不存在按幂等成功继续清理账本。
+- 存量 Banner、News、User 和团队风采图片必须先经过应用侧预检。共享路径、磁盘缺失、非标准本地路径、未知所有者、越界链接、孤儿账本或孤儿文件都会形成阻断项；不允许再以 0 字节登记未知文件。
+- 课件封面由课件模块独立管理，不进入 `public_image_asset` 或四类公共图片配额。预检会排除整个 `images/materials/` 命名空间，并读取有效 `course_detail.cover_path`（兼容 `thumbnail_url` 回填）保护位于 `images/` 根目录的历史封面；这些文件只显示在 `courseCoverReferenceCount`、`excludedCourseCoverFileCount/Bytes`，不进入四类数量和字节一致性断言。若课件与四类业务共享同一物理路径，仍会以 `CROSS_DOMAIN_SHARED_PATH` 阻断。
+- 旧本地图片未迁入账本时，替换、删除、纯文字更新和发布会被明确拒绝，不再静默遗漏物理文件。HTTP(S) 外部图片不属于本地文件生命周期。
+
+## 附件生命周期、配额与磁盘保护
+
+- `team_media_quota` 按上传账号原子限制数量和累计字节，`team_media_global_quota` 使用单例行限制服务器总量；默认分别为 50 个/2GB 与 2000 个/20GB。
+- 所有上传事务固定先锁全局账本、再锁账号账本；条件更新在 InnoDB 中重新判断，多实例不能靠同时上传绕过上限。
+- Multipart 解析前的过滤器先验证 Bearer Token 和 0/1 级角色，匿名、失效账号和学生请求不会进入请求体解析。
+- 过滤器先锁 `team_media_global_quota` 协调行，再把 `Content-Length` 写入 `team_media_upload_reservation`。所有实例共享在途字节、并发数和单账号分钟频率；检查与预留属于同一事务。请求结束在 `finally` 释放，进程中断由 TTL 回收。
+- 临时目录和正式目录按实际 `FileStore` 去重：同一设备只计算一次在途请求和较大的安全余量；不同设备分别保护。Service 在正式复制前还会进行第二次物理余量检查，两处默认至少保留 1GB。
+- 关联附件上传在最终登记事务内使用 `SELECT ... FOR UPDATE` 锁 IMAGE/WORD 父记录，再按“父记录 → 全局配额 → 账号配额 → 附件记录”顺序处理。父内容归档使用同一行锁，不能产生逃逸级联的非归档附件。
+- PENDING、PUBLISHED、REJECTED、ARCHIVED 全部占额度。归档只开始保留期，不释放空间；管理员 purge 或默认 30 天保留期结束后才创建 `TEAM_MEDIA` 删除任务。
+- 删除任务先确认物理文件消失，再删除 `team_media` 行并按“全局→账号”顺序释放额度。任一步失败都会保留任务并重试。
+
 ---
 
 ## 5. 权限矩阵
@@ -148,6 +178,17 @@ ALTER TABLE `team_page_word`
 
 **注意**：`team_page_word` 旧列名为小写 `userid`，SQL 中用反引号包裹。
 
+### 公共图片维护窗口迁移（补丁 13 后必做）
+
+1. 备份数据库和整个上传目录，停止外部写入；完整执行 `00 → 10 → 11 → 12 → 13 → 14 → 20 → 30 → 40`。
+2. 保持 `TEAM_PUBLIC_IMAGE_MIGRATION_ENABLED=false` 启动后端，以管理员调用 `GET /admin/public-image-migration/preflight`。
+3. 逐项清零报告：共享路径需复制或替换为独立文件；缺失文件需从备份恢复或更换；未知所有者/非标准路径需人工迁入账号目录；孤儿资产和文件必须同时与有效课件的 `cover_path`/`thumbnail_url` 交叉核对后再处理，禁止把课件封面当孤儿删除。
+4. 关闭所有业务写入，临时设置 `TEAM_PUBLIC_IMAGE_MIGRATION_ENABLED=true` 并重启；调用 `POST /admin/public-image-migration/migrate`。
+5. 再次预检，必须同时得到 `migrationAllowed=true`、`consistent=true`，并确认四类业务引用数、账本数和受管磁盘文件数相等；课件封面的排除数量/字节只作边界审计，不得混入该等式。
+6. 立即恢复 `TEAM_PUBLIC_IMAGE_MIGRATION_ENABLED=false` 并重启，再逐一验证旧 Banner、旧 News、旧头像和旧团队图片的不换图更新、换图更新、删除及失败重试，同时打开现行及历史课件封面确认仍可显示。
+
+迁移接口不会自动删除或复制有歧义的文件；任何阻断项都会令迁移事务拒绝执行。这样可以避免删除共享文件破坏另一条业务记录。
+
 ---
 
 ## 8. 大文件上传配置
@@ -158,7 +199,18 @@ ALTER TABLE `team_page_word`
 spring.servlet.multipart.max-file-size=200MB
 spring.servlet.multipart.max-request-size=210MB
 spring.servlet.multipart.file-size-threshold=10MB
-spring.servlet.multipart.location=${java.io.tmpdir}/ganlu-uploads
+spring.servlet.multipart.location=${GANLU_MULTIPART_TEMP_DIR:${java.io.tmpdir}/ganlu-multipart}
+team.media.owner-max-files=50
+team.media.owner-max-total-mb=2048
+team.media.global-max-files=2000
+team.media.global-max-total-mb=20480
+team.media.upload-min-free-disk-mb=1024
+team.media.multipart-min-free-disk-mb=1024
+team.media.archived-retention-days=30
+team.media.max-concurrent-uploads=4
+team.media.max-requests-per-user-per-minute=12
+team.media.upload-reservation-ttl-minutes=120
+team.public-image.migration-enabled=false
 ```
 
 ### Nginx 运维提示
@@ -166,6 +218,8 @@ spring.servlet.multipart.location=${java.io.tmpdir}/ganlu-uploads
 ```nginx
 client_max_body_size 210M;
 proxy_request_buffering off;  # 关闭缓冲，实现真实前端上传进度
+client_body_timeout 60m;      # 必须小于应用的 120 分钟预留 TTL
+proxy_read_timeout 60m;
 ```
 
 ---
@@ -184,8 +238,8 @@ proxy_request_buffering off;  # 关闭缓冲，实现真实前端上传进度
 
 ## 11. 视频下载接口鉴权限制
 
-HTML `<a download>` 无法携带自定义 Authorization 请求头。若未来需要限制下载权限：
-- 方案 A：后端签发一次性临时 Token 放在 URL Query 参数中（`?token=xxx`，有效期 5 分钟）
+HTML `<a download>` 无法携带自定义 Authorization 请求头。管理页当前通过 Axios Blob 下载。若未来必须支持普通链接：
+- 方案 A：后端签发仅限单个附件的一次性票据（不可使用完整登录 JWT，有效期不超过 5 分钟）
 - 方案 B：使用 Cookie 鉴权（`<a>` 自动携带 Cookie）
 
 ---
@@ -215,9 +269,12 @@ private Integer resolveTeamId(UserEntity user) {
 
 ## 14. 数据库 patch 应用机制
 
-当前项目无 Flyway/Liquibase，手动执行。执行顺序：
-1. `ganlu.sql`（初始 schema）
-2. `database/patches/11_team_content.sql`（本 patch）
+当前项目无 Flyway/Liquibase，手动执行。固定顺序为：
+`00 → 10 → 11 → 12 → 13 → 14 → 20 → 30 → 40`。
+
+`13_public_image_quota.sql` 只创建结构，不能读取磁盘，因此禁止 SQL 直接按 0 字节回填；必须执行本页的应用侧预检/迁移。
+
+`14_team_media_lifecycle.sql` 会回填旧附件账本，并创建跨实例在途上传记录；若旧附件无法确定上传账号会主动停止，必须先人工修复，不允许带着少算的额度继续上线。
 
 需在本地和运维环境分别执行。
 
@@ -225,7 +282,7 @@ private Integer resolveTeamId(UserEntity user) {
 
 ## 15. 孤儿 Media 清理说明
 
-用户中途取消上传附件时可能产生无关联父内容的 media 记录。当前可接受（团队端可见并手动删除），后续可考虑定时清理任务。
+无关联父内容的附件仍是合法的独立附件，同样计入个人和服务器配额。团队端可逻辑归档；管理员可立即 purge。归档超过默认 30 天后，定时任务会自动送入持久化删除队列。
 
 ---
 

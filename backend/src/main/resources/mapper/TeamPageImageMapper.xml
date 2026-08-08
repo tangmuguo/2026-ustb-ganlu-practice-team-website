@@ -25,7 +25,7 @@
         select * from team_page_images where userId=#{userId}
     </select>
 
-    <select id="findByTeamId" parameterType="Integer" resultMap="teampageimagemap">
+    <select id="findByTeamId" resultMap="teampageimagemap">
         select * from team_page_images
         where team_id = #{teamId} and status &lt;&gt; 'ARCHIVED'
     </select>
@@ -38,42 +38,68 @@
         </if>
     </select>
 
-    <select id="findById" parameterType="Integer" resultMap="teampageimagemap">
+    <select id="findById" resultMap="teampageimagemap">
         select * from team_page_images where id = #{id}
+    </select>
+
+    <select id="findByIdForUpdate" resultMap="teampageimagemap">
+        select * from team_page_images where id = #{id} for update
+    </select>
+
+    <select id="findByIdsForUpdate" resultMap="teampageimagemap">
+        select * from team_page_images
+        where id in
+        <foreach collection="ids" item="id" separator="," open="(" close=")">
+            #{id}
+        </foreach>
+        order by id
+        for update
+    </select>
+
+    <select id="findByIdsAndUserIdForUpdate" resultMap="teampageimagemap">
+        select * from team_page_images
+        where userId = #{userId}
+          and id in
+        <foreach collection="ids" item="id" separator="," open="(" close=")">
+            #{id}
+        </foreach>
+        order by id
+        for update
     </select>
 
     <insert id="insertTeamImage" parameterType="com.vihu.ganlu.entitys.TeamPageImageEntity"
             useGeneratedKeys="true" keyProperty="id">
         insert into team_page_images(
-            team_id, status, reject_reason, log_date,
-            userId, imageUrl, caption, content, createdAt, type
+                team_id,status,reject_reason,log_date,
+                userId,imageUrl,caption,content,createdAt,type
         )VALUES (
-            #{teamId}, #{status}, #{rejectReason}, #{logDate},
-            #{userId}, #{imageUrl}, #{caption}, #{content}, NOW(), #{type}
+                #{teamId},#{status},#{rejectReason},#{logDate},
+                #{userId},#{imageUrl},#{caption},#{content},NOW(),#{type}
         )
     </insert>
 
     <update id="updateImageStatus">
         update team_page_images
-        set status = #{status},
-            reject_reason = #{rejectReason},
-            updatedAt = NOW()
+        set status = #{status}, reject_reason = #{rejectReason}, updatedAt = NOW()
+        where id = #{id}
+    </update>
+
+    <update id="updateImageUrl">
+        update team_page_images
+        set imageUrl = #{imageUrl}, updatedAt = NOW()
         where id = #{id}
     </update>
 
     <update id="archiveById">
-        update team_page_images
-        set status = 'ARCHIVED', updatedAt = NOW()
-        where id = #{id}
+        update team_page_images set status = 'ARCHIVED', updatedAt = NOW() where id = #{id}
     </update>
 
     <update id="archiveByIdAndTeamId">
-        update team_page_images
-        set status = 'ARCHIVED', updatedAt = NOW()
+        update team_page_images set status = 'ARCHIVED', updatedAt = NOW()
         where id = #{id} and team_id = #{teamId}
     </update>
 
-    <delete id="deleteTeamPageImageByIds" parameterType="com.vihu.ganlu.entitys.UserQueryVo">
+    <delete id="deleteTeamPageImageByIds">
         delete from team_page_images
         <where>
             id in
@@ -95,4 +121,5 @@
     <delete id="purgeById">
         delete from team_page_images where id = #{id}
     </delete>
+
 </mapper>

@@ -39,6 +39,13 @@
         WHERE id = #{id}
     </select>
 
+    <select id="findByIdForUpdate" parameterType="int" resultMap="newsmap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM news
+        WHERE id = #{id}
+        FOR UPDATE
+    </select>
+
     <insert id="insert" parameterType="com.vihu.ganlu.entitys.NewsEntity" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO news
             (caption, content, imageUrl, linkUrl,createAt)

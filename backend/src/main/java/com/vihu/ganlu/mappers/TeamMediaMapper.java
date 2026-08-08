@@ -10,6 +10,8 @@ public interface TeamMediaMapper {
 
     TeamMediaEntity findById(@Param("id") int id);
 
+    TeamMediaEntity findByIdForUpdate(@Param("id") int id);
+
     List<TeamMediaEntity> findByTeamId(@Param("teamId") int teamId);
 
     List<TeamMediaEntity> findByStatus(@Param("teamId") int teamId, @Param("status") String status);
@@ -37,4 +39,7 @@ public interface TeamMediaMapper {
     int archiveByIdAndTeamId(@Param("id") int id, @Param("teamId") int teamId);
 
     int purgeById(@Param("id") int id);
+
+    List<Integer> findArchivedIdsForRetention(@Param("retentionDays") int retentionDays,
+                                              @Param("limit") int limit);
 }

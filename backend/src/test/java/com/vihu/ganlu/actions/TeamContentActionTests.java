@@ -3,6 +3,7 @@ package com.vihu.ganlu.actions;
 import com.vihu.ganlu.entitys.TeamEntity;
 import com.vihu.ganlu.entitys.TeamMediaEntity;
 import com.vihu.ganlu.entitys.TeamPageImageEntity;
+import com.vihu.ganlu.entitys.PublicImageUploadInfo;
 import com.vihu.ganlu.entitys.TeamPageWordEntity;
 import com.vihu.ganlu.entitys.UserEntity;
 import com.vihu.ganlu.mappers.TeamMapper;
@@ -35,6 +36,8 @@ class TeamContentActionTests {
     private TeamMapper teamMapper;
     private com.vihu.ganlu.security.TokenService tokenService;
     private com.vihu.ganlu.service.UserService userService;
+    private com.vihu.ganlu.service.impl.FileDeletionTaskService deletionTaskService;
+    private com.vihu.ganlu.service.impl.PublicImageMigrationService publicImageMigrationService;
 
     @BeforeEach
     void setUp() {
@@ -45,6 +48,8 @@ class TeamContentActionTests {
         teamMapper = mock(TeamMapper.class);
         tokenService = mock(com.vihu.ganlu.security.TokenService.class);
         userService = mock(com.vihu.ganlu.service.UserService.class);
+        deletionTaskService = mock(com.vihu.ganlu.service.impl.FileDeletionTaskService.class);
+        publicImageMigrationService = mock(com.vihu.ganlu.service.impl.PublicImageMigrationService.class);
         action = new TeamContentAction();
         // 通过反射注入 @Resource 字段
         inject(action, "teamPageImageService", imageService);
@@ -54,6 +59,8 @@ class TeamContentActionTests {
         inject(action, "teamMapper", teamMapper);
         inject(action, "tokenService", tokenService);
         inject(action, "userService", userService);
+        inject(action, "fileDeletionTaskService", deletionTaskService);
+        inject(action, "publicImageMigrationService", publicImageMigrationService);
     }
 
     /**
@@ -342,12 +349,42 @@ class TeamContentActionTests {
         UserEntity user = user(5, 1);
         mockTeamUser(5, 10);
         MockMultipartFile emptyFile = new MockMultipartFile("file", new byte[0]);
-        // Mock fileStorageUtil.isAllowedImage 抛异常（空文件校验失败）
-        when(fileStorageUtil.isAllowedImage(emptyFile))
+        when(imageService.stageTeamImage(emptyFile, 5))
                 .thenThrow(new IllegalArgumentException("文件为空"));
 
         ResponseEntity<?> resp = action.uploadMember(emptyFile, "caption", "content", null, req(user));
         assertEquals(400, resp.getStatusCodeValue());
+    }
+
+    @Test
+    void adminPurgeMedia_enqueuesDurableDeletion() {
+        when(mediaService.purgeById(12)).thenReturn(true);
+
+        ResponseEntity<?> response = action.adminPurgeMedia(12);
+
+        assertEquals(200, response.getStatusCodeValue());
+        verify(mediaService).purgeById(12);
+    }
+
+    @Test
+    void uploadMember_usesLifecycleStageThenBusinessInsert() {
+        UserEntity user = user(5, 1);
+        mockTeamUser(5, 10);
+        MockMultipartFile file = new MockMultipartFile("file", "a.png", "image/png",
+                new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A});
+        when(imageService.stageTeamImage(file, 5)).thenReturn(
+                new PublicImageUploadInfo("00000000-0000-0000-0000-000000000001",
+                        "a.png", "png", "image/png", file.getSize()));
+        when(imageService.insertTeamImage(any(TeamPageImageEntity.class))).thenReturn(1);
+
+        ResponseEntity<?> response = action.uploadMember(file, "队员", "介绍", null, req(user));
+
+        assertEquals(200, response.getStatusCodeValue());
+        verify(imageService).stageTeamImage(file, 5);
+        verify(imageService).insertTeamImage(argThat(image ->
+                Integer.valueOf(10).equals(image.getTeamId())
+                        && Integer.valueOf(5).equals(image.getImageUploadUserId())
+                        && "PENDING".equals(image.getStatus())));
     }
 
     @SuppressWarnings("unchecked")
@@ -380,8 +417,8 @@ class TeamContentActionTests {
         mockTeamUser(5, 10);
         MockMultipartFile file = new MockMultipartFile("file", "test.mp4",
                 "video/mp4", new byte[]{0, 0, 0, 0, 'f', 't', 'y', 'p'});
-        when(fileStorageUtil.extractExtension("test.mp4")).thenReturn("mp4");
-        when(fileStorageUtil.isAllowedVideo(file)).thenReturn(null);
+        when(mediaService.uploadMedia(file, 5, 10, "INVALID", 1))
+                .thenThrow(new IllegalArgumentException("无效的关联类型: INVALID"));
 
         ResponseEntity<?> resp = action.uploadMedia(file, "INVALID", 1, req(user));
         assertEquals(400, resp.getStatusCodeValue());
@@ -394,18 +431,12 @@ class TeamContentActionTests {
         mockTeamUser(5, 10);
         MockMultipartFile file = new MockMultipartFile("file", "test.doc",
                 "application/msword", new byte[]{0, 0, 0, 0, 0, 0, 0, 0});
-        when(fileStorageUtil.extractExtension("test.doc")).thenReturn("doc");
-        when(fileStorageUtil.isAllowedDocument(file)).thenReturn(null);
-
-        // 父内容属于另一个 team
-        TeamPageWordEntity parent = new TeamPageWordEntity();
-        parent.setId(1);
-        parent.setTeamId(99); // 不是 10
-        parent.setStatus("PUBLISHED");
-        when(wordService.findById(1)).thenReturn(parent);
+        when(mediaService.uploadMedia(file, 5, 10, "WORD", 1))
+                .thenThrow(new IllegalArgumentException("关联的父内容不存在、不属于当前团队或已归档"));
 
         ResponseEntity<?> resp = action.uploadMedia(file, "WORD", 1, req(user));
         assertEquals(400, resp.getStatusCodeValue());
+        verify(wordService, never()).findById(anyInt());
     }
 
     @SuppressWarnings("unchecked")
@@ -416,8 +447,8 @@ class TeamContentActionTests {
         mockTeamUser(5, 10);
         MockMultipartFile file = new MockMultipartFile("file", "test.mp4",
                 "video/mp4", new byte[]{0, 0, 0, 0, 'f', 't', 'y', 'p'});
-        when(fileStorageUtil.extractExtension("test.mp4")).thenReturn("mp4");
-        when(fileStorageUtil.isAllowedVideo(file)).thenReturn(null);
+        when(mediaService.uploadMedia(file, 5, 10, "IMAGE", null))
+                .thenThrow(new IllegalArgumentException("relatedType 与 relatedId 必须同时提供或同时省略"));
 
         ResponseEntity<?> resp = action.uploadMedia(file, "IMAGE", null, req(user));
         assertEquals(400, resp.getStatusCodeValue());
@@ -533,18 +564,13 @@ class TeamContentActionTests {
 
     @Test
     void serveImage_admin_canViewPending() throws Exception {
-        // 管理员可查看任意状态图片（@PublicEndpoint：拦截器不预处理、不设 CURRENT_USER_ATTRIBUTE，
-        // 经 Authorization header 由 AuthInterceptor.resolveUserFromRequest 解析）
+        // 已认证管理员可查看任意状态图片。
         java.nio.file.Path tmp = java.nio.file.Files.createTempFile("test-img", ".jpg");
         UserEntity admin = user(1, 0);
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.addHeader("Authorization", "Bearer admin-token");
-        when(tokenService.verifyAndGetUserId("admin-token")).thenReturn(1);
-        when(userService.findUserById(1)).thenReturn(admin);
         when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
         when(fileStorageUtil.loadFile("images_pending/x.jpg")).thenReturn(tmp);
 
-        ResponseEntity<?> resp = action.serveImage(10, request);
+        ResponseEntity<?> resp = action.serveImage(10, req(admin));
         assertEquals(200, resp.getStatusCodeValue());
         // exy v5 Item 1：管理员预览 PENDING 图必须 no-store（审核中内容不进缓存）
         assertEquals("no-store", resp.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL));
@@ -553,18 +579,14 @@ class TeamContentActionTests {
 
     @Test
     void serveImage_owner_canViewOwnPending() throws Exception {
-        // 团队负责人可查看自己 team 的 PENDING 图片（经 Authorization header 解析）
+        // 已认证团队负责人可查看自己 team 的 PENDING 图片。
         java.nio.file.Path tmp = java.nio.file.Files.createTempFile("test-img", ".jpg");
         UserEntity owner = user(5, 1);
         mockTeamUser(5, 5); // user 5 → team 5
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.addHeader("Authorization", "Bearer owner-token");
-        when(tokenService.verifyAndGetUserId("owner-token")).thenReturn(5);
-        when(userService.findUserById(5)).thenReturn(owner);
         when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
         when(fileStorageUtil.loadFile("images_pending/x.jpg")).thenReturn(tmp);
 
-        ResponseEntity<?> resp = action.serveImage(10, request);
+        ResponseEntity<?> resp = action.serveImage(10, req(owner));
         assertEquals(200, resp.getStatusCodeValue());
         // exy v5 Item 1：owner 预览 PENDING 图必须 no-store
         assertEquals("no-store", resp.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL));
@@ -576,13 +598,9 @@ class TeamContentActionTests {
         // user 5 属于 team 5，但图片属于 team 99 → 非所属负责人 → 视为匿名 → 非 PUBLISHED 返回 404
         UserEntity owner = user(5, 1);
         mockTeamUser(5, 5);
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.addHeader("Authorization", "Bearer owner-token");
-        when(tokenService.verifyAndGetUserId("owner-token")).thenReturn(5);
-        when(userService.findUserById(5)).thenReturn(owner);
         when(imageService.findById(10)).thenReturn(image(10, "PENDING", 99, "images_pending/x.jpg"));
 
-        ResponseEntity<?> resp = action.serveImage(10, request);
+        ResponseEntity<?> resp = action.serveImage(10, req(owner));
         assertEquals(404, resp.getStatusCodeValue());
     }
 
@@ -616,12 +634,10 @@ class TeamContentActionTests {
     }
 
     @Test
-    void serveImage_authorizationHeader_admin_canView() throws Exception {
-        // Item 2 exy v4：query token 已移除，私有图片只接受 Authorization header。
-        // 此测试模拟 @PublicEndpoint（拦截器不预处理），后端自行从 header 解析 token。
+    void serveImage_authorizationHeader_adminCanView() throws Exception {
         java.nio.file.Path tmp = java.nio.file.Files.createTempFile("test-img", ".jpg");
-        MockHttpServletRequest request = new MockHttpServletRequest(); // 无 CURRENT_USER_ATTRIBUTE
-        request.addHeader("Authorization", "Bearer admin-token");
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(org.springframework.http.HttpHeaders.AUTHORIZATION, "Bearer admin-token");
         UserEntity admin = user(1, 0);
         when(tokenService.verifyAndGetUserId("admin-token")).thenReturn(1);
         when(userService.findUserById(1)).thenReturn(admin);
@@ -634,10 +650,20 @@ class TeamContentActionTests {
     }
 
     @Test
-    void serveImage_invalidHeaderToken_treatedAsAnonymous() {
-        // 无效 Authorization header token 当匿名处理 → PENDING 拒绝
+    void serveImage_queryTokenIsIgnoredAndCannotAuthorizePrivateImage() {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        request.addHeader("Authorization", "Bearer bad-token");
+        request.setParameter("token", "admin-token");
+        when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
+
+        ResponseEntity<?> resp = action.serveImage(10, request);
+        assertEquals(404, resp.getStatusCodeValue());
+        verifyNoInteractions(tokenService, userService);
+    }
+
+    @Test
+    void serveImage_invalidHeaderToken_treatedAsAnonymous() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer bad-token");
         when(tokenService.verifyAndGetUserId("bad-token")).thenThrow(new RuntimeException("invalid"));
         when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
 

@@ -21,6 +21,8 @@ public interface TeamPageWordMapper {
 
     TeamPageWordEntity findById(@Param("id") int id);
 
+    TeamPageWordEntity findByIdForUpdate(@Param("id") int id);
+
     int archiveById(@Param("id") int id);
 
     int archiveByIdAndTeamId(@Param("id") int id, @Param("teamId") int teamId);

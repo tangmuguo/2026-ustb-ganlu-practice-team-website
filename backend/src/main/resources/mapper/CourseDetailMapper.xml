@@ -4,48 +4,134 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 <mapper namespace="com.vihu.ganlu.mappers.CourseDetailMapper">
-    <resultMap type="com.vihu.ganlu.entitys.CourseDetailEntity" id="coursemap">
+    <resultMap type="com.vihu.ganlu.entitys.CourseDetailEntity" id="courseDetailMap">
         <id column="id" property="id"/>
         <result column="title" property="title"/>
+        <result column="course_type" property="courseType"/>
+        <result column="uploader_user_id" property="uploaderUserId"/>
+        <result column="uploader_name" property="uploaderName"/>
         <result column="author" property="author"/>
-        <result column="courseType" property="courseType"/>
-        <result column="thumbnail_url" property="thumbnailUrl"/>
+        <result column="cover_path" property="thumbnailUrl"/>
         <result column="course_id" property="courseId"/>
-        <result column="files" property="files"/>
+        <result column="custom_subject" property="customSubject"/>
+        <result column="year" property="year"/>
+        <result column="original_file_path" property="originalFilePath"/>
+        <result column="preview_file_path" property="previewFilePath"/>
+        <result column="original_filename" property="originalFilename"/>
+        <result column="legacy_files" property="files"/>
         <result column="file_size" property="fileSize"/>
-        <result column="file_type" property="fileType"/>
+        <result column="file_extension" property="fileExtension"/>
+        <result column="mime_type" property="mimeType"/>
+        <result column="preview_status" property="previewStatus"/>
+        <result column="status" property="status"/>
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
         <result column="course_name" property="courseName"/>
     </resultMap>
 
+    <sql id="materialColumns">
+        cd.id,
+        cd.title,
+        cd.courseType AS course_type,
+        cd.uploader_user_id,
+        COALESCE(NULLIF(u.teamname, ''), NULLIF(u.realname, ''), u.username, cd.author) AS uploader_name,
+        cd.author,
+        COALESCE(cd.cover_path, cd.thumbnail_url) AS cover_path,
+        cd.course_id,
+        cd.custom_subject,
+        cd.year,
+        COALESCE(cd.original_file_path, cd.files) AS original_file_path,
+        cd.preview_file_path,
+        cd.original_filename,
+        cd.files AS legacy_files,
+        cd.file_size,
+        cd.file_extension,
+        COALESCE(cd.mime_type, cd.file_type) AS mime_type,
+        cd.preview_status,
+        cd.status,
+        cd.create_time,
+        cd.update_time,
+        c.course_name
+    </sql>
 
-    <insert id="insertCourseDetail" parameterType="com.vihu.ganlu.entitys.CourseDetailEntity" useGeneratedKeys="true" keyProperty="id">
+    <insert id="insertCourseDetail" parameterType="com.vihu.ganlu.entitys.CourseDetailEntity"
+            useGeneratedKeys="true" keyProperty="id">
         INSERT INTO course_detail (
-            title, author, courseType,thumbnail_url, course_id,
-            files, file_size, file_type, create_time
+            title, courseType, uploader_user_id, author, thumbnail_url, cover_path,
+            course_id, custom_subject, year, files, original_file_path, preview_file_path,
+            original_filename, file_size, file_type, file_extension, mime_type,
+            preview_status, status, create_time, update_time
         ) VALUES (
-                     #{title}, #{author}, #{courseType},#{thumbnailUrl}, #{courseId},
-                     #{files}, #{fileSize}, #{fileType}, NOW()
-                 )
+            #{title}, #{courseType}, #{uploaderUserId}, #{uploaderName}, #{thumbnailUrl}, #{thumbnailUrl},
+            #{courseId}, #{customSubject}, #{year}, #{originalFilePath}, #{originalFilePath}, #{previewFilePath},
+            #{originalFilename}, #{fileSize}, #{mimeType}, #{fileExtension}, #{mimeType},
+            #{previewStatus}, 1, NOW(), NOW()
+        )
     </insert>
 
-    <select id="findAllCourse" resultMap="coursemap">
-        select * from course_detail
+    <select id="search" parameterType="com.vihu.ganlu.entitys.MaterialSearchQuery" resultMap="courseDetailMap">
+        SELECT
+        <include refid="materialColumns"/>
+        FROM course_detail cd
+        LEFT JOIN course c ON cd.course_id = c.id
+        LEFT JOIN user u ON cd.uploader_user_id = u.id
+        <where>
+            cd.status = 1
+            AND cd.year BETWEEN #{minYear} AND #{maxYear}
+            <if test="courseType != null">
+                AND cd.courseType = #{courseType}
+            </if>
+            <if test="courseId != null">
+                AND cd.course_id = #{courseId}
+            </if>
+            <if test="year != null">
+                AND cd.year = #{year}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                <bind name="keywordLike" value="'%' + keyword + '%'"/>
+                AND (
+                    cd.title LIKE #{keywordLike}
+                    OR c.course_name LIKE #{keywordLike}
+                    OR cd.custom_subject LIKE #{keywordLike}
+                    OR COALESCE(NULLIF(u.teamname, ''), NULLIF(u.realname, ''), u.username, cd.author) LIKE #{keywordLike}
+                )
+            </if>
+        </where>
+        ORDER BY cd.create_time DESC, cd.id DESC
     </select>
 
-    <select id="findCourseList" resultMap="coursemap">
-        SELECT m.*, c.course_name as course_name FROM course_detail m
-        LEFT JOIN course c ON m.course_id = c.id
-        ORDER BY m.create_time DESC
+    <select id="getCourseById" parameterType="Integer" resultMap="courseDetailMap">
+        SELECT
+        <include refid="materialColumns"/>
+        FROM course_detail cd
+        LEFT JOIN course c ON cd.course_id = c.id
+        LEFT JOIN user u ON cd.uploader_user_id = u.id
+        WHERE cd.id = #{id} AND cd.status = 1
     </select>
 
-    <select id="getCourseById" resultMap="coursemap" parameterType="Integer">
-        select * from course_detail where id=#{id}
+    <select id="getCourseByIdForUpdate" parameterType="Integer" resultMap="courseDetailMap">
+        SELECT
+        <include refid="materialColumns"/>
+        FROM course_detail cd
+        LEFT JOIN course c ON cd.course_id = c.id
+        LEFT JOIN user u ON cd.uploader_user_id = u.id
+        WHERE cd.id = #{id} AND cd.status = 1
+        FOR UPDATE
     </select>
 
-    <delete id="deleteCourseById" parameterType="Integer">
-        delete from course_detail where id=#{id}
-    </delete>
+    <select id="getCourseByIdIncludingDeletedForUpdate" parameterType="Integer" resultMap="courseDetailMap">
+        SELECT
+        <include refid="materialColumns"/>
+        FROM course_detail cd
+        LEFT JOIN course c ON cd.course_id = c.id
+        LEFT JOIN user u ON cd.uploader_user_id = u.id
+        WHERE cd.id = #{id}
+        FOR UPDATE
+    </select>
 
+    <update id="softDeleteCourseById" parameterType="Integer">
+        UPDATE course_detail
+        SET status = 0, update_time = NOW()
+        WHERE id = #{id} AND status = 1
+    </update>
 </mapper>
