@@ -12,5 +12,9 @@ public interface CourseDetailMapper {
 
     CourseDetailEntity getCourseById(int id);
 
+    CourseDetailEntity getCourseByIdForUpdate(int id);
+
+    CourseDetailEntity getCourseByIdIncludingDeletedForUpdate(int id);
+
     int softDeleteCourseById(int id);
 }

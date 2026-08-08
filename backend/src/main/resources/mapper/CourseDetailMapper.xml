@@ -109,6 +109,26 @@
         WHERE cd.id = #{id} AND cd.status = 1
     </select>
 
+    <select id="getCourseByIdForUpdate" parameterType="Integer" resultMap="courseDetailMap">
+        SELECT
+        <include refid="materialColumns"/>
+        FROM course_detail cd
+        LEFT JOIN course c ON cd.course_id = c.id
+        LEFT JOIN user u ON cd.uploader_user_id = u.id
+        WHERE cd.id = #{id} AND cd.status = 1
+        FOR UPDATE
+    </select>
+
+    <select id="getCourseByIdIncludingDeletedForUpdate" parameterType="Integer" resultMap="courseDetailMap">
+        SELECT
+        <include refid="materialColumns"/>
+        FROM course_detail cd
+        LEFT JOIN course c ON cd.course_id = c.id
+        LEFT JOIN user u ON cd.uploader_user_id = u.id
+        WHERE cd.id = #{id}
+        FOR UPDATE
+    </select>
+
     <update id="softDeleteCourseById" parameterType="Integer">
         UPDATE course_detail
         SET status = 0, update_time = NOW()

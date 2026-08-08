@@ -3,6 +3,7 @@ package com.vihu.ganlu.security;
 import com.vihu.ganlu.entitys.UserEntity;
 import com.vihu.ganlu.service.UserService;
 import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -21,10 +22,17 @@ public class AuthInterceptor implements HandlerInterceptor {
 
     private final TokenService tokenService;
     private final UserService userService;
+    private final AuthContext authContext;
 
-    public AuthInterceptor(TokenService tokenService, UserService userService) {
+    @Autowired
+    public AuthInterceptor(TokenService tokenService, UserService userService, AuthContext authContext) {
         this.tokenService = tokenService;
         this.userService = userService;
+        this.authContext = authContext;
+    }
+
+    public AuthInterceptor(TokenService tokenService, UserService userService) {
+        this(tokenService, userService, new AuthContext());
     }
 
     @Override
@@ -44,21 +52,23 @@ public class AuthInterceptor implements HandlerInterceptor {
             return true;
         }
 
-        String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
-        if (authorization == null || !authorization.startsWith("Bearer ")) {
-            return reject(response, HttpStatus.UNAUTHORIZED, "请先登录");
-        }
-
-        UserEntity currentUser;
-        try {
-            String token = authorization.substring("Bearer ".length()).trim();
-            if (token.isEmpty()) {
+        UserEntity currentUser = request.getAttribute(CURRENT_USER_ATTRIBUTE) instanceof UserEntity
+                ? (UserEntity) request.getAttribute(CURRENT_USER_ATTRIBUTE) : null;
+        if (currentUser == null) {
+            String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
+            if (authorization == null || !authorization.startsWith("Bearer ")) {
+                return reject(response, HttpStatus.UNAUTHORIZED, "请先登录");
+            }
+            try {
+                String token = authorization.substring("Bearer ".length()).trim();
+                if (token.isEmpty()) {
+                    return reject(response, HttpStatus.UNAUTHORIZED, "Token无效或已过期");
+                }
+                Integer userId = tokenService.verifyAndGetUserId(token);
+                currentUser = userService.findUserById(userId);
+            } catch (RuntimeException ex) {
                 return reject(response, HttpStatus.UNAUTHORIZED, "Token无效或已过期");
             }
-            Integer userId = tokenService.verifyAndGetUserId(token);
-            currentUser = userService.findUserById(userId);
-        } catch (RuntimeException ex) {
-            return reject(response, HttpStatus.UNAUTHORIZED, "Token无效或已过期");
         }
 
         if (currentUser == null || currentUser.getLevel() == null) {
@@ -66,20 +76,28 @@ public class AuthInterceptor implements HandlerInterceptor {
         }
 
         RequireRoles requireRoles = findAnnotation(handlerMethod, RequireRoles.class);
+        int currentLevel = currentUser.getLevel();
         if (requireRoles != null && Arrays.stream(requireRoles.value())
-                .noneMatch(level -> level == currentUser.getLevel())) {
+                .noneMatch(level -> level == currentLevel)) {
             return reject(response, HttpStatus.FORBIDDEN, "无访问权限");
         }
 
         request.setAttribute(CURRENT_USER_ATTRIBUTE, currentUser);
+        authContext.setCurrentUser(currentUser);
         return true;
+    }
+
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
+        authContext.clear();
     }
 
     private boolean reject(HttpServletResponse response, HttpStatus status, String message) throws IOException {
         response.setStatus(status.value());
         response.setCharacterEncoding("UTF-8");
         response.setContentType("application/json;charset=UTF-8");
-        response.getWriter().write("{\"code\":" + status.value() + ",\"message\":\"" + message + "\"}");
+        response.getWriter().write("{\"code\":" + status.value()
+                + ",\"message\":\"" + message + "\",\"content\":null}");
         return false;
     }
 

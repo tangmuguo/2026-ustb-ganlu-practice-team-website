@@ -17,12 +17,12 @@ onMounted(async () => {
 
 <template>
   <!-- 图片滚动区域 -->
-    <section class="relative h-[500px] overflow-hidden">
+    <section class="banner-section">
         <div id="carousel" class="flex h-full">
             <!-- 轮播图占位区域，后期通过后端添加图片 -->
             <BannerCard 
             :data="bannerList" 
-            height="500px"
+            height="clamp(280px, 42vw, 500px)"
             interval="3000"
             arrow="always"
             indicator-position="outside"
@@ -45,4 +45,9 @@ onMounted(async () => {
 
 <style scoped>
 
+.banner-section {
+  height: clamp(280px, 42vw, 500px);
+  overflow: hidden;
+  background: #e9f0f3;
+}
 </style>

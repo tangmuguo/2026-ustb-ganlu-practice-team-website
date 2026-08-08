@@ -10,7 +10,9 @@ public interface UserService {
     UserEntity findUserById(int id);
     List<UserEntity> findUserByLevel(int level);
     List<UserEntity> findUserBigLevel(int level);
-    UserEntity login(UserEntity e);
+    UserEntity authenticate(String username, String rawPassword);
+    boolean usernameExists(String username);
+    boolean phoneExists(String phone);
     int findCountUserByPage(UserQueryVo vo);
     List<UserEntity> findUserByPage(UserQueryVo vo);
     Integer addUser(UserEntity e);

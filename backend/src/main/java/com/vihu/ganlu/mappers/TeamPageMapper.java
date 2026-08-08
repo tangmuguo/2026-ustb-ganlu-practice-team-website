@@ -1,14 +1,14 @@
 package com.vihu.ganlu.mappers;
 
 import com.vihu.ganlu.entitys.TeamPageEntity;
-
-import java.util.List;
+import org.apache.ibatis.annotations.Param;
 
 public interface TeamPageMapper {
-    List<TeamPageEntity> getTeamPage();
-    List<TeamPageEntity> getTeamPageById(int id);
-    void addTeamPage(TeamPageEntity e);
-    void updateTeamPageById(TeamPageEntity e);
-    void deleteTeamPageByIds(String[] ids);
+    TeamPageEntity findById(@Param("id") int id);
 
+    TeamPageEntity findByTeamId(@Param("teamId") int teamId);
+
+    int insertTeamPage(TeamPageEntity teamPage);
+
+    int updateMetadataByTeamId(TeamPageEntity teamPage);
 }

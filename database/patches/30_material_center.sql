@@ -52,7 +52,8 @@ SET @ddl = IF((SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEM
     'ALTER TABLE course_detail ADD COLUMN status TINYINT NOT NULL DEFAULT 1 COMMENT ''1有效 0已删除'' AFTER preview_status', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
--- 历史记录只做字段回填，不移动或删除磁盘文件。
+-- 历史记录只做字段回填，不移动或删除磁盘文件。公共图片迁移会读取这些有效封面引用，
+-- 但课件封面仍由课件模块独立管理，不进入 public_image_asset 配额账本。
 UPDATE course_detail
 SET year = YEAR(COALESCE(create_time, CURRENT_TIMESTAMP))
 WHERE year IS NULL;

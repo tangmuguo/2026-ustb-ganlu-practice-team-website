@@ -4,46 +4,54 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 <mapper namespace="com.vihu.ganlu.mappers.TeamPageMapper">
-    <resultMap type="com.vihu.ganlu.entitys.TeamPageEntity" id="teampagemap">
+    <resultMap type="com.vihu.ganlu.entitys.TeamPageEntity" id="teamPageMap">
         <id column="id" property="id"/>
         <result column="title" property="title"/>
         <result column="content" property="content"/>
-        <result column="created_at" property="created_at"/>
-        <result column="updated_at" property="updated_at"/>
-        <result column="team_id" property="team_id"/>
-        <result column="status" property="status"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="team_id" property="teamId"/>
+        <result column="status_code" property="status"/>
     </resultMap>
 
-    <select id="getTeamPage" resultMap="teampagemap">
-        select *
-        from team_page
-	</select>
+    <sql id="teamPageColumns">
+        id, title, content, created_at, updated_at, team_id,
+        CASE status
+            WHEN '草稿' THEN 'DRAFT'
+            WHEN '展示' THEN 'PUBLISHED'
+            WHEN '归档' THEN 'ARCHIVED'
+        END AS status_code
+    </sql>
 
-    <select id="getTeamPageById" resultMap="teampagemap" parameterType="Integer">
-        select *
-        from team_page where id=#{id}
+    <select id="findById" resultMap="teamPageMap">
+        SELECT
+        <include refid="teamPageColumns"/>
+        FROM team_page
+        WHERE id = #{id}
     </select>
 
-    <insert id="addTeamPage" parameterType="com.vihu.ganlu.entitys.TeamPageEntity">
-        insert into team_page(title,image_url,link_url,sort_order,is_visible)
-        values (#{title},#{image_url},#{link_url},#{sort_order},#{is_visible})
+    <select id="findByTeamId" resultMap="teamPageMap">
+        SELECT
+        <include refid="teamPageColumns"/>
+        FROM team_page
+        WHERE team_id = #{teamId}
+    </select>
+
+    <insert id="insertTeamPage" parameterType="com.vihu.ganlu.entitys.TeamPageEntity"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO team_page (
+            title, content, created_at, updated_at, team_id, status
+        ) VALUES (
+            #{title}, #{content}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, #{teamId},
+            #{status.databaseValue}
+        )
     </insert>
 
-    <update id="updateTeamPageById" parameterType="com.vihu.ganlu.entitys.TeamPageEntity" >
-        update team_page
-        set title=#{title},image_url=#{image_url},link_url=#{link_url},sort_order=#{sort_order},is_visible=#{is_visible}
-        where id=#{id}
+    <update id="updateMetadataByTeamId" parameterType="com.vihu.ganlu.entitys.TeamPageEntity">
+        UPDATE team_page
+        SET title = #{title},
+            status = #{status.databaseValue},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE team_id = #{teamId}
     </update>
-
-    <delete id="deleteTeamPageByIds" parameterType="com.vihu.ganlu.entitys.UserQueryVo">
-        delete from team_page
-        <where>
-            id in
-            <foreach collection="array" item="id" separator="," open="(" close=")">
-                #{id}
-            </foreach>
-        </where>
-    </delete>
-
-
 </mapper>

@@ -1,14 +1,15 @@
 <script setup>
 import { ref } from 'vue'
-import UploadWidget from '@/components/UploadWidget.vue'
+import PublicImageUploadWidget from '@/components/PublicImageUploadWidget.vue'
 import { ElMessage } from 'element-plus'
-import {uploadPhoto,uploadWholeImage} from "@/apis/fengcaiAPI"
+import {uploadWholeImage} from "@/apis/fengcaiAPI"
 import {userinfoStore} from '@/stores/userStore'
 
 const formRef = ref(null)
 const submitting = ref(false)
 const userinfo=userinfoStore()
 const uploadWidgetRef=ref(null)
+const emit = defineEmits(['uploaded'])
 
 const form = ref({
   userId:'',
@@ -16,6 +17,7 @@ const form = ref({
   caption: '',
   content: '',
   imageUrl:'',
+  imageUploadToken: '',
 })
 
 const datatype= [
@@ -36,17 +38,12 @@ const rules = {
   content: [{ required: true, message: '请输入内容', trigger: 'blur' }]
 }
 
-const handleImageUpload = async (file)=>{
-  try {
-    form.value.imageUrl = file
-    ElMessage.success('图片上传成功')
-  } catch (error) {
-    ElMessage.error('图片上传失败')
-  }
+const handleImageUpload = (stagedImage) => {
+  form.value.imageUploadToken = stagedImage?.token || ''
 }
 
 const submitForm = async () => {
-  if (!form.value.imageUrl) {
+  if (!form.value.imageUploadToken) {
     ElMessage.warning('请先完成文件上传')
     return
   }
@@ -58,12 +55,17 @@ const submitForm = async () => {
     submitting.value = true
     form.value.type=datatype_value.value
     form.value.userId=userinfo.user.content.id
-    await uploadWholeImage(form.value)
+    const response = await uploadWholeImage(form.value)
+    if (response.data?.code !== 200) {
+      throw new Error(response.data?.message || '提交失败')
+    }
     
     // 重置表单
+    uploadWidgetRef.value.markConsumed()
     formRef.value.resetFields()
-    uploadWidgetRef.value.clearFile()
+    await uploadWidgetRef.value.clearFile({ cancelRemote: false })
     ElMessage.success('提交成功')
+    emit('uploaded')
   } catch (error) {
     ElMessage.error('提交失败: ' + error.message)
   } finally {
@@ -91,19 +93,14 @@ const submitForm = async () => {
         </el-form-item>
 
         <el-form-item label="图片上传">
-            <UploadWidget
+            <PublicImageUploadWidget
             ref="uploadWidgetRef"
-            accept="image/*"
-            tip-text="支持 JPG/PNG 格式,大小不超过2MB"
-            preview-icon="el-icon-picture"
-            upload-text="上传图片"
+            accept=".jpg,.jpeg,.png,.webp"
+            tip-text="支持 JPG、PNG、WebP，大小不超过2MB"
             :max-size-mb="2"
             @upload="handleImageUpload"
             />
         </el-form-item>
-        <el-form-item label="封面">
-          <el-input v-model="form.imageUrl"/>
-        </el-form-item>  
         <el-form-item label="照片标题" prop="caption">
             <el-input v-model="form.caption" placeholder="请输入标题"></el-input>
         </el-form-item>

@@ -1,11 +1,18 @@
 package com.vihu.ganlu.entitys;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
+import java.sql.Date;
 import java.sql.Timestamp;
 @Data
 public class TeamPageImageEntity {
     Integer id;
+    Integer teamId;
+    String status;
+    String rejectReason;
+    Date logDate;
     Integer userId;
     Integer pageId;
     String imageUrl;
@@ -15,4 +22,8 @@ public class TeamPageImageEntity {
     Timestamp createdAt;
     Timestamp updatedAt;
     Integer type;
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    String imageUploadToken;
+    @JsonIgnore
+    Integer imageUploadUserId;
 }

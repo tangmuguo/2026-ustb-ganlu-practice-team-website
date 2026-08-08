@@ -1,209 +1,338 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
-import { useRouter } from 'vue-router'
-import {userinfoStore} from "@/stores/userStore"
-import { ArrowDown } from '@element-plus/icons-vue'
+import { useRoute, useRouter } from 'vue-router'
+import { userinfoStore } from '@/stores/userStore'
+import logoUrl from '@/images/甘露.png'
 
 const route = useRoute()
-const router=useRouter()
-const activeIndex = ref(route.path)
-const userInfo=userinfoStore()
-const displayName = computed(() => userInfo.currentUser?.teamname
-  || userInfo.currentUser?.realname
-  || userInfo.currentUser?.username
-  || '用户')
+const router = useRouter()
+const userStore = userinfoStore()
+const mobileOpen = ref(false)
 
-// 监听路由变化，更新激活菜单项
-watch(
-  () => route.path,
-  (newPath) => {
-    activeIndex.value = newPath
+const publicLinks = [
+  { to: '/', label: '首页' },
+  { to: '/showm', label: '课件共享' },
+  { to: '/fengcai', label: '团队风采' },
+  { to: '/messageboard', label: '互动留言' },
+  { to: '/about', label: '关于甘露' },
+  { to: '/join', label: '加入甘露' },
+]
+
+const displayName = computed(() => userStore.currentUser?.teamname
+  || userStore.currentUser?.realname
+  || userStore.currentUser?.username
+  || '我的账号')
+
+const level = computed(() => Number(userStore.currentUser?.level))
+
+const managementItems = computed(() => {
+  if (!userStore.isLoggedIn) return []
+
+  const common = [
+    { command: '/uppt', label: '上传课件' },
+    { command: '/mmanage', label: '课件管理' },
+  ]
+
+  if (level.value === 0) {
+    return [
+      { command: '/mbanner', label: '轮播图管理' },
+      { command: '/mnews', label: '新闻管理' },
+      { command: '/muser', label: '团队账号管理' },
+      { command: '/regt', label: '创建团队账号' },
+      { command: '/mstudent', label: '学生账号管理' },
+      { command: '/applications', label: '志愿者报名管理' },
+      { command: '/admin/team-content', label: '团队内容审核' },
+      ...common,
+    ]
   }
-)
 
-const handleSelect = (index) => {
-  activeIndex.value = index
+  if (level.value === 1) {
+    return [
+      { command: '/mstudent', label: '学生账号管理' },
+      { command: '/team-content-manage', label: '团队内容管理' },
+      ...common,
+    ]
+  }
+
+  return []
+})
+
+function logout() {
+  userStore.clearUser()
+  mobileOpen.value = false
+  router.push('/')
 }
-const onLogout=()=>{
-  userInfo.clearUser()
-  router.replace('/')
+
+function handleCommand(command) {
+  if (command === 'logout') logout()
+  else router.push(command)
 }
-const onLunBo=()=>{
-  router.push('/mbanner')
-}
-const onTeam=()=>{
-  router.push('/muser')
-}
-const onUpload=()=>{
-  router.push('/uppt')
-}
-const onMember=()=>{
-  router.push('/photo')
-}
-const onLog=()=>{
-  router.push('/logh')
-}
-const onManage = ()=>{
-  router.push('/mmanage')
-}
-const onStudent= ()=>{
-  router.push('/mstudent')
-}
-const onNews = ()=>{
-  router.push('/mnews')
-}
+
+watch(() => route.fullPath, () => {
+  mobileOpen.value = false
+})
 </script>
 
 <template>
-  <header class="sticky top-0 z-50 bg-primary text-white shadow-md">
-        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
-            <!-- 甘露支教图标占位区域 -->
-            <div class="flex items-center">
-                <!-- 替换为提供的图标 -->
-                <img src="../images/甘露.png" alt="新图标" class="w-12 h-12 mr-2">
-                <a href="../index.html" class="font-bold text-2xl">甘露支教</a>
-            </div>
-            
-            <!-- 导航链接 -->
-            <nav class="hidden md:flex ml-8">
-                <div class="menu-container">
-                    <el-menu
-                    :default-active="activeIndex"
-                    class="custom-menu"
-                    mode="horizontal"
-                    @select="handleSelect"
-                    ellipsis="false"
-                    router
-                    >
-                        <el-menu-item index="/">首页</el-menu-item>
-                        <el-menu-item index="/showm">课件</el-menu-item>
-                        <el-menu-item index="/fengcai">风采</el-menu-item>
-                        <el-menu-item index="/messageboard">互动</el-menu-item>
-                        <el-menu-item v-if="!userInfo.user.content" index="/login">登录</el-menu-item>
-                        <el-menu-item v-else-if="userInfo.user.content.level===0">
-                          <el-dropdown>                            
-                            <span class="el-dropdown-link">
-                              <el-tooltip :content="displayName" placement="right" v-if="displayName.length > 5">
-                                <span>{{displayName.substring(0, 5)}}...</span>
-                              </el-tooltip>
-                              <span v-else>{{displayName}}</span>
-                              <el-icon class="el-icon--right">
-                                <arrow-down />
-                              </el-icon>
-                            </span>
-                            <template #dropdown>
-                              <el-dropdown-menu>
-                                <el-dropdown-item @click="onLunBo">轮播图管理</el-dropdown-item>
-                                <el-dropdown-item @click="onNews">新闻管理</el-dropdown-item>
-                                <el-dropdown-item @click="onTeam">团队管理</el-dropdown-item>
-                                <el-dropdown-item @click="onStudent">学生管理</el-dropdown-item>
-                                <el-dropdown-item @click="onUpload">课件上传</el-dropdown-item>
-                                <el-dropdown-item @click="onManage">课件管理</el-dropdown-item>
-                                <el-dropdown-item @click="onLog">日志与荣誉</el-dropdown-item>
-                                <el-dropdown-item @click="onMember">执教与队员</el-dropdown-item>
-                                <el-dropdown-item @click="onLogout">注销</el-dropdown-item>
-                              </el-dropdown-menu>
-                            </template>
-                          </el-dropdown>
-                        </el-menu-item>
-                        <el-menu-item v-else-if="userInfo.user.content.level===1">
-                          <el-dropdown>                            
-                            <span class="el-dropdown-link">                              
-                              <el-tooltip :content="displayName" placement="right" v-if="displayName.length > 5">
-                                <span>{{displayName.substring(0, 5)}}...</span>
-                              </el-tooltip>
-                              <span v-else>{{displayName}}</span>
-                              <el-icon class="el-icon--right">
-                                <arrow-down />
-                              </el-icon>
-                            </span>
-                            <template #dropdown>
-                              <el-dropdown-menu>
-                                <el-dropdown-item @click="onStudent">学生管理</el-dropdown-item>
-                                <el-dropdown-item @click="onUpload">课件上传</el-dropdown-item>
-                                <el-dropdown-item @click="onManage">课件管理</el-dropdown-item>
-                                <el-dropdown-item @click="onLog">日志与荣誉</el-dropdown-item>
-                                <el-dropdown-item @click="onMember">执教与队员</el-dropdown-item>
-                                <el-dropdown-item @click="onLogout">注销</el-dropdown-item>
-                              </el-dropdown-menu>
-                            </template>
-                          </el-dropdown>
-                        </el-menu-item>
-                        <el-menu-item v-else>
-                          <el-dropdown>                
-                            <span class="el-dropdown-link">
-                              <el-tooltip :content="displayName" placement="right" v-if="displayName.length > 5">
-                                <span>{{displayName.substring(0, 5)}}...</span>
-                              </el-tooltip>
-                              <span v-else>{{displayName}}</span>
-                              <el-icon class="el-icon--right">
-                                <arrow-down />
-                              </el-icon>
-                            </span>
-                            <template #dropdown>
-                              <el-dropdown-menu>
-                                <el-dropdown-item @click="onLogout">注销</el-dropdown-item>
-                              </el-dropdown-menu>
-                            </template>
-                          </el-dropdown>
-                        </el-menu-item>
-                    </el-menu>
-                </div>                
-            </nav>
-            
-            <!-- 移动端菜单按钮 -->
-            <!-- <button class="md:hidden text-white text-xl">
-                <i class="fa fa-bars"></i>
-            </button> -->
-        </div>
-    </header>
+  <header class="site-header">
+    <div class="header-inner">
+      <RouterLink class="brand" to="/" aria-label="返回甘露支教首页">
+        <img :src="logoUrl" alt="甘露支教标志" class="brand-logo">
+        <span>甘露支教</span>
+      </RouterLink>
+
+      <nav class="desktop-nav" aria-label="主导航">
+        <RouterLink
+          v-for="item in publicLinks"
+          :key="item.to"
+          :to="item.to"
+          class="nav-link"
+        >
+          {{ item.label }}
+        </RouterLink>
+        <RouterLink v-if="userStore.isLoggedIn" to="/ai" class="nav-link">AI 小助手</RouterLink>
+      </nav>
+
+      <div class="account-area">
+        <RouterLink v-if="!userStore.isLoggedIn" to="/login" class="login-button">登录</RouterLink>
+        <el-dropdown v-else trigger="click" @command="handleCommand">
+          <button class="account-button" type="button">
+            <span class="account-name">{{ displayName }}</span>
+            <el-icon><ArrowDown /></el-icon>
+          </button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="/ai">AI 小助手</el-dropdown-item>
+              <el-dropdown-item
+                v-for="item in managementItems"
+                :key="item.command"
+                :command="item.command"
+              >
+                {{ item.label }}
+              </el-dropdown-item>
+              <el-dropdown-item divided command="logout">退出登录</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+
+        <button class="mobile-trigger" type="button" aria-label="打开导航菜单" @click="mobileOpen = true">
+          <el-icon><Menu /></el-icon>
+        </button>
+      </div>
+    </div>
+
+    <el-drawer v-model="mobileOpen" title="甘露支教" size="min(86vw, 360px)" direction="rtl">
+      <nav class="mobile-nav" aria-label="移动端导航">
+        <RouterLink v-for="item in publicLinks" :key="item.to" :to="item.to">{{ item.label }}</RouterLink>
+        <RouterLink v-if="userStore.isLoggedIn" to="/ai">AI 小助手</RouterLink>
+        <template v-if="userStore.isLoggedIn">
+          <div class="mobile-divider">账号功能</div>
+          <RouterLink v-for="item in managementItems" :key="item.command" :to="item.command">
+            {{ item.label }}
+          </RouterLink>
+          <button type="button" @click="logout">退出登录</button>
+        </template>
+        <RouterLink v-else class="mobile-login" to="/login">登录 / 注册</RouterLink>
+      </nav>
+    </el-drawer>
+  </header>
 </template>
 
 <style scoped>
-.menu-container {
-  padding: 0 20px;
-  min-width: 600px;
-  background-color: #1e88e5 ;  /*添加蓝色背景 */
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  color: white;
+  background: rgba(15, 91, 124, 0.97);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  backdrop-filter: blur(12px);
 }
 
-.custom-menu {
-  border-bottom: none;
-  background-color: transparent; /* 使菜单背景透明，继承容器颜色 */
-}
-
-/* 登录项靠右 */
-.login-item {
-  margin-left: auto !important;
-}
-
-/* 菜单项样式 */
-.el-menu-item {
-  font-size: 16px;
-  color: white !important; /* 文字改为白色 */
-  height: 60px;
-  line-height: 60px;
-  padding: 0 20px;
-}
-
-/* 激活菜单项样式 */
-.el-menu-item.is-active {
-  color: white !important;
-  border-bottom: 2px solid white; /* 白色下划线 */
-}
-
-/* 悬停效果 */
-.el-menu-item:not(.is-active):hover {
-  color: white !important;
-  background-color: rgba(255, 255, 255, 0.2) !important; /* 半透明白色悬停效果 */
-  border-bottom: 2px solid white;
-}
-.el-dropdown-link{
-  cursor: pointer;
-  font-size: 16px;
-  color: white !important; /* 文字改为白色 */
-  line-height: 60px;
+.header-inner {
   display: flex;
+  min-height: 72px;
+  max-width: 1280px;
   align-items: center;
+  gap: 24px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.brand {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.brand-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: white;
+}
+
+.desktop-nav {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.nav-link {
+  position: relative;
+  padding: 25px 10px 22px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.nav-link::after {
+  position: absolute;
+  right: 10px;
+  bottom: 16px;
+  left: 10px;
+  height: 2px;
+  content: '';
+  background: #f4d35e;
+  border-radius: 999px;
+  opacity: 0;
+  transform: scaleX(0.4);
+  transition: 0.2s ease;
+}
+
+.nav-link:hover,
+.nav-link.router-link-active {
+  color: white;
+}
+
+.nav-link:hover::after,
+.nav-link.router-link-active::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.account-area {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+}
+
+.login-button,
+.account-button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 16px;
+  color: #0f5b7c;
+  background: white;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.account-name {
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-trigger {
+  display: none;
+  width: 42px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 12px;
+  font-size: 22px;
+}
+
+.mobile-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mobile-nav a,
+.mobile-nav button {
+  width: 100%;
+  padding: 13px 14px;
+  color: #243746;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  text-align: left;
+}
+
+.mobile-nav a:hover,
+.mobile-nav a.router-link-active,
+.mobile-nav button:hover {
+  color: #0f5b7c;
+  background: #edf7fa;
+}
+
+.mobile-divider {
+  margin: 16px 0 4px;
+  padding: 8px 14px;
+  color: #8a98a5;
+  border-top: 1px solid #e8edf2;
+  font-size: 12px;
+}
+
+.mobile-login {
+  margin-top: 12px;
+  color: white !important;
+  background: #0f5b7c !important;
+  text-align: center !important;
+}
+
+@media (max-width: 1120px) {
+  .desktop-nav {
+    display: none;
+  }
+
+  .header-inner {
+    justify-content: space-between;
+  }
+
+  .mobile-trigger {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 560px) {
+  .header-inner {
+    min-height: 64px;
+    padding: 0 16px;
+  }
+
+  .brand {
+    font-size: 18px;
+  }
+
+  .brand-logo {
+    width: 38px;
+    height: 38px;
+  }
+
+  .account-button,
+  .login-button {
+    display: none;
+  }
 }
 </style>
