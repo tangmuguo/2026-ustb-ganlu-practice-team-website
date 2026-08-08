@@ -51,6 +51,10 @@
         <if test="status != null and status != ''">
             and status = #{status}
         </if>
+        <!-- 与 findByTeamId 语义一致：无状态过滤时排除已归档；显式查 ARCHIVED 仍支持 -->
+        <if test="status == null or status == ''">
+            and status &lt;&gt; 'ARCHIVED'
+        </if>
     </select>
 
     <!--

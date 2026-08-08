@@ -301,8 +301,8 @@ public class TeamContentAction {
      * - 团队负责人（level=1）→ 仅自己 teamId 的图片可看（任意状态）
      *
      * 鉴权方式：@PublicEndpoint 保留公开 PUBLISHED 图片能力；私有图片只接受
-     * Authorization header。完整登录 JWT 禁止进入查询字符串。
-     * 返回 inline（非 attachment），浏览器可直接渲染。
+     * Authorization header，禁止从 URL query 读取登录 JWT，避免凭证进入历史、日志或 Referer。
+     * 前端用带 header 的 Blob 请求预览；返回 inline（非 attachment）。
      */
     @PublicEndpoint
     @GetMapping("/team-content/image/{imageId}")
@@ -332,28 +332,41 @@ public class TeamContentAction {
             }
         }
 
-        return buildImageResponse(img);
+        // exy v5 Item 1 缓存策略：匿名访问 PUBLISHED 图可缓存，缓解全走 serveImage 的性能开销。
+        // 管理员/owner 访问 PENDING/REJECTED 图必须 no-store（审核中内容不应进浏览器缓存）。
+        // PENDING 图匿名拿不到（上面已 404），此约束天然满足。
+        // 诚实声明：状态机可回退（驳回/归档可把 PUBLISHED 撤回），撤回后 1 小时内匿名端可能
+        // 命中浏览器缓存的旧图——计划已接受的权衡（内容非敏感）。用 private 限定仅浏览器缓存，
+        // 不让共享代理/CDN 缓存撤回内容；如需更严可改为 no-store。
+        boolean cacheable = !isAdmin && !isOwner;
+        return buildImageResponse(img, cacheable);
     }
 
     /**
      * 构造图片 inline 响应（Content-Type 由文件扩展名推断，inline 便于浏览器渲染）。
+     * @param cacheable true=可缓存（PUBLISHED 图，Cache-Control: private, max-age=3600，
+     *                  private 限定仅浏览器缓存、不进共享 CDN，见上方诚实声明）；
+     *                  false=no-store（管理员/owner 预览 PENDING/REJECTED 图）
      */
-    private ResponseEntity<?> buildImageResponse(TeamPageImageEntity img) {
+    private ResponseEntity<?> buildImageResponse(TeamPageImageEntity img, boolean cacheable) {
         Path path = fileStorageUtil.loadFile(img.getImageUrl());
         if (!java.nio.file.Files.exists(path)) {
             return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "文件不存在"));
         }
         org.springframework.core.io.Resource resource = new org.springframework.core.io.FileSystemResource(path.toFile());
-        return ResponseEntity.ok()
+        ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_TYPE, guessImageContentType(img.getImageUrl()))
-                .header(HttpHeaders.CACHE_CONTROL, "no-store")
-                .header("X-Content-Type-Options", "nosniff")
-                .body(resource);
+                .header(HttpHeaders.CACHE_CONTROL, cacheable ? "private, max-age=3600" : "no-store")
+                .header("X-Content-Type-Options", "nosniff");
+        return builder.body(resource);
     }
 
     /**
      * 只从 Authorization header 解析当前用户。查询参数中的 token 永不读取。
      * 解析失败返回 null（调用方按匿名处理）。
+     *
+     * 本端点 @PublicEndpoint，拦截器通常不预处理，因此这里按同一 Bearer 规则做弱校验；
+     * 解析失败按匿名用户处理。
      */
     private UserEntity resolveUserFromAuthorization(HttpServletRequest request) {
         UserEntity attr = (UserEntity) request.getAttribute(AuthInterceptor.CURRENT_USER_ATTRIBUTE);
@@ -758,6 +771,17 @@ public class TeamContentAction {
     private ResponseEntity<?> badRequest(String message) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ImmutableMap.of("code", 400, "message", message));
+    }
+
+    /**
+     * F8 review: service 层抛 IllegalStateException（如 F1 文件搬运失败、DB 同步失败）
+     * 在本控制器兜底为结构化 500，而非 Spring 默认空响应——管理员能得到可操作的错误提示。
+     * （之前这类异常会冒泡成裸 500，管理员看不到原因。）
+     */
+    @org.springframework.web.bind.annotation.ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<?> handleIllegalState(IllegalStateException e) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ImmutableMap.of("code", 500, "message", "操作失败：" + e.getMessage()));
     }
 
     /**

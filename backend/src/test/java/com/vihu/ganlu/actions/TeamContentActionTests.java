@@ -13,6 +13,7 @@ import com.vihu.ganlu.service.TeamPageWordService;
 import com.vihu.ganlu.utils.FileStorageUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockMultipartFile;
@@ -139,6 +140,22 @@ class TeamContentActionTests {
 
         ResponseEntity<?> resp = action.adminPublish("image", 10);
         assertEquals(200, resp.getStatusCodeValue());
+    }
+
+    @Test
+    void adminPublish_moveFailure_returnsStructured500() {
+        // F8 review: service 层 move 失败抛 IllegalStateException，本控制器应有 handler 兜底，
+        // 返回结构化 ResultEntity（而非 Spring 默认裸 500 空响应）
+        when(imageService.updateStatus(10, "PUBLISHED", null))
+                .thenThrow(new IllegalStateException("图片文件搬运失败: from -> to"));
+
+        ResponseEntity<?> resp = action.handleIllegalState(
+                new IllegalStateException("图片文件搬运失败: from -> to"));
+        assertEquals(500, resp.getStatusCodeValue());
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, Object> body = (java.util.Map<String, Object>) resp.getBody();
+        assertEquals(500, body.get("code"));
+        assertEquals("操作失败：图片文件搬运失败: from -> to", body.get("message"));
     }
 
     @SuppressWarnings("unchecked")
@@ -547,7 +564,7 @@ class TeamContentActionTests {
 
     @Test
     void serveImage_admin_canViewPending() throws Exception {
-        // 管理员可查看任意状态图片
+        // 已认证管理员可查看任意状态图片。
         java.nio.file.Path tmp = java.nio.file.Files.createTempFile("test-img", ".jpg");
         UserEntity admin = user(1, 0);
         when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
@@ -555,12 +572,14 @@ class TeamContentActionTests {
 
         ResponseEntity<?> resp = action.serveImage(10, req(admin));
         assertEquals(200, resp.getStatusCodeValue());
+        // exy v5 Item 1：管理员预览 PENDING 图必须 no-store（审核中内容不进缓存）
+        assertEquals("no-store", resp.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL));
         java.nio.file.Files.delete(tmp);
     }
 
     @Test
     void serveImage_owner_canViewOwnPending() throws Exception {
-        // 团队负责人可查看自己 team 的 PENDING 图片
+        // 已认证团队负责人可查看自己 team 的 PENDING 图片。
         java.nio.file.Path tmp = java.nio.file.Files.createTempFile("test-img", ".jpg");
         UserEntity owner = user(5, 1);
         mockTeamUser(5, 5); // user 5 → team 5
@@ -569,12 +588,14 @@ class TeamContentActionTests {
 
         ResponseEntity<?> resp = action.serveImage(10, req(owner));
         assertEquals(200, resp.getStatusCodeValue());
+        // exy v5 Item 1：owner 预览 PENDING 图必须 no-store
+        assertEquals("no-store", resp.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL));
         java.nio.file.Files.delete(tmp);
     }
 
     @Test
     void serveImage_otherTeam_returns404() {
-        // user 5 属于 team 5，但图片属于 team 99 → 视为匿名 → 非 PUBLISHED 返回 404
+        // user 5 属于 team 5，但图片属于 team 99 → 非所属负责人 → 视为匿名 → 非 PUBLISHED 返回 404
         UserEntity owner = user(5, 1);
         mockTeamUser(5, 5);
         when(imageService.findById(10)).thenReturn(image(10, "PENDING", 99, "images_pending/x.jpg"));
@@ -597,6 +618,8 @@ class TeamContentActionTests {
 
         ResponseEntity<?> resp = action.serveImage(10, request);
         assertEquals(200, resp.getStatusCodeValue());
+        // exy v5 Item 1：匿名访问 PUBLISHED 图走缓存路径（private 仅浏览器缓存，max-age=3600）
+        assertEquals("private, max-age=3600", resp.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL));
         java.nio.file.Files.delete(tmp);
     }
 
@@ -635,6 +658,17 @@ class TeamContentActionTests {
         ResponseEntity<?> resp = action.serveImage(10, request);
         assertEquals(404, resp.getStatusCodeValue());
         verifyNoInteractions(tokenService, userService);
+    }
+
+    @Test
+    void serveImage_invalidHeaderToken_treatedAsAnonymous() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer bad-token");
+        when(tokenService.verifyAndGetUserId("bad-token")).thenThrow(new RuntimeException("invalid"));
+        when(imageService.findById(10)).thenReturn(image(10, "PENDING", 5, "images_pending/x.jpg"));
+
+        ResponseEntity<?> resp = action.serveImage(10, request);
+        assertEquals(404, resp.getStatusCodeValue());
     }
 
     @Test

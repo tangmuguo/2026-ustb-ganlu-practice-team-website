@@ -10,38 +10,70 @@ import UploadLogHonor from '@/components/UploadLogHonor.vue'
 
 const userStore = userinfoStore()
 const isAdmin = computed(() => userStore.currentUser?.level === 0)
-// Axios 拦截器通过 Authorization header 请求 Blob；对象 URL 只在当前页面内存中存在。
+// 受控图片预览（Item 2 exy v4：改 Blob，不再把登录 JWT 拼进 URL query）。
+// axios 拦截器通过 Authorization header 请求 Blob；对象 URL 只在当前页面内存中存在，
+// 刷新或卸载时 revoke，避免 token 进入浏览器历史/日志/Referer。
+// 缓存键 = id:imageUrl：同一 (id, imageUrl) 复用已下载的对象 URL，只有新增/变化的行才重新拉取，
+// 避免每次刷新都全量重下所有原图。
 const imagePreviewUrls = ref({})
 let previewGeneration = 0
 
+function previewKey(row) {
+  return `${row.id}:${row.imageUrl || ''}`
+}
+
 function imagePreviewUrl(row) {
-  return imagePreviewUrls.value[row.id] || ''
+  return imagePreviewUrls.value[previewKey(row)] || ''
 }
 
-function revokePreviewUrls(urls = imagePreviewUrls.value) {
-  Object.values(urls).forEach((url) => URL.revokeObjectURL(url))
+function revokePreviewUrls(urls) {
+  if (!urls) return
+  Object.values(urls).forEach((url) => {
+    if (url) URL.revokeObjectURL(url)
+  })
 }
 
+// 并发拉取新增/变化图片的 Blob 并转对象 URL；已缓存的 (id, imageUrl) 直接复用。
+// generation 标记防止旧请求覆盖新列表；只 revoke 被移除或作废的 URL。
 async function refreshImagePreviews(rows) {
   const generation = ++previewGeneration
+  const current = (rows || []).filter((row) => row && row.id != null)
+  const cache = imagePreviewUrls.value
   const nextUrls = {}
-  await Promise.all((rows || []).map(async (row) => {
+  const newlyCreated = []
+  const pending = []
+  for (const row of current) {
+    const key = previewKey(row)
+    if (cache[key]) {
+      nextUrls[key] = cache[key] // 复用：同一 (id, imageUrl) 不重复下载
+    } else {
+      pending.push(row)
+    }
+  }
+  await Promise.all(pending.map(async (row) => {
     try {
       const response = await getTeamContentImage(row.id)
+      if (generation !== previewGeneration) return // 已被新一轮覆盖，丢弃
       const url = URL.createObjectURL(response.data)
-      if (generation === previewGeneration) nextUrls[row.id] = url
-      else URL.revokeObjectURL(url)
+      nextUrls[previewKey(row)] = url
+      newlyCreated.push(url)
     } catch {
-      // 单张预览失败不影响列表，其位置显示“无预览”。
+      // 单张预览失败不影响列表，该位置显示“无预览”
     }
   }))
   if (generation !== previewGeneration) {
-    revokePreviewUrls(nextUrls)
+    // 期间又触发了新一次刷新，本次结果作废：只释放本轮新建的 URL（复用的留给新地图）
+    revokePreviewUrls(newlyCreated)
     return
   }
-  const previous = imagePreviewUrls.value
+  // 移除已不在列表中的条目并释放其 URL
+  const wanted = new Set(current.map(previewKey))
+  for (const key of Object.keys(cache)) {
+    if (!wanted.has(key)) {
+      URL.revokeObjectURL(cache[key])
+    }
+  }
   imagePreviewUrls.value = nextUrls
-  revokePreviewUrls(previous)
 }
 
 const activeTab = ref('images')
@@ -107,6 +139,11 @@ async function loadMyContent() {
 // 管理员加载数据
 async function loadAdminContent() {
   if (!adminTeamId.value) {
+    // 未选团队：清空上次查询残留的数据与预览 URL，避免表格显示过期内容
+    images.value = []
+    words.value = []
+    media.value = []
+    refreshImagePreviews([])
     ElMessage.warning('请先输入团队ID')
     return
   }
@@ -240,9 +277,10 @@ onMounted(() => {
   }
 })
 
+// 组件卸载时释放所有对象 URL，避免内存泄漏
 onBeforeUnmount(() => {
-  previewGeneration++
-  revokePreviewUrls()
+  previewGeneration++ // 让进行中的刷新作废
+  revokePreviewUrls(imagePreviewUrls.value)
   imagePreviewUrls.value = {}
 })
 </script>

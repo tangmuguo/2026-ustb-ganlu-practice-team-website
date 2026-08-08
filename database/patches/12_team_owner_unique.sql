@@ -8,7 +8,6 @@
 -- =====================================================================
 
 SET NAMES utf8mb4;
-SET FOREIGN_KEY_CHECKS = 0;
 
 DELIMITER $$
 DROP PROCEDURE IF EXISTS migrate_team_owner_unique_20260802$$
@@ -49,7 +48,5 @@ END$$
 CALL migrate_team_owner_unique_20260802()$$
 DROP PROCEDURE IF EXISTS migrate_team_owner_unique_20260802$$
 DELIMITER ;
-
-SET FOREIGN_KEY_CHECKS = 1;
 
 SELECT 'team.owner_user_id 唯一约束迁移完成' AS migration_result;
