@@ -1,9 +1,13 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import BannerCard from '@/components/BannerCard.vue'
 import { getBannerList } from '@/apis/bannerAPI'
 
 const bannerList = ref([])
+const hasVisibleBanners = computed(() => Array.isArray(bannerList.value) && bannerList.value.some((banner) => (
+  banner?.imageUrl && banner.isVisible !== 0
+)))
+
 onMounted(async () => {
   try {
     console.log('banner页面执行')
@@ -16,38 +20,36 @@ onMounted(async () => {
 </script>
 
 <template>
-  <!-- 图片滚动区域 -->
-    <section class="banner-section">
-        <div id="carousel" class="flex h-full">
-            <!-- 轮播图占位区域，后期通过后端添加图片 -->
-            <BannerCard 
-            :data="bannerList" 
-            height="clamp(280px, 42vw, 500px)"
-            interval="3000"
-            arrow="always"
-            indicator-position="outside"
-            />
-        </div>
-        <!-- 轮播控制按钮 -->
-        <!-- <button id="prevBtn" class="absolute left-4 top-1/2 -translate-y-1/2 bg-white/70 hover:bg-white text-dark w-10 h-10 rounded-full flex items-center justify-center transition-colors">
-            <i class="fa fa-angle-left text-xl"></i>
-        </button>
-        <button id="nextBtn" class="absolute right-4 top-1/2 -translate-y-1/2 bg-white/70 hover:bg-white text-dark w-10 h-10 rounded-full flex items-center justify-center transition-colors">
-            <i class="fa fa-angle-right text-xl"></i>
-        </button> -->
-        <!-- 轮播指示器 -->
-        <!-- <div class="absolute bottom-4 left-1/2 -translate-x-1/2 flex space-x-2">
-            <button class="w-3 h-3 rounded-full bg-white/70 carousel-indicator active" data-index="0"></button>
-        </div> -->
-    </section>
+  <section v-if="hasVisibleBanners" class="banner-section" aria-label="甘露支教最新动态">
+    <BannerCard
+      :data="bannerList"
+      height="clamp(260px, 36vw, 430px)"
+      interval="4000"
+      arrow="hover"
+      indicator-position="none"
+    />
+  </section>
 </template>
 
 
 <style scoped>
 
 .banner-section {
-  height: clamp(280px, 42vw, 500px);
+  width: min(1200px, calc(100% - 40px));
+  height: clamp(260px, 36vw, 430px);
+  margin: 24px auto 0;
   overflow: hidden;
-  background: #e9f0f3;
+  background: #eaf3ff;
+  border: 1px solid #d9e9fc;
+  border-radius: 26px;
+  box-shadow: 0 18px 48px rgba(39, 97, 171, 0.12);
+}
+
+@media (max-width: 640px) {
+  .banner-section {
+    width: min(100% - 24px, 1200px);
+    margin-top: 14px;
+    border-radius: 18px;
+  }
 }
 </style>

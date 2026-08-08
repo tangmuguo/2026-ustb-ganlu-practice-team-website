@@ -77,8 +77,11 @@ watch(() => route.fullPath, () => {
   <header class="site-header">
     <div class="header-inner">
       <RouterLink class="brand" to="/" aria-label="返回甘露支教首页">
-        <img :src="logoUrl" alt="甘露支教标志" class="brand-logo">
-        <span>甘露支教</span>
+        <span class="brand-mark"><img :src="logoUrl" alt="甘露支教标志" class="brand-logo"></span>
+        <span class="brand-copy">
+          <strong>甘露支教</strong>
+          <small>GANLU EDUCATION</small>
+        </span>
       </RouterLink>
 
       <nav class="desktop-nav" aria-label="主导航">
@@ -143,18 +146,19 @@ watch(() => route.fullPath, () => {
   position: sticky;
   top: 0;
   z-index: 100;
-  color: white;
-  background: rgba(15, 91, 124, 0.97);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
-  backdrop-filter: blur(12px);
+  color: #163b6d;
+  background: rgba(255, 255, 255, 0.88);
+  border-bottom: 1px solid rgba(207, 225, 248, 0.84);
+  box-shadow: 0 10px 28px rgba(34, 88, 150, 0.08);
+  backdrop-filter: blur(18px);
 }
 
 .header-inner {
   display: flex;
-  min-height: 72px;
-  max-width: 1280px;
+  min-height: 80px;
+  max-width: 1240px;
   align-items: center;
-  gap: 24px;
+  gap: 30px;
   margin: 0 auto;
   padding: 0 24px;
 }
@@ -163,18 +167,46 @@ watch(() => route.fullPath, () => {
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 10px;
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
+  gap: 11px;
+  color: #113d76;
+}
+
+.brand-mark {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  overflow: hidden;
+  background: linear-gradient(145deg, #f7fbff, #dcecff);
+  border: 1px solid #cfe2fb;
+  border-radius: 14px;
+  box-shadow: 0 8px 18px rgba(45, 114, 205, 0.14);
 }
 
 .brand-logo {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
   object-fit: cover;
-  background: white;
+}
+
+.brand-copy {
+  display: grid;
+  gap: 1px;
+  line-height: 1.1;
+}
+
+.brand-copy strong {
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.brand-copy small {
+  color: #7b98bd;
+  font-size: 8px;
+  font-weight: 750;
+  letter-spacing: 0.15em;
 }
 
 .desktop-nav {
@@ -183,40 +215,25 @@ watch(() => route.fullPath, () => {
   flex: 1;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 5px;
 }
 
 .nav-link {
   position: relative;
-  padding: 25px 10px 22px;
-  color: rgba(255, 255, 255, 0.82);
+  padding: 10px 13px;
+  color: #5f7899;
+  border-radius: 10px;
   font-size: 14px;
+  font-weight: 650;
   white-space: nowrap;
-}
-
-.nav-link::after {
-  position: absolute;
-  right: 10px;
-  bottom: 16px;
-  left: 10px;
-  height: 2px;
-  content: '';
-  background: #f4d35e;
-  border-radius: 999px;
-  opacity: 0;
-  transform: scaleX(0.4);
-  transition: 0.2s ease;
+  transition: color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
 }
 
 .nav-link:hover,
 .nav-link.router-link-active {
-  color: white;
-}
-
-.nav-link:hover::after,
-.nav-link.router-link-active::after {
-  opacity: 1;
-  transform: scaleX(1);
+  color: #1f6fdf;
+  background: #ebf4ff;
+  transform: translateY(-1px);
 }
 
 .account-area {
@@ -229,17 +246,41 @@ watch(() => route.fullPath, () => {
 .login-button,
 .account-button {
   display: inline-flex;
-  min-height: 40px;
+  min-height: 42px;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 0 16px;
-  color: #0f5b7c;
-  background: white;
-  border: 0;
-  border-radius: 999px;
+  padding: 0 17px;
+  border: 1px solid transparent;
+  border-radius: 12px;
   cursor: pointer;
-  font-weight: 650;
+  font-weight: 750;
+  transition: 0.2s ease;
+}
+
+.login-button {
+  color: #fff;
+  background: linear-gradient(135deg, #3e90fb, #1f67d8);
+  box-shadow: 0 10px 20px rgba(40, 120, 240, 0.2);
+}
+
+.login-button:hover {
+  color: #fff;
+  background: linear-gradient(135deg, #58a0ff, #1f67d8);
+  box-shadow: 0 13px 24px rgba(40, 120, 240, 0.28);
+  transform: translateY(-1px);
+}
+
+.account-button {
+  color: #245388;
+  background: #f2f7ff;
+  border-color: #d9e8fb;
+}
+
+.account-button:hover {
+  color: #1f67d8;
+  background: #e9f3ff;
+  border-color: #bcd8fb;
 }
 
 .account-name {
@@ -255,9 +296,9 @@ watch(() => route.fullPath, () => {
   height: 42px;
   align-items: center;
   justify-content: center;
-  color: white;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.24);
+  color: #1f6fdf;
+  background: #edf5ff;
+  border: 1px solid #d6e7fb;
   border-radius: 12px;
   font-size: 22px;
 }
@@ -282,8 +323,8 @@ watch(() => route.fullPath, () => {
 .mobile-nav a:hover,
 .mobile-nav a.router-link-active,
 .mobile-nav button:hover {
-  color: #0f5b7c;
-  background: #edf7fa;
+  color: #1f6fdf;
+  background: #edf5ff;
 }
 
 .mobile-divider {
@@ -297,7 +338,7 @@ watch(() => route.fullPath, () => {
 .mobile-login {
   margin-top: 12px;
   color: white !important;
-  background: #0f5b7c !important;
+  background: linear-gradient(135deg, #3e90fb, #1f67d8) !important;
   text-align: center !important;
 }
 
@@ -322,12 +363,26 @@ watch(() => route.fullPath, () => {
   }
 
   .brand {
-    font-size: 18px;
+    gap: 8px;
+  }
+
+  .brand-mark {
+    width: 39px;
+    height: 39px;
+    border-radius: 12px;
   }
 
   .brand-logo {
-    width: 38px;
-    height: 38px;
+    width: 34px;
+    height: 34px;
+  }
+
+  .brand-copy strong {
+    font-size: 17px;
+  }
+
+  .brand-copy small {
+    font-size: 7px;
   }
 
   .account-button,

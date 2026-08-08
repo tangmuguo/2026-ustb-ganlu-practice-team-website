@@ -105,13 +105,13 @@ onMounted(async () => {
 <style scoped>
 .materials-page { max-width: 1200px; margin: 0 auto; padding: 32px 20px 56px; }
 .heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
-.heading h1 { margin: 4px 0 8px; font-size: clamp(28px, 4vw, 42px); color: #303133; }
-.heading p { margin: 0; color: #606266; }
-.eyebrow { color: #409eff !important; font-weight: 700; letter-spacing: .08em; }
+.heading h1 { margin: 4px 0 8px; font-size: clamp(28px, 4vw, 42px); color: #173f74; }
+.heading p { margin: 0; color: #67819f; }
+.eyebrow { color: #2878f0 !important; font-weight: 700; letter-spacing: .08em; }
 .results { margin-top: 26px; }
 .result-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .result-header h2 { margin: 0; font-size: 22px; }
-.result-header span { color: #909399; }
+.result-header span { color: #7890ac; }
 .pagination { justify-content: flex-end; margin-top: 26px; }
 @media (max-width: 640px) {
   .heading { align-items: stretch; flex-direction: column; }

@@ -18,7 +18,7 @@ import Foot from '@/components/Foot.vue'
   display: flex;
   min-height: 100vh;
   flex-direction: column;
-  background: #f2f5f9;
+  background: linear-gradient(180deg, #f2f8ff 0%, #f8fbff 380px, #f4f8ff 100%);
 }
 
 .admin-main {

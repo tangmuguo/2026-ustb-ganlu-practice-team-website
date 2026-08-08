@@ -23,7 +23,10 @@ const route = useRoute()
   display: flex;
   min-height: 100vh;
   flex-direction: column;
-  background: #f6f8fb;
+  background:
+    radial-gradient(circle at 8% 8%, rgba(131, 187, 255, 0.12), transparent 26rem),
+    radial-gradient(circle at 98% 28%, rgba(169, 208, 255, 0.18), transparent 30rem),
+    #f7fbff;
 }
 
 .site-main {

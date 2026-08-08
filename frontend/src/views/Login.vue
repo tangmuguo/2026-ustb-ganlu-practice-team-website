@@ -71,9 +71,10 @@ async function submit() {
 
 <style scoped>
 .login-page { display:grid;max-width:1000px;min-height:68vh;grid-template-columns:1fr 1fr;align-items:center;margin:0 auto;padding:56px 24px; }
-.login-story { align-self:stretch;padding:64px 48px;color:white;background:linear-gradient(145deg,#0f5b7c,#178f8a);border-radius:28px 0 0 28px; }
-.login-story span { font-size:12px;font-weight:750;letter-spacing:.14em; }.login-story h1{margin:20px 0;color:white;font-size:48px;font-weight:800;line-height:1.15}.login-story p{color:#d3e7e9;line-height:1.9}
-.login-card { align-self:stretch;padding:58px 48px;background:white;border:1px solid #e6edf0;border-left:0;border-radius:0 28px 28px 0;box-shadow:0 20px 50px rgba(36,62,73,.08); }
-.login-card h2 { margin:0;color:#203f4d;font-size:30px;font-weight:770; }.card-description{margin:10px 0 30px;color:#7a8992}.login-submit{width:100%;margin-top:8px;background:#0f7089;border-color:#0f7089;font-weight:700}.register-link{margin-top:24px;color:#7a8992;text-align:center}.register-link a{color:#0f7089;font-weight:700}
-@media(max-width:760px){.login-page{grid-template-columns:1fr}.login-story{padding:38px 30px;border-radius:24px 24px 0 0}.login-story h1{font-size:38px}.login-card{padding:38px 28px;border:1px solid #e6edf0;border-top:0;border-radius:0 0 24px 24px}}
+.login-story { position:relative;align-self:stretch;padding:64px 48px;color:white;overflow:hidden;background:radial-gradient(circle at 84% 17%,rgba(162,215,255,.42),transparent 23%),linear-gradient(145deg,#103c7a,#1d68d7);border-radius:28px 0 0 28px; }
+.login-story::after{position:absolute;right:-54px;bottom:-72px;width:210px;height:210px;border:26px solid rgba(255,255,255,.12);border-radius:50%;content:''}
+.login-story span,.login-story h1,.login-story p{position:relative;z-index:1}.login-story span { color:#d9eeff;font-size:12px;font-weight:750;letter-spacing:.14em; }.login-story h1{margin:20px 0;color:white;font-size:48px;font-weight:800;line-height:1.15}.login-story p{color:#d7eaff;line-height:1.9}
+.login-card { align-self:stretch;padding:58px 48px;background:rgba(255,255,255,.96);border:1px solid #dceafc;border-left:0;border-radius:0 28px 28px 0;box-shadow:0 20px 50px rgba(35,91,166,.1); }
+.login-card h2 { margin:0;color:#234f84;font-size:30px;font-weight:770; }.card-description{margin:10px 0 30px;color:#7188a6}.login-submit{width:100%;margin-top:8px;background:#2375e6;border-color:#2375e6;font-weight:700}.register-link{margin-top:24px;color:#7188a6;text-align:center}.register-link a{color:#2375e6;font-weight:700}
+@media(max-width:760px){.login-page{grid-template-columns:1fr}.login-story{padding:38px 30px;border-radius:24px 24px 0 0}.login-story h1{font-size:38px}.login-card{padding:38px 28px;border:1px solid #dceafc;border-top:0;border-radius:0 0 24px 24px}}
 </style>

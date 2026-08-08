@@ -40,9 +40,24 @@ import { siteContent } from '@/config/siteContent'
 
 <style scoped>
 .site-footer {
+  position: relative;
   margin-top: 72px;
-  color: #d7e4ea;
-  background: #123747;
+  overflow: hidden;
+  color: #b9d5fb;
+  background:
+    radial-gradient(circle at 7% 15%, rgba(75, 150, 255, 0.22), transparent 22rem),
+    radial-gradient(circle at 92% 0%, rgba(105, 176, 255, 0.16), transparent 28rem),
+    linear-gradient(135deg, #0b2d5c, #123e7c 56%, #0c3267);
+}
+
+.site-footer::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(164, 208, 255, 0.75), transparent);
+  content: '';
 }
 
 .footer-grid {
@@ -64,7 +79,7 @@ h2 {
 .footer-intro {
   max-width: 360px;
   margin: 0;
-  color: #a9c0ca;
+  color: #b9d5fb;
   line-height: 1.9;
 }
 
@@ -75,11 +90,13 @@ h2 {
 }
 
 .footer-links a {
-  color: #a9c0ca;
+  color: #b9d5fb;
+  transition: color 0.2s ease, transform 0.2s ease;
 }
 
 .footer-links a:hover {
-  color: #f4d35e;
+  color: white;
+  transform: translateX(2px);
 }
 
 .contact-list {
@@ -87,13 +104,13 @@ h2 {
   gap: 12px;
   margin: 0;
   padding: 0;
-  color: #a9c0ca;
+  color: #b9d5fb;
   list-style: none;
   line-height: 1.7;
 }
 
 .contact-list strong {
-  color: #d7e4ea;
+  color: #e1efff;
 }
 
 .copyright {
@@ -104,8 +121,8 @@ h2 {
   gap: 16px;
   margin: 0 auto;
   padding: 22px 24px;
-  color: #7896a3;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color: #84addd;
+  border-top: 1px solid rgba(189, 219, 255, 0.18);
   font-size: 13px;
 }
 

@@ -128,8 +128,9 @@ const getFullImageUrl = (relativePath) => {
 
 <style scoped>
 .banner-container {
-  width: 100%;
   position: relative;
+  width: 100%;
+  height: 100%;
 }
 
 .banner-item {
@@ -145,8 +146,14 @@ const getFullImageUrl = (relativePath) => {
 }
 
 .banner-image {
-  width: 100%;
   display: block;
+  width: 100%;
+  filter: saturate(1.03) contrast(1.02);
+  transition: transform 0.7s ease;
+}
+
+.banner-item:hover .banner-image {
+  transform: scale(1.018);
 }
 
 .banner-title {
@@ -154,21 +161,20 @@ const getFullImageUrl = (relativePath) => {
   bottom: 0;
   left: 0;
   right: 0;
-  padding: 20px;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
-  color: white;
-  font-size: 18px;
-  text-align: center;
+  padding: 42px 28px 24px;
+  color: #fff;
+  background: linear-gradient(transparent, rgba(8, 39, 83, 0.78));
+  font-size: clamp(16px, 2vw, 22px);
+  font-weight: 700;
+  text-align: left;
 }
 
 .empty-banner {
   width: 100%;
   padding: 40px 0;
-  background-color: #f5f7fa;
-  border-radius: 4px;
+  background-color: #f5f9ff;
 }
 
-/* 自定义指示器样式 */
 :deep(.el-carousel__indicator) {
   padding: 12px 4px;
 }
@@ -177,66 +183,7 @@ const getFullImageUrl = (relativePath) => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background-color: rgba(255, 255, 255, 0.5);
-  transition: all 0.3s;
-}
-
-:deep(.el-carousel__indicator.is-active .el-carousel__button) {
-  width: 16px;
-  border-radius: 8px;
-  background-color: #fff;
-}
-.banner-container {
-  width: 100%;
-  position: relative;
-}
-
-.banner-item {
-  position: relative;
-  width: 100%;
-  height: 100%;
-}
-
-.banner-link {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.banner-image {
-  width: 100%;
-  display: block;
-}
-
-.banner-title {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 20px;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
-  color: white;
-  font-size: 18px;
-  text-align: center;
-}
-
-.empty-banner {
-  width: 100%;
-  padding: 40px 0;
-  background-color: #f5f7fa;
-  border-radius: 4px;
-}
-
-/* 自定义指示器样式 */
-:deep(.el-carousel__indicator) {
-  padding: 12px 4px;
-}
-
-:deep(.el-carousel__button) {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: rgba(255, 255, 255, 0.5);
+  background-color: rgba(255, 255, 255, 0.62);
   transition: all 0.3s;
 }
 

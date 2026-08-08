@@ -110,17 +110,17 @@ async function submit() {
 <style scoped>
 .join-page { display:grid;max-width:1120px;grid-template-columns:.8fr 1.2fr;gap:48px;align-items:start;margin:0 auto;padding:72px 24px 24px; }
 .join-copy { position:sticky;top:120px; }
-.join-copy>span { color:#0f7c8f;font-size:13px;font-weight:750;letter-spacing:.14em; }
-.join-copy h1 { margin:12px 0 18px;color:#173646;font-size:clamp(40px,6vw,64px);font-weight:800; }
-.join-copy>p { color:#667985;font-size:17px;line-height:1.9; }
-.privacy-note { display:flex;gap:14px;margin-top:32px;padding:20px;color:#315562;background:#eaf5f6;border-radius:18px; }
-.privacy-note>.el-icon { flex:none;margin-top:4px;color:#0f7c8f;font-size:22px; }
-.privacy-note strong { color:#21434f; }.privacy-note p{margin:6px 0 0;font-size:14px;line-height:1.75;}
-.form-card { padding:38px;background:white;border:1px solid #e6edf0;border-radius:26px;box-shadow:0 20px 50px rgba(35,62,73,.09); }
-.form-card h2 { margin:0 0 28px;color:#234351;font-size:27px;font-weight:760; }
+.join-copy>span { color:#1f6fdf;font-size:13px;font-weight:750;letter-spacing:.14em; }
+.join-copy h1 { margin:12px 0 18px;color:#123b70;font-size:clamp(40px,6vw,64px);font-weight:800; }
+.join-copy>p { color:#617c9f;font-size:17px;line-height:1.9; }
+.privacy-note { display:flex;gap:14px;margin-top:32px;padding:20px;color:#45688f;background:#edf5ff;border:1px solid #dbeaff;border-radius:18px; }
+.privacy-note>.el-icon { flex:none;margin-top:4px;color:#2375e6;font-size:22px; }
+.privacy-note strong { color:#234f84; }.privacy-note p{margin:6px 0 0;font-size:14px;line-height:1.75;}
+.form-card { padding:38px;background:rgba(255,255,255,.95);border:1px solid #dceafc;border-radius:26px;box-shadow:0 20px 50px rgba(35,91,166,.1); }
+.form-card h2 { margin:0 0 28px;color:#234f84;font-size:27px;font-weight:760; }
 .form-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 18px; }
-.submit-button { width:100%;height:48px;margin-top:8px;background:#0f7089;border-color:#0f7089;font-size:16px;font-weight:700; }
-.back-home { display:inline-block;padding:11px 20px;color:white;background:#0f7089;border-radius:999px; }
+.submit-button { width:100%;height:48px;margin-top:8px;background:#2375e6;border-color:#2375e6;font-size:16px;font-weight:700; }
+.back-home { display:inline-block;padding:11px 20px;color:white;background:#2375e6;border-radius:12px; }
 @media(max-width:860px){.join-page{grid-template-columns:1fr}.join-copy{position:static}.form-card{padding:28px}}
 @media(max-width:560px){.form-grid{grid-template-columns:1fr}.join-page{padding-top:48px}.form-card{padding:22px}}
 </style>
