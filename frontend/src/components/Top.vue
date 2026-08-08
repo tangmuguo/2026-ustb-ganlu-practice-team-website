@@ -11,10 +11,11 @@ const mobileOpen = ref(false)
 
 const publicLinks = [
   { to: '/', label: '首页' },
-  { to: '/showm', label: '课件共享' },
-  { to: '/fengcai', label: '团队风采' },
-  { to: '/messageboard', label: '互动留言' },
   { to: '/about', label: '关于甘露' },
+  { to: '/fengcai', label: '团队风采' },
+  { to: '/news', label: '新闻' },
+  { to: '/showm', label: '课件共享' },
+  { to: '/messageboard', label: '互动留言' },
 ]
 
 const displayName = computed(() => userStore.currentUser?.teamname
@@ -93,7 +94,6 @@ watch(() => route.fullPath, () => {
           {{ item.label }}
         </RouterLink>
         <RouterLink v-if="userStore.isLoggedIn" to="/ai" class="nav-link">AI 小助手</RouterLink>
-        <RouterLink to="/news" class="nav-link">新闻</RouterLink>
       </nav>
 
       <div class="account-area">
@@ -128,7 +128,6 @@ watch(() => route.fullPath, () => {
       <nav class="mobile-nav" aria-label="移动端导航">
         <RouterLink v-for="item in publicLinks" :key="item.to" :to="item.to">{{ item.label }}</RouterLink>
         <RouterLink v-if="userStore.isLoggedIn" to="/ai">AI 小助手</RouterLink>
-        <RouterLink to="/news">新闻</RouterLink>
         <template v-if="userStore.isLoggedIn">
           <div class="mobile-divider">账号功能</div>
           <RouterLink v-for="item in managementItems" :key="item.command" :to="item.command">
