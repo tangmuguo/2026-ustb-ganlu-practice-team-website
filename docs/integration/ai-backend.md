@@ -11,6 +11,7 @@ ai.api-key=${DEEPSEEK_API_KEY:}
 ai.model=${DEEPSEEK_MODEL:deepseek-v4-flash}
 ai.connect-timeout=10000
 ai.read-timeout=60000
+ai.log-hmac-key=${AI_LOG_HMAC_KEY:}
 ```
 
 ## 环境变量
