@@ -37,6 +37,30 @@ class TeamPageImageServiceImplTests {
     }
 
     @Test
+    void insertTeamImage_rejectsObsoletePhotoTypeBeforePromotingFile() {
+        TeamPageImageEntity image = stagedImage(3);
+
+        assertThrows(IllegalArgumentException.class, () -> service.insertTeamImage(image));
+
+        verifyNoInteractions(imageLifecycleService, imageMapper);
+    }
+
+    @Test
+    void insertTeamImage_allowsMissingRemarkAndPassesNullToMapper() {
+        TeamPageImageEntity image = stagedImage(TeamPageImageEntity.TYPE_TEACHING_STYLE_PHOTO);
+        when(imageLifecycleService.promotePrivate(5, "staged-token"))
+                .thenReturn("images_pending/a.jpg");
+        when(imageMapper.insertTeamImage(any(TeamPageImageEntity.class))).thenReturn(1);
+
+        assertEquals(1, service.insertTeamImage(image));
+
+        verify(imageMapper).insertTeamImage(argThat(saved ->
+                saved.getContent() == null
+                        && Integer.valueOf(TeamPageImageEntity.TYPE_TEACHING_STYLE_PHOTO)
+                        .equals(saved.getType())));
+    }
+
+    @Test
     void updateStatus_publishedMovesImageAndPersistsNewUrl() {
         TeamPageImageEntity img = image(10, "images_pending/x.jpg");
         when(imageMapper.findByIdForUpdate(10)).thenReturn(img);
@@ -90,5 +114,14 @@ class TeamPageImageServiceImplTests {
         verify(imageLifecycleService).moveManagedImage("images_pending/gone.jpg", false);
         verify(imageMapper).updateImageStatus(12, "REJECTED", "原因");
         verify(mediaMapper).updateStatusByRelated("IMAGE", 12, "REJECTED", 5);
+    }
+
+    private TeamPageImageEntity stagedImage(int type) {
+        TeamPageImageEntity image = new TeamPageImageEntity();
+        image.setImageUploadUserId(5);
+        image.setImageUploadToken("staged-token");
+        image.setType(type);
+        image.setCaption("标题");
+        return image;
     }
 }

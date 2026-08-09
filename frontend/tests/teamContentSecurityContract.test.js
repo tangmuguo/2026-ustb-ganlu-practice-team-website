@@ -24,3 +24,14 @@ test('照片提交成功只在本地凭证消费并清理后通知父页面刷�
   assert.ok(consumed >= 0 && cleared > consumed && emitted > cleared)
   assert.equal((uploadPhotos.match(/emit\('uploaded'\)/g) || []).length, 1)
 })
+
+test('团队风采上传固定为支教风采，备注为选填', () => {
+  assert.match(uploadPhotos, /const TUTORING_STYLE_TYPE = 2/)
+  assert.match(uploadPhotos, /value: TUTORING_STYLE_TYPE,\s*label: '支教风采'/)
+  assert.match(uploadPhotos, /label="照片类型"/)
+  assert.doesNotMatch(uploadPhotos, /label="文件类型"|队员照片|执教照片/)
+  assert.match(uploadPhotos, /type: TUTORING_STYLE_TYPE/)
+  assert.match(uploadPhotos, /uploadWholeImage\(payload\)/)
+  assert.doesNotMatch(uploadPhotos, /content:\s*\[\s*\{\s*required:\s*true/)
+  assert.doesNotMatch(uploadPhotos, /<el-form-item label="备注" prop="content">/)
+})

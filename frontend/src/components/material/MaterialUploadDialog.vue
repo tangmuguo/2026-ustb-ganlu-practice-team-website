@@ -20,6 +20,7 @@ const materialFile = ref()
 const submissionCompleted = ref(false)
 const currentYear = new Date().getFullYear()
 const years = Array.from({ length: 10 }, (_, index) => currentYear - index)
+const supportedGeneralSubjects = new Set(['语文', '数学', '英语'])
 
 const form = reactive({
   title: '',
@@ -36,7 +37,10 @@ const visible = computed({
     emit('update:modelValue', value)
   }
 })
-const availableCategories = computed(() => props.categories.length ? props.categories : localCategories.value)
+const availableCategories = computed(() => {
+  const categories = props.categories.length ? props.categories : localCategories.value
+  return categories.filter((category) => supportedGeneralSubjects.has(category.courseName))
+})
 const uploaderName = computed(() => userStore.currentUser?.teamname
   || userStore.currentUser?.realname
   || userStore.currentUser?.username

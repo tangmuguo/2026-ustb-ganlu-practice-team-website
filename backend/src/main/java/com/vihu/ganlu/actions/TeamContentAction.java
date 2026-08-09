@@ -118,7 +118,8 @@ public class TeamContentAction {
                                           @RequestParam(value = "content", required = false) String content,
                                           @RequestParam(value = "logDate", required = false) Date logDate,
                                           HttpServletRequest request) {
-        return uploadImage(file, caption, content, logDate, 1, request);
+        return uploadImage(file, caption, content, logDate,
+                TeamPageImageEntity.TYPE_MEMBER_PHOTO, request);
     }
 
     @RequireRoles({0, 1})
@@ -129,8 +130,8 @@ public class TeamContentAction {
                                          @RequestParam(value = "logDate", required = false) Date logDate,
                                          @RequestParam(value = "type", defaultValue = "2") int type,
                                          HttpServletRequest request) {
-        if (type != 2 && type != 3) {
-            return badRequest("无效的图片类型: " + type + "（仅支持 2=支教照片, 3=地区照片）");
+        if (!isTeachingStylePhotoType(type)) {
+            return badRequest("无效的照片类型: " + type + "（仅支持 2=支教风采）");
         }
         return uploadImage(file, caption, content, logDate, type, request);
     }
@@ -140,7 +141,7 @@ public class TeamContentAction {
     public ResponseEntity<?> saveStagedMember(
             @RequestBody TeamPageImageEntity image,
             HttpServletRequest request) {
-        return saveStagedImage(image, 1, request);
+        return saveStagedImage(image, TeamPageImageEntity.TYPE_MEMBER_PHOTO, request);
     }
 
     @RequireRoles({0, 1})
@@ -148,11 +149,12 @@ public class TeamContentAction {
     public ResponseEntity<?> saveStagedPhoto(
             @RequestBody TeamPageImageEntity image,
             HttpServletRequest request) {
-        int type = image == null || image.getType() == null ? 2 : image.getType();
-        if (type != 2 && type != 3) {
-            return badRequest("无效的图片类型: " + type + "（仅支持 2=支教照片, 3=地区照片）");
+        int requestedType = image == null || image.getType() == null
+                ? TeamPageImageEntity.TYPE_TEACHING_STYLE_PHOTO : image.getType();
+        if (!isTeachingStylePhotoType(requestedType)) {
+            return badRequest("无效的照片类型: " + requestedType + "（仅支持 2=支教风采）");
         }
-        return saveStagedImage(image, type, request);
+        return saveStagedImage(image, TeamPageImageEntity.TYPE_TEACHING_STYLE_PHOTO, request);
     }
 
     @RequireRoles({0, 1})
@@ -684,6 +686,10 @@ public class TeamContentAction {
         } catch (IllegalArgumentException | IllegalStateException error) {
             return badRequest(error.getMessage());
         }
+    }
+
+    private boolean isTeachingStylePhotoType(int type) {
+        return type == TeamPageImageEntity.TYPE_TEACHING_STYLE_PHOTO;
     }
 
     private ResponseEntity<?> uploadWord(String caption, String content, Date logDate,

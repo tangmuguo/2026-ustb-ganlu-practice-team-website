@@ -29,6 +29,7 @@ public class TeamPageImageServiceImpl implements TeamPageImageService {
     @Transactional
     public int insertTeamImage(TeamPageImageEntity e) {
         requireImageUpload(e);
+        requireSupportedNewImageType(e);
         if (e.getStatus() == null || e.getStatus().trim().isEmpty()) e.setStatus("PENDING");
         boolean published = "PUBLISHED".equals(e.getStatus());
         String imagePath = published
@@ -155,6 +156,18 @@ public class TeamPageImageServiceImpl implements TeamPageImageService {
                 || entity.getImageUploadToken() == null
                 || entity.getImageUploadToken().trim().isEmpty()) {
             throw new IllegalArgumentException("请先上传并暂存团队图片");
+        }
+    }
+
+    /**
+     * 新建记录仅保留团队成员照片和支教风采两类；地区照片（旧 type=3）
+     * 仍可被历史查询读取，但不能再经任意写入路径新增。
+     */
+    private void requireSupportedNewImageType(TeamPageImageEntity entity) {
+        Integer type = entity.getType();
+        if (type == null || (type != TeamPageImageEntity.TYPE_MEMBER_PHOTO
+                && type != TeamPageImageEntity.TYPE_TEACHING_STYLE_PHOTO)) {
+            throw new IllegalArgumentException("无效的团队图片类型");
         }
     }
 

@@ -10,6 +10,9 @@ import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -64,11 +67,30 @@ class CourseServiceTests {
     }
 
     @Test
+    void exposesOnlyTheThreeSupportedGeneralSubjects() {
+        when(mapper.getActiveCourses()).thenReturn(Arrays.asList(
+                course("语文"), course("数学"), course("历史"), course("生物"), course("英语")));
+
+        List<String> courseNames = service.getActiveCourses().stream()
+                .map(CourseEntity::getCourseName)
+                .collect(Collectors.toList());
+
+        assertEquals(Arrays.asList("语文", "数学", "英语"), courseNames);
+    }
+
+    @Test
     void categoryWritesUseSerializableTransactions() throws Exception {
         Method add = CourseServiceImpl.class.getMethod("addCourse", String.class);
         Method update = CourseServiceImpl.class.getMethod("updateCourse", int.class, String.class, Integer.class);
 
         assertEquals(Isolation.SERIALIZABLE, add.getAnnotation(Transactional.class).isolation());
         assertEquals(Isolation.SERIALIZABLE, update.getAnnotation(Transactional.class).isolation());
+    }
+
+    private CourseEntity course(String courseName) {
+        CourseEntity course = new CourseEntity();
+        course.setCourseName(courseName);
+        course.setStatus(1);
+        return course;
     }
 }

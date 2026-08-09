@@ -262,7 +262,7 @@ async function handlePurgeMedia(id) {
 }
 
 function convertImageType(type) {
-  return { 1: '队员照片', 2: '支教照片', 3: '地区照片' }[type] || '未知'
+  return { 1: '队员照片', 2: '支教风采', 3: '地区照片' }[type] || '未知'
 }
 
 function convertWordType(type) {

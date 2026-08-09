@@ -3,6 +3,7 @@ package com.vihu.ganlu.service.impl;
 import com.vihu.ganlu.entitys.CourseEntity;
 import com.vihu.ganlu.mappers.CourseMapper;
 import com.vihu.ganlu.service.CourseService;
+import com.vihu.ganlu.utils.GeneralCourseSubjectPolicy;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -11,6 +12,7 @@ import org.springframework.util.StringUtils;
 
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.stream.Collectors;
 
 @Service
 public class CourseServiceImpl implements CourseService {
@@ -24,7 +26,10 @@ public class CourseServiceImpl implements CourseService {
 
     @Override
     public List<CourseEntity> getActiveCourses() {
-        return courseMapper.getActiveCourses();
+        // 旧科目可继续保留给历史课件关联，但不能重新出现在新增课件的选择项中。
+        return courseMapper.getActiveCourses().stream()
+                .filter(course -> GeneralCourseSubjectPolicy.isSupported(course.getCourseName()))
+                .collect(Collectors.toList());
     }
 
     @Override

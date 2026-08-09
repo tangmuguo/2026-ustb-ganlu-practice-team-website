@@ -13,6 +13,7 @@ import com.vihu.ganlu.service.CourseDetailService;
 import com.vihu.ganlu.service.CourseService;
 import com.vihu.ganlu.service.OfficePreviewService;
 import com.vihu.ganlu.utils.FileStorageUtil;
+import com.vihu.ganlu.utils.GeneralCourseSubjectPolicy;
 import com.vihu.ganlu.utils.MaterialFileValidator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -272,6 +273,9 @@ public class CourseDetailServiceImpl implements CourseDetailService {
             CourseEntity category = courseService.getCourseById(request.getCourseId());
             if (category == null || category.getStatus() == null || category.getStatus() != 1) {
                 throw new IllegalArgumentException("所选科目不存在或已停用");
+            }
+            if (!GeneralCourseSubjectPolicy.isSupported(category.getCourseName())) {
+                throw new IllegalArgumentException("通识课程仅支持语文、数学、英语");
             }
         } else if (!StringUtils.hasText(request.getCustomSubject())
                 || request.getCustomSubject().trim().length() < 2

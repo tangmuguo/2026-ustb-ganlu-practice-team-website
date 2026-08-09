@@ -11,31 +11,27 @@ const userinfo=userinfoStore()
 const uploadWidgetRef=ref(null)
 const emit = defineEmits(['uploaded'])
 
+// 团队风采图片目前只接受“支教风采”，其后端枚举值为 2。
+const TUTORING_STYLE_TYPE = 2
+
 const form = ref({
   userId:'',
-  type: '团队日志',
+  type: TUTORING_STYLE_TYPE,
   caption: '',
   content: '',
   imageUrl:'',
   imageUploadToken: '',
 })
 
-const datatype= [
-    {
-        value: 1,
-        label: '队员照片',
-    },
-    {
-        value: 2,
-        label: '执教照片',
-    }
+const photoTypes = [
+  {
+    value: TUTORING_STYLE_TYPE,
+    label: '支教风采',
+  },
 ]
-
-const datatype_value=ref(datatype[0].value)
 
 const rules = {
   caption: [{ required: true, message: '请输入标题', trigger: 'blur' }],
-  content: [{ required: true, message: '请输入内容', trigger: 'blur' }]
 }
 
 const handleImageUpload = (stagedImage) => {
@@ -53,9 +49,13 @@ const submitForm = async () => {
     if (!valid) return
     
     submitting.value = true
-    form.value.type=datatype_value.value
-    form.value.userId=userinfo.user.content.id
-    const response = await uploadWholeImage(form.value)
+    const payload = {
+      ...form.value,
+      // 即使表单状态被意外改写，也始终按“支教风采”提交并走 photos 接口。
+      type: TUTORING_STYLE_TYPE,
+      userId: userinfo.user.content.id,
+    }
+    const response = await uploadWholeImage(payload)
     if (response.data?.code !== 200) {
       throw new Error(response.data?.message || '提交失败')
     }
@@ -77,14 +77,14 @@ const submitForm = async () => {
 <template>
     <div class="upload-section">       
         <el-form :model="form" label-width="100px" :rules="rules" ref="formRef">
-        <el-form-item label="文件类型" prop="type">
+        <el-form-item label="照片类型" prop="type">
             <el-select 
-          v-model="datatype_value" 
-          placeholder="请选择文件类型"
+          v-model="form.type"
+          placeholder="请选择照片类型"
           style="width: 100%"
         >
           <el-option
-            v-for="item in datatype"
+            v-for="item in photoTypes"
             :key="item.value"
             :label="item.label"
             :value="item.value"
@@ -105,12 +105,12 @@ const submitForm = async () => {
             <el-input v-model="form.caption" placeholder="请输入标题"></el-input>
         </el-form-item>
         
-        <el-form-item label="备注" prop="content">
+        <el-form-item label="备注">
             <el-input
             type="textarea"
             :rows="5"
             v-model="form.content"
-            placeholder="请输入详细内容"
+            placeholder="请输入详细内容（选填）"
             ></el-input>
         </el-form-item>
         

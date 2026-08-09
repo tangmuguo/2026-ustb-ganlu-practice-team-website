@@ -42,7 +42,7 @@
 | DELETE | `/courseDetail/materials/{id}` | `0/1` | 逻辑删除记录并清理原文件、预览和封面 |
 | GET | `/courseDetail/materials/{id}/preview` | `0/1/2` | 登录后读取 PDF/图片/PPT 转换预览 |
 | GET | `/courseDetail/materials/{id}/download` | `0/1/2` | 登录后下载原文件 |
-| GET | `/courseCategory/list` | 公开 | 启用的通识科目 |
+| GET | `/courseCategory/list` | 公开 | 可用于新增上传的通识科目：语文、数学、英语 |
 | GET | `/courseCategory/manage` | `0` | 包含停用项的科目管理列表 |
 | POST | `/courseCategory` | `0` | 新增科目；启用项最多 12 个 |
 | PUT | `/courseCategory/{id}` | `0` | 改名、启用或停用 |
@@ -63,7 +63,7 @@
 }
 ```
 
-前端不得提交可信 `author` 或 `userId`。后端从 Bearer Token 中取得上传者。
+前端不得提交可信 `author` 或 `userId`。后端从 Bearer Token 中取得上传者。`courseType=1` 的 `courseId` 必须对应语文、数学或英语；即使直接调用接口，旧科目也不能用于新增上传。
 
 ## 3. 文件和权限模型
 

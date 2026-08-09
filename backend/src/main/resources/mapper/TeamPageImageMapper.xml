@@ -74,7 +74,7 @@
                 userId,imageUrl,caption,content,createdAt,type
         )VALUES (
                 #{teamId},#{status},#{rejectReason},#{logDate},
-                #{userId},#{imageUrl},#{caption},#{content},NOW(),#{type}
+                #{userId},#{imageUrl},#{caption},#{content,jdbcType=VARCHAR},NOW(),#{type}
         )
     </insert>
 

@@ -217,6 +217,92 @@ class TeamContentActionTests {
         verify(imageService, never()).insertTeamImage(any());
     }
 
+    @Test
+    void uploadPhoto_rejectsNonTeachingStyleTypeBeforeStaging() {
+        UserEntity user = user(5, 1);
+        mockTeamUser(5, 10);
+        MockMultipartFile file = new MockMultipartFile("file", "a.png", "image/png",
+                new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A});
+
+        ResponseEntity<?> response = action.uploadPhoto(file, "标题", null, null, 3, req(user));
+
+        assertEquals(400, response.getStatusCodeValue());
+        verify(imageService, never()).stageTeamImage(any(), anyInt());
+        verify(imageService, never()).insertTeamImage(any());
+    }
+
+    @Test
+    void saveStagedPhoto_rejectsNonTeachingStyleType() {
+        UserEntity user = user(5, 1);
+        mockTeamUser(5, 10);
+        TeamPageImageEntity image = new TeamPageImageEntity();
+        image.setCaption("标题");
+        image.setImageUploadToken("staged-token");
+        image.setType(3);
+
+        ResponseEntity<?> response = action.saveStagedPhoto(image, req(user));
+
+        assertEquals(400, response.getStatusCodeValue());
+        verify(imageService, never()).insertTeamImage(any());
+    }
+
+    @Test
+    void uploadPhoto_withoutRemark_persistsNullContent() {
+        UserEntity user = user(5, 1);
+        mockTeamUser(5, 10);
+        MockMultipartFile file = new MockMultipartFile("file", "a.png", "image/png",
+                new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A});
+        when(imageService.stageTeamImage(file, 5)).thenReturn(
+                new PublicImageUploadInfo("00000000-0000-0000-0000-000000000002",
+                        "a.png", "png", "image/png", file.getSize()));
+        when(imageService.insertTeamImage(any(TeamPageImageEntity.class))).thenReturn(1);
+
+        ResponseEntity<?> response = action.uploadPhoto(file, "标题", null, null,
+                TeamPageImageEntity.TYPE_TEACHING_STYLE_PHOTO, req(user));
+
+        assertEquals(200, response.getStatusCodeValue());
+        verify(imageService).insertTeamImage(argThat(image ->
+                image.getContent() == null
+                        && Integer.valueOf(TeamPageImageEntity.TYPE_TEACHING_STYLE_PHOTO)
+                        .equals(image.getType())));
+    }
+
+    @Test
+    void uploadPhoto_blankRemark_isPersistedAsEmptyString() {
+        UserEntity user = user(5, 1);
+        mockTeamUser(5, 10);
+        MockMultipartFile file = new MockMultipartFile("file", "a.png", "image/png",
+                new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A});
+        when(imageService.stageTeamImage(file, 5)).thenReturn(
+                new PublicImageUploadInfo("00000000-0000-0000-0000-000000000003",
+                        "a.png", "png", "image/png", file.getSize()));
+        when(imageService.insertTeamImage(any(TeamPageImageEntity.class))).thenReturn(1);
+
+        ResponseEntity<?> response = action.uploadPhoto(file, "标题", "", null,
+                TeamPageImageEntity.TYPE_TEACHING_STYLE_PHOTO, req(user));
+
+        assertEquals(200, response.getStatusCodeValue());
+        verify(imageService).insertTeamImage(argThat(image -> "".equals(image.getContent())));
+    }
+
+    @Test
+    void saveStagedPhoto_withoutRemark_defaultsToTeachingStyleAndPersistsNullContent() {
+        UserEntity user = user(5, 1);
+        mockTeamUser(5, 10);
+        TeamPageImageEntity image = new TeamPageImageEntity();
+        image.setCaption("标题");
+        image.setImageUploadToken("staged-token");
+        when(imageService.insertTeamImage(any(TeamPageImageEntity.class))).thenReturn(1);
+
+        ResponseEntity<?> response = action.saveStagedPhoto(image, req(user));
+
+        assertEquals(200, response.getStatusCodeValue());
+        verify(imageService).insertTeamImage(argThat(saved ->
+                saved.getContent() == null
+                        && Integer.valueOf(TeamPageImageEntity.TYPE_TEACHING_STYLE_PHOTO)
+                        .equals(saved.getType())));
+    }
+
     @SuppressWarnings("unchecked")
     @Test
     void uploadLog_blankContent_returns400() {

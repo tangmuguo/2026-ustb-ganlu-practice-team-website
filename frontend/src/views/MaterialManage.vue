@@ -154,30 +154,32 @@ onMounted(async () => {
 
     <MaterialFilters v-model="filters" :categories="activeCategories" @search="applyFilters" @reset="applyFilters" />
 
-    <el-table v-loading="loading" :data="materials" class="table">
-      <el-table-column label="封面" width="90">
-        <template #default="{ row }"><el-image :src="resolveMaterialAssetUrl(row.thumbnailUrl)" fit="cover" class="cover" /></template>
-      </el-table-column>
-      <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip />
-      <el-table-column label="类型/科目" min-width="150">
-        <template #default="{ row }">{{ row.courseType === 1 ? '通识' : '特色' }} · {{ subjectName(row) }}</template>
-      </el-table-column>
-      <el-table-column prop="year" label="年份" width="90" />
-      <el-table-column prop="uploaderName" label="上传者" min-width="130" show-overflow-tooltip />
-      <el-table-column label="文件" min-width="120">
-        <template #default="{ row }">{{ (row.fileExtension || '').toUpperCase() }} · {{ formatSize(row.fileSize) }}</template>
-      </el-table-column>
-      <el-table-column label="预览" width="100">
-        <template #default="{ row }">
-          <el-tag :type="row.previewStatus === 'READY' ? 'success' : 'warning'">
-            {{ row.previewStatus === 'READY' ? '可预览' : '转换失败' }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="90" fixed="right">
-        <template #default="{ row }"><el-button type="danger" link @click="removeMaterial(row)">删除</el-button></template>
-      </el-table-column>
-    </el-table>
+    <section class="material-table-region" aria-label="课件列表">
+      <el-table v-loading="loading" :data="materials" class="material-table" style="width: 100%">
+        <el-table-column label="封面" width="90">
+          <template #default="{ row }"><el-image :src="resolveMaterialAssetUrl(row.thumbnailUrl)" fit="cover" class="cover" /></template>
+        </el-table-column>
+        <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip />
+        <el-table-column label="类型/科目" min-width="150">
+          <template #default="{ row }">{{ row.courseType === 1 ? '通识' : '特色' }} · {{ subjectName(row) }}</template>
+        </el-table-column>
+        <el-table-column prop="year" label="年份" width="90" />
+        <el-table-column prop="uploaderName" label="上传者" min-width="130" show-overflow-tooltip />
+        <el-table-column label="文件" min-width="120">
+          <template #default="{ row }">{{ (row.fileExtension || '').toUpperCase() }} · {{ formatSize(row.fileSize) }}</template>
+        </el-table-column>
+        <el-table-column label="预览" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.previewStatus === 'READY' ? 'success' : 'warning'">
+              {{ row.previewStatus === 'READY' ? '可预览' : '转换失败' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="90" fixed="right">
+          <template #default="{ row }"><el-button type="danger" link @click="removeMaterial(row)">删除</el-button></template>
+        </el-table-column>
+      </el-table>
+    </section>
 
     <el-pagination
       v-if="pagination.total"
@@ -215,12 +217,13 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.manage-page { max-width: 1280px; margin: 0 auto; padding: 32px 20px 56px; }
+.manage-page { width: 100%; max-width: 1280px; min-width: 0; margin: 0 auto; padding: 32px 20px 56px; }
 .page-header { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
 .page-header h1 { margin: 0 0 8px; font-size: 32px; }
 .page-header p { margin: 0; color: #606266; }
 .header-actions, .category-add { display: flex; gap: 10px; }
-.table { margin-top: 24px; }
+.material-table-region { width: 100%; max-width: 100%; min-width: 0; margin-top: 24px; overflow-x: auto; }
+.material-table { width: 100%; min-width: 980px; margin: 0; }
 .cover { width: 58px; height: 44px; border-radius: 4px; }
 .pagination { justify-content: flex-end; margin-top: 22px; }
 .category-add { margin-bottom: 14px; }

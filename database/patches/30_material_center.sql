@@ -75,8 +75,6 @@ SELECT seed.course_name, 1
 FROM (
     SELECT '语文' AS course_name UNION ALL
     SELECT '数学' UNION ALL
-    SELECT '历史' UNION ALL
-    SELECT '生物' UNION ALL
     SELECT '英语'
 ) seed
 WHERE NOT EXISTS (
@@ -111,6 +109,6 @@ SET @ddl = IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SC
     'CREATE INDEX idx_material_uploader ON course_detail(uploader_user_id, status)', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
--- 校验查询：应返回 1/2 两个课程类型和不超过 12 个启用通识科目。
+-- 校验查询：启用的通识科目应为语文、数学、英语；课件仍可保留历史科目关联。
 SELECT COUNT(*) AS active_course_count FROM course WHERE status = 1;
 SELECT courseType, COUNT(*) AS material_count FROM course_detail WHERE status = 1 GROUP BY courseType;
