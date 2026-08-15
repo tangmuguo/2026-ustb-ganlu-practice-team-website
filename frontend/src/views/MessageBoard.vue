@@ -392,30 +392,7 @@ onMounted(() => {
           </div>
         </div>
         <figure class="hero-visual">
-          <div class="community-illustration" aria-hidden="true">
-            <span class="illustration-sun"></span>
-            <span class="illustration-cloud cloud-one"></span>
-            <span class="illustration-cloud cloud-two"></span>
-            <span class="illustration-hill hill-back"></span>
-            <span class="illustration-hill hill-front"></span>
-            <div class="illustration-book">
-              <span></span>
-              <span></span>
-            </div>
-            <span class="illustration-bubble bubble-question">问</span>
-            <span class="illustration-bubble bubble-answer">答</span>
-          </div>
-          <div class="photo-label">
-            <span>GANLU COMMUNITY</span>
-            <small>倾听 · 分享 · 成长</small>
-          </div>
-          <figcaption>
-            <div class="caption-mark">“</div>
-            <div>
-              <p>教育，让目光去往更远的地方。</p>
-              <span>每一次真诚交流，都可能成为改变的起点</span>
-            </div>
-          </figcaption>
+          <img class="community-photo" src="/message-board-hero.jpg" alt="支教活动中的孩子们" />
         </figure>
       </div>
     </section>
@@ -708,7 +685,7 @@ onMounted(() => {
   transform: rotate(3deg);
 }
 
-.community-illustration {
+.community-photo {
   position: relative;
   display: block;
   overflow: hidden;
@@ -716,220 +693,9 @@ onMounted(() => {
   height: 100%;
   border: 7px solid #fff;
   border-radius: 28px 28px 84px 28px;
-  background:
-    linear-gradient(180deg, #dff3fb 0 61%, #f7e7bd 61% 100%);
+  object-fit: cover;
+  object-position: center 48%;
   box-shadow: 0 28px 64px rgb(30 73 98 / 18%);
-}
-
-.illustration-sun {
-  position: absolute;
-  top: 32px;
-  right: 55px;
-  width: 54px;
-  height: 54px;
-  border-radius: 50%;
-  background: #f7c75b;
-  box-shadow: 0 0 0 12px rgb(247 199 91 / 18%);
-}
-
-.illustration-cloud {
-  position: absolute;
-  height: 17px;
-  border-radius: 999px;
-  background: rgb(255 255 255 / 75%);
-}
-
-.illustration-cloud::before,
-.illustration-cloud::after {
-  position: absolute;
-  bottom: 0;
-  border-radius: 50%;
-  background: inherit;
-  content: '';
-}
-
-.illustration-cloud::before {
-  left: 15px;
-  width: 29px;
-  height: 29px;
-}
-
-.illustration-cloud::after {
-  right: 14px;
-  width: 22px;
-  height: 22px;
-}
-
-.cloud-one {
-  top: 61px;
-  left: 46px;
-  width: 82px;
-}
-
-.cloud-two {
-  top: 112px;
-  right: 25px;
-  width: 68px;
-  opacity: 0.72;
-}
-
-.illustration-hill {
-  position: absolute;
-  bottom: 86px;
-  border-radius: 55% 55% 0 0;
-  transform-origin: bottom;
-}
-
-.hill-back {
-  right: -20px;
-  width: 78%;
-  height: 127px;
-  background: #86cdb2;
-  transform: rotate(-5deg);
-}
-
-.hill-front {
-  bottom: 66px;
-  left: -32px;
-  width: 76%;
-  height: 115px;
-  background: #4fa47f;
-  transform: rotate(7deg);
-}
-
-.illustration-book {
-  position: absolute;
-  right: 25%;
-  bottom: 29px;
-  z-index: 2;
-  display: flex;
-  width: 174px;
-  height: 91px;
-  filter: drop-shadow(0 15px 13px rgb(38 75 59 / 18%));
-  transform: rotate(-2deg);
-}
-
-.illustration-book::after {
-  position: absolute;
-  top: 8px;
-  bottom: 8px;
-  left: 50%;
-  width: 2px;
-  background: #e4c986;
-  content: '';
-}
-
-.illustration-book span {
-  width: 50%;
-  border: 2px solid #e5cd91;
-  background:
-    repeating-linear-gradient(
-      180deg,
-      #fffdf4 0 12px,
-      #dce8dd 13px 14px
-    );
-}
-
-.illustration-book span:first-child {
-  border-radius: 15px 4px 7px 20px;
-  transform: skewY(5deg);
-}
-
-.illustration-book span:last-child {
-  border-radius: 4px 15px 20px 7px;
-  transform: skewY(-5deg);
-}
-
-.illustration-bubble {
-  position: absolute;
-  z-index: 3;
-  display: grid;
-  width: 44px;
-  height: 44px;
-  place-items: center;
-  border: 4px solid #fff;
-  border-radius: 15px 15px 15px 4px;
-  color: #fff;
-  box-shadow: 0 10px 20px rgb(37 78 101 / 16%);
-  font-family: "Noto Serif SC", "Songti SC", serif;
-  font-size: 19px;
-  font-weight: 800;
-}
-
-.bubble-question {
-  top: 89px;
-  left: 31%;
-  background: #1e88e5;
-  transform: rotate(-7deg);
-}
-
-.bubble-answer {
-  top: 130px;
-  right: 18%;
-  border-radius: 15px 15px 4px;
-  background: #e2aa42;
-  transform: rotate(6deg);
-}
-
-.photo-label {
-  position: absolute;
-  top: 22px;
-  left: -17px;
-  display: grid;
-  gap: 2px;
-  padding: 10px 14px;
-  border-radius: 5px 12px 12px 5px;
-  color: #fff;
-  background: #1e88e5;
-  box-shadow: 0 10px 26px rgb(30 99 153 / 18%);
-}
-
-.photo-label span {
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-}
-
-.photo-label small {
-  color: rgb(255 255 255 / 83%);
-  font-size: 9px;
-}
-
-.hero-visual figcaption {
-  position: absolute;
-  right: -20px;
-  bottom: -34px;
-  display: flex;
-  align-items: flex-start;
-  gap: 11px;
-  width: min(360px, calc(100% - 36px));
-  padding: 16px 19px 17px 17px;
-  border: 1px solid rgb(227 192 123 / 38%);
-  border-radius: 17px 5px 17px 17px;
-  color: #40505a;
-  background: #fffaf0;
-  box-shadow: 0 18px 38px rgb(79 75 59 / 14%);
-}
-
-.caption-mark {
-  height: 34px;
-  color: #dfa83f;
-  font-family: Georgia, serif;
-  font-size: 43px;
-  line-height: 1;
-}
-
-.hero-visual figcaption p {
-  margin: 0 0 4px;
-  color: #334b59;
-  font-family: "Noto Serif SC", "Songti SC", "STSong", serif;
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.hero-visual figcaption span {
-  color: #7a858b;
-  font-size: 10px;
 }
 
 .hero-glow {
@@ -1250,49 +1016,9 @@ onMounted(() => {
     right: 25px;
   }
 
-  .community-illustration {
+  .community-photo {
     border-width: 5px;
     border-radius: 22px 22px 58px 22px;
-  }
-
-  .illustration-book {
-    right: 21%;
-    bottom: 23px;
-    width: 126px;
-    height: 67px;
-  }
-
-  .illustration-bubble {
-    width: 36px;
-    height: 36px;
-    border-width: 3px;
-    font-size: 15px;
-  }
-
-  .bubble-question {
-    top: 64px;
-  }
-
-  .bubble-answer {
-    top: 96px;
-    right: 14%;
-  }
-
-  .photo-label {
-    top: 17px;
-    left: -8px;
-    padding: 8px 10px;
-  }
-
-  .hero-visual figcaption {
-    right: -7px;
-    bottom: -46px;
-    width: calc(100% - 24px);
-    padding: 13px 14px;
-  }
-
-  .hero-visual figcaption p {
-    font-size: 13px;
   }
 
   .message-container {
