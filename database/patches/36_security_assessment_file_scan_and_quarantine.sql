@@ -6,31 +6,65 @@
 -- only on a verified MySQL backup copy; this script is not a deployment step.
 
 -- Existing rows receive the conservative PENDING default; no historical item
--- is marked CLEAN. MySQL 8's ADD COLUMN IF NOT EXISTS keeps this DDL
--- repeatable without dropping or rewriting any existing object or row.
-ALTER TABLE team_media
-    ADD COLUMN IF NOT EXISTS scan_status VARCHAR(16) NOT NULL DEFAULT 'PENDING'
-        COMMENT 'PENDING/INFECTED/CLEAN；仅 CLEAN 可下载或公开',
-    ADD COLUMN IF NOT EXISTS scan_diagnostic_status VARCHAR(16) NULL
-        COMMENT 'TIMEOUT/FAILED/UNAVAILABLE 等诊断结果';
+-- is marked CLEAN. MySQL 8.0 does not support ADD COLUMN IF NOT EXISTS, so
+-- use information_schema checks to keep this patch repeatable.
+DROP PROCEDURE IF EXISTS ganlu_add_column_if_missing;
 
-ALTER TABLE team_page_images
-    ADD COLUMN IF NOT EXISTS scan_status VARCHAR(16) NOT NULL DEFAULT 'PENDING'
-        COMMENT 'PENDING/INFECTED/CLEAN；仅 CLEAN 可下载或公开',
-    ADD COLUMN IF NOT EXISTS scan_diagnostic_status VARCHAR(16) NULL
-        COMMENT 'TIMEOUT/FAILED/UNAVAILABLE 等诊断结果';
+DELIMITER $$
 
-ALTER TABLE team_page_word
-    ADD COLUMN IF NOT EXISTS scan_status VARCHAR(16) NOT NULL DEFAULT 'PENDING'
-        COMMENT 'PENDING/INFECTED/CLEAN；仅 CLEAN 可下载或公开',
-    ADD COLUMN IF NOT EXISTS scan_diagnostic_status VARCHAR(16) NULL
-        COMMENT 'TIMEOUT/FAILED/UNAVAILABLE 等诊断结果';
+CREATE PROCEDURE ganlu_add_column_if_missing(
+    IN table_name_value VARCHAR(64),
+    IN column_name_value VARCHAR(64),
+    IN alter_sql_value TEXT
+)
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = table_name_value
+          AND COLUMN_NAME = column_name_value
+    ) THEN
+        SET @ganlu_sql = alter_sql_value;
+        PREPARE ganlu_stmt FROM @ganlu_sql;
+        EXECUTE ganlu_stmt;
+        DEALLOCATE PREPARE ganlu_stmt;
+    END IF;
+END$$
 
-ALTER TABLE course_detail
-    ADD COLUMN IF NOT EXISTS scan_status VARCHAR(16) NOT NULL DEFAULT 'PENDING'
-        COMMENT 'PENDING/INFECTED/CLEAN；仅 CLEAN 可下载或公开',
-    ADD COLUMN IF NOT EXISTS scan_diagnostic_status VARCHAR(16) NULL
-        COMMENT 'TIMEOUT/FAILED/UNAVAILABLE 等诊断结果';
+DELIMITER ;
+
+CALL ganlu_add_column_if_missing(
+    'team_media', 'scan_status',
+    'ALTER TABLE team_media ADD COLUMN scan_status VARCHAR(16) NOT NULL DEFAULT ''PENDING'' COMMENT ''PENDING/INFECTED/CLEAN；仅 CLEAN 可下载或公开'''
+);
+CALL ganlu_add_column_if_missing(
+    'team_media', 'scan_diagnostic_status',
+    'ALTER TABLE team_media ADD COLUMN scan_diagnostic_status VARCHAR(16) NULL COMMENT ''TIMEOUT/FAILED/UNAVAILABLE 等诊断结果'''
+);
+CALL ganlu_add_column_if_missing(
+    'team_page_images', 'scan_status',
+    'ALTER TABLE team_page_images ADD COLUMN scan_status VARCHAR(16) NOT NULL DEFAULT ''PENDING'' COMMENT ''PENDING/INFECTED/CLEAN；仅 CLEAN 可下载或公开'''
+);
+CALL ganlu_add_column_if_missing(
+    'team_page_images', 'scan_diagnostic_status',
+    'ALTER TABLE team_page_images ADD COLUMN scan_diagnostic_status VARCHAR(16) NULL COMMENT ''TIMEOUT/FAILED/UNAVAILABLE 等诊断结果'''
+);
+CALL ganlu_add_column_if_missing(
+    'team_page_word', 'scan_status',
+    'ALTER TABLE team_page_word ADD COLUMN scan_status VARCHAR(16) NOT NULL DEFAULT ''PENDING'' COMMENT ''PENDING/INFECTED/CLEAN；仅 CLEAN 可下载或公开'''
+);
+CALL ganlu_add_column_if_missing(
+    'team_page_word', 'scan_diagnostic_status',
+    'ALTER TABLE team_page_word ADD COLUMN scan_diagnostic_status VARCHAR(16) NULL COMMENT ''TIMEOUT/FAILED/UNAVAILABLE 等诊断结果'''
+);
+CALL ganlu_add_column_if_missing(
+    'course_detail', 'scan_status',
+    'ALTER TABLE course_detail ADD COLUMN scan_status VARCHAR(16) NOT NULL DEFAULT ''PENDING'' COMMENT ''PENDING/INFECTED/CLEAN；仅 CLEAN 可下载或公开'''
+);
+CALL ganlu_add_column_if_missing(
+    'course_detail', 'scan_diagnostic_status',
+    'ALTER TABLE course_detail ADD COLUMN scan_diagnostic_status VARCHAR(16) NULL COMMENT ''TIMEOUT/FAILED/UNAVAILABLE 等诊断结果'''
+);
 
 CREATE TABLE IF NOT EXISTS file_security_scan (
     id BIGINT NOT NULL AUTO_INCREMENT,
@@ -95,3 +129,5 @@ CREATE TABLE IF NOT EXISTS media_privacy_consent (
 -- No UPDATE/DELETE backfill is intentional: existing business rows remain
 -- unavailable to public paths until a fresh CLEAN scan and explicit consent
 -- are recorded by the application.
+
+DROP PROCEDURE IF EXISTS ganlu_add_column_if_missing;
