@@ -7,7 +7,7 @@ import { siteContent } from '@/config/siteContent'
     <header>
       <p>PRIVACY &amp; MINOR PROTECTION</p>
       <h1>隐私与未成年人保护说明</h1>
-      <span>版本：2026-08-15 · 上线前请由安全负责人确认正式联系方式、线下核验与监护人授权流程。</span>
+      <span>版本：2026-08-15 · 如有隐私相关问题，请通过本页公示的联系方式咨询。</span>
     </header>
 
     <section>
@@ -24,7 +24,7 @@ import { siteContent } from '@/config/siteContent'
     </section>
     <section>
       <h2>更正、撤回与投诉</h2>
-      <p>内容举报可通过登录后的互动页提交。涉及个人资料更正、删除或撤回授权，请使用负责人确认后的正式受理方式；当前公开联系信息状态如下：</p>
+      <p>内容举报可通过登录后的互动页提交。涉及个人资料更正、删除或撤回授权，请通过以下正式联系方式联系我们：</p>
       <ul>
         <li>地址：{{ siteContent.contact.address }}</li>
         <li>电话：{{ siteContent.contact.phone }}</li>
