@@ -57,7 +57,7 @@ public class FileStorageUtil {
 
     public FileStorageUtil(
             @Value("${file.upload-dir}") String uploadDir,
-            @Value("${spring.profiles.active:dev}") String activeProfile) {
+            @Value("${spring.profiles.active:${spring.profiles.default:prod}}") String activeProfile) {
         this.activeProfile = activeProfile;
         this.uploadRoot = Paths.get(uploadDir).toAbsolutePath().normalize();
 

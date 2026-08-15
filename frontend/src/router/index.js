@@ -28,28 +28,28 @@ const router = createRouter({
       meta: { ...defaultMeta, title: '联系我们' },
     },
     {
+      path: '/privacy',
+      name: 'privacy-policy',
+      component: () => import('@/views/PrivacyPolicy.vue'),
+      meta: { ...defaultMeta, title: '隐私与未成年人保护' },
+    },
+    {
+      path: '/privacy-requests',
+      name: 'privacy-requests',
+      component: () => import('@/views/PrivacyRequests.vue'),
+      meta: { ...defaultMeta, title: '隐私权利工单', requiresAuth: true, roles: [0, 1, 2] },
+    },
+    {
       path: '/login',
       name: 'login',
       component: () => import('@/views/Login.vue'),
       meta: { ...defaultMeta, title: '登录' },
     },
     {
-      path: '/regs',
-      name: 'register-student',
-      component: () => import('@/views/RegisteStudent.vue'),
-      meta: { ...defaultMeta, title: '学生注册' },
-    },
-    {
       path: '/regt',
       name: 'register-team',
       component: () => import('@/views/RegisteTeam.vue'),
       meta: { ...defaultMeta, title: '创建团队账号', requiresAuth: true, roles: [0] },
-    },
-    {
-      path: '/ai',
-      name: 'ai-assistant',
-      component: () => import('@/views/AiAssistant.vue'),
-      meta: { ...defaultMeta, title: 'AI 小助手', requiresAuth: true, roles: [0, 1, 2] },
     },
     {
       path: '/news',
@@ -144,7 +144,13 @@ const router = createRouter({
       path: '/mnews',
       name: 'news-manage',
       component: () => import('@/views/ManageNews.vue'),
-      meta: { ...defaultMeta, title: '新闻管理', requiresAuth: true, roles: [0, 1] },
+      meta: { ...defaultMeta, title: '新闻管理', requiresAuth: true, roles: [0] },
+    },
+    {
+      path: '/content-safety',
+      name: 'content-safety',
+      component: () => import('@/views/ContentSafety.vue'),
+      meta: { ...defaultMeta, title: '内容审核与举报', requiresAuth: true, roles: [0] },
     },
     {
       path: '/logh',

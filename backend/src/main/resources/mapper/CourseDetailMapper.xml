@@ -10,7 +10,6 @@
         <result column="course_type" property="courseType"/>
         <result column="uploader_user_id" property="uploaderUserId"/>
         <result column="uploader_name" property="uploaderName"/>
-        <result column="author" property="author"/>
         <result column="cover_path" property="thumbnailUrl"/>
         <result column="course_id" property="courseId"/>
         <result column="custom_subject" property="customSubject"/>
@@ -23,19 +22,45 @@
         <result column="file_extension" property="fileExtension"/>
         <result column="mime_type" property="mimeType"/>
         <result column="preview_status" property="previewStatus"/>
+        <result column="scan_status" property="scanStatus"/>
+        <result column="scan_diagnostic_status" property="scanDiagnosticStatus"/>
         <result column="status" property="status"/>
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
         <result column="course_name" property="courseName"/>
     </resultMap>
 
+    <!-- Only reviewed public names, team names or a course-scoped anonymous
+         identifier are eligible for the uploader projection. -->
+    <sql id="publicUploaderName">
+        CASE
+            WHEN u.level = 1 THEN COALESCE(
+                NULLIF(TRIM(u.teamname), ''),
+                NULLIF(TRIM(u.display_name), ''),
+                CONCAT('团队上传者#', cd.id)
+            )
+            WHEN u.level = 2 THEN COALESCE(
+                NULLIF(TRIM(u.display_name), ''),
+                CONCAT('学生上传者#', cd.id)
+            )
+            WHEN u.level = 0 THEN COALESCE(
+                NULLIF(TRIM(u.display_name), ''),
+                '管理员上传者'
+            )
+            ELSE COALESCE(
+                NULLIF(TRIM(u.display_name), ''),
+                CONCAT('课件上传者#', cd.id),
+                '匿名课件上传者'
+            )
+        END
+    </sql>
+
     <sql id="materialColumns">
         cd.id,
         cd.title,
         cd.courseType AS course_type,
         cd.uploader_user_id,
-        COALESCE(NULLIF(u.teamname, ''), NULLIF(u.realname, ''), u.username, cd.author) AS uploader_name,
-        cd.author,
+        <include refid="publicUploaderName"/> AS uploader_name,
         COALESCE(cd.cover_path, cd.thumbnail_url) AS cover_path,
         cd.course_id,
         cd.custom_subject,
@@ -48,6 +73,8 @@
         cd.file_extension,
         COALESCE(cd.mime_type, cd.file_type) AS mime_type,
         cd.preview_status,
+        cd.scan_status,
+        cd.scan_diagnostic_status,
         cd.status,
         cd.create_time,
         cd.update_time,
@@ -60,12 +87,12 @@
             title, courseType, uploader_user_id, author, thumbnail_url, cover_path,
             course_id, custom_subject, year, files, original_file_path, preview_file_path,
             original_filename, file_size, file_type, file_extension, mime_type,
-            preview_status, status, create_time, update_time
+            preview_status, scan_status, scan_diagnostic_status, status, create_time, update_time
         ) VALUES (
             #{title}, #{courseType}, #{uploaderUserId}, #{uploaderName}, #{thumbnailUrl}, #{thumbnailUrl},
             #{courseId}, #{customSubject}, #{year}, #{originalFilePath}, #{originalFilePath}, #{previewFilePath},
             #{originalFilename}, #{fileSize}, #{mimeType}, #{fileExtension}, #{mimeType},
-            #{previewStatus}, 1, NOW(), NOW()
+            #{previewStatus}, #{scanStatus}, #{scanDiagnosticStatus}, 1, NOW(), NOW()
         )
     </insert>
 
@@ -77,6 +104,7 @@
         LEFT JOIN user u ON cd.uploader_user_id = u.id
         <where>
             cd.status = 1
+            AND cd.scan_status = 'CLEAN'
             AND cd.year BETWEEN #{minYear} AND #{maxYear}
             <if test="courseType != null">
                 AND cd.courseType = #{courseType}
@@ -93,7 +121,7 @@
                     cd.title LIKE #{keywordLike}
                     OR c.course_name LIKE #{keywordLike}
                     OR cd.custom_subject LIKE #{keywordLike}
-                    OR COALESCE(NULLIF(u.teamname, ''), NULLIF(u.realname, ''), u.username, cd.author) LIKE #{keywordLike}
+                    OR <include refid="publicUploaderName"/> LIKE #{keywordLike}
                 )
             </if>
         </where>
@@ -106,7 +134,7 @@
         FROM course_detail cd
         LEFT JOIN course c ON cd.course_id = c.id
         LEFT JOIN user u ON cd.uploader_user_id = u.id
-        WHERE cd.id = #{id} AND cd.status = 1
+        WHERE cd.id = #{id} AND cd.status = 1 AND cd.scan_status = 'CLEAN'
     </select>
 
     <select id="getCourseByIdForUpdate" parameterType="Integer" resultMap="courseDetailMap">
@@ -133,5 +161,25 @@
         UPDATE course_detail
         SET status = 0, update_time = NOW()
         WHERE id = #{id} AND status = 1
+    </update>
+
+    <update id="softDeleteCourseByIdForOwner">
+        UPDATE course_detail
+        SET status = 0, update_time = NOW()
+        WHERE id = #{id}
+          AND uploader_user_id = #{actorUserId}
+          AND status = 1
+    </update>
+
+    <update id="softDeleteCourseByIdForAdmin">
+        UPDATE course_detail
+        SET status = 0, update_time = NOW()
+        WHERE id = #{id}
+          AND status = 1
+          AND EXISTS (
+              SELECT 1 FROM user actor
+              WHERE actor.id = #{actorUserId}
+                AND actor.level = 0
+          )
     </update>
 </mapper>

@@ -26,7 +26,7 @@ export function AddNews(data) {
 export function UpdateNews(data) {
   return instance({
     url: AllPATH.newsUpdatedPath,
-    method: 'post',
+    method: 'put',
     data
   })
 }
@@ -35,7 +35,7 @@ export function DeleteNews(id) {
  // const ids = Array.isArray(id) ? id : [id];
   return instance({
     url: AllPATH.newsDeletePath,
-    method: 'post',
+    method: 'delete',
     data: {id:id}
   })
 }

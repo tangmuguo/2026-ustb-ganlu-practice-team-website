@@ -1,0 +1,15 @@
+/var/log/ganlu/*.log {
+    daily
+    rotate 180
+    maxage 180
+    missingok
+    notifempty
+    compress
+    delaycompress
+    dateext
+    dateformat -%Y%m%d
+    create 0640 ganlu ganlu
+    # Spring Boot writes to an open file descriptor. copytruncate avoids a
+    # service restart; journal retention must be configured separately.
+    copytruncate
+}

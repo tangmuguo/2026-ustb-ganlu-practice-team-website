@@ -19,7 +19,7 @@ public interface CourseDetailService {
 
     CourseDetailEntity createMaterial(MaterialCreateRequest request, UserEntity uploader) throws IOException;
 
-    boolean deleteCourseById(int id);
+    boolean deleteCourseById(int id, UserEntity actor);
 
     String saveChunk(MultipartFile chunk, int chunkNumber, int totalChunks, String identifier,
                      String filename, long expectedSize, String purpose, int userId) throws IOException;

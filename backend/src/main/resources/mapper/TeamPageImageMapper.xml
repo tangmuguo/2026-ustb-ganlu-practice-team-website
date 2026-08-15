@@ -9,6 +9,8 @@
         <result column="team_id" property="teamId"/>
         <result column="status" property="status"/>
         <result column="reject_reason" property="rejectReason"/>
+        <result column="scan_status" property="scanStatus"/>
+        <result column="scan_diagnostic_status" property="scanDiagnosticStatus"/>
         <result column="log_date" property="logDate"/>
         <result column="userId" property="userId"/>
         <result column="pageId" property="pageId"/>
@@ -35,6 +37,10 @@
         where team_id = #{teamId}
         <if test="status != null and status != ''">
             and status = #{status}
+            <if test="status == 'PUBLISHED'">
+                and scan_status = 'CLEAN'
+                and scan_diagnostic_status = 'CLEAN'
+            </if>
         </if>
     </select>
 
@@ -70,17 +76,21 @@
     <insert id="insertTeamImage" parameterType="com.vihu.ganlu.entitys.TeamPageImageEntity"
             useGeneratedKeys="true" keyProperty="id">
         insert into team_page_images(
-                team_id,status,reject_reason,log_date,
+                team_id,status,scan_status,scan_diagnostic_status,reject_reason,log_date,
                 userId,imageUrl,caption,content,createdAt,type
         )VALUES (
-                #{teamId},#{status},#{rejectReason},#{logDate},
+                #{teamId},#{status},#{scanStatus},#{scanDiagnosticStatus},#{rejectReason},#{logDate},
                 #{userId},#{imageUrl},#{caption},#{content,jdbcType=VARCHAR},NOW(),#{type}
         )
     </insert>
 
     <update id="updateImageStatus">
         update team_page_images
-        set status = #{status}, reject_reason = #{rejectReason}, updatedAt = NOW()
+        set status = #{status},
+            reject_reason = #{rejectReason},
+            scan_status = CASE WHEN #{status} = 'PUBLISHED' THEN 'CLEAN' ELSE scan_status END,
+            scan_diagnostic_status = CASE WHEN #{status} = 'PUBLISHED' THEN 'CLEAN' ELSE scan_diagnostic_status END,
+            updatedAt = NOW()
         where id = #{id}
     </update>
 

@@ -15,6 +15,9 @@ import com.vihu.ganlu.service.OfficePreviewService;
 import com.vihu.ganlu.utils.FileStorageUtil;
 import com.vihu.ganlu.utils.GeneralCourseSubjectPolicy;
 import com.vihu.ganlu.utils.MaterialFileValidator;
+import com.vihu.ganlu.security.file.FileScanResult;
+import com.vihu.ganlu.security.file.FileScanService;
+import com.vihu.ganlu.security.file.ImageSanitizer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,7 +52,11 @@ public class CourseDetailServiceImpl implements CourseDetailService {
     private final OfficePreviewService officePreviewService;
     private final MaterialUploadStorageService uploadStorageService;
     private final FileDeletionTaskService fileDeletionTaskService;
+    private final FileScanService fileScanService;
+    private final ImageSanitizer imageSanitizer;
+    private final boolean secureFileGate;
 
+    /** Legacy constructor retained for existing isolated lifecycle tests. */
     public CourseDetailServiceImpl(
             CourseDetailMapper courseDetailMapper,
             CourseService courseService,
@@ -58,6 +65,39 @@ public class CourseDetailServiceImpl implements CourseDetailService {
             OfficePreviewService officePreviewService,
             MaterialUploadStorageService uploadStorageService,
             FileDeletionTaskService fileDeletionTaskService) {
+        this(courseDetailMapper, courseService, fileStorageUtil, fileValidator,
+                officePreviewService, uploadStorageService, fileDeletionTaskService,
+                new FileScanService(path -> com.vihu.ganlu.security.file.MalwareScanner.ScanVerdict.CLEAN, 5000),
+                ImageSanitizer.passthroughForTests(), false);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public CourseDetailServiceImpl(
+            CourseDetailMapper courseDetailMapper,
+            CourseService courseService,
+            FileStorageUtil fileStorageUtil,
+            MaterialFileValidator fileValidator,
+            OfficePreviewService officePreviewService,
+            MaterialUploadStorageService uploadStorageService,
+            FileDeletionTaskService fileDeletionTaskService,
+            FileScanService fileScanService,
+            ImageSanitizer imageSanitizer) {
+        this(courseDetailMapper, courseService, fileStorageUtil, fileValidator,
+                officePreviewService, uploadStorageService, fileDeletionTaskService,
+                fileScanService, imageSanitizer, true);
+    }
+
+    private CourseDetailServiceImpl(
+            CourseDetailMapper courseDetailMapper,
+            CourseService courseService,
+            FileStorageUtil fileStorageUtil,
+            MaterialFileValidator fileValidator,
+            OfficePreviewService officePreviewService,
+            MaterialUploadStorageService uploadStorageService,
+            FileDeletionTaskService fileDeletionTaskService,
+            FileScanService fileScanService,
+            ImageSanitizer imageSanitizer,
+            boolean secureFileGate) {
         this.courseDetailMapper = courseDetailMapper;
         this.courseService = courseService;
         this.fileStorageUtil = fileStorageUtil;
@@ -65,6 +105,9 @@ public class CourseDetailServiceImpl implements CourseDetailService {
         this.officePreviewService = officePreviewService;
         this.uploadStorageService = uploadStorageService;
         this.fileDeletionTaskService = fileDeletionTaskService;
+        this.fileScanService = fileScanService;
+        this.imageSanitizer = imageSanitizer;
+        this.secureFileGate = secureFileGate;
     }
 
     @Override
@@ -94,6 +137,27 @@ public class CourseDetailServiceImpl implements CourseDetailService {
         MaterialUploadStorageService.StagedFile materialFile = uploadStorageService.loadStagedFile(
                 uploader.getId(), "MATERIAL", request.getFileToken());
 
+        FileScanResult coverScan = null;
+        FileScanResult materialScan = null;
+        if (secureFileGate) {
+            coverScan = scanService(cover.getPath(), "COURSE_COVER", uploader.getId());
+            materialScan = scanService(materialFile.getPath(), "COURSE_MATERIAL", uploader.getId());
+            if (!coverScan.isClean() || !materialScan.isClean()) {
+                throw new com.vihu.ganlu.security.file.FileSecurityException(
+                        "课件文件尚未通过安全扫描，保持隔离状态",
+                        !coverScan.isClean() ? coverScan : materialScan);
+            }
+            imageSanitizer.sanitizeInPlace(cover.getPath(), cover.getInfo().getExtension());
+            // Re-scan the normalized bytes, not the original metadata-bearing
+            // upload. The clean verdict must describe the bytes that are
+            // copied into the public cover path.
+            coverScan = fileScanService.scan(cover.getPath(), "COURSE_COVER", uploader.getId());
+            if (!coverScan.isClean()) {
+                throw new com.vihu.ganlu.security.file.FileSecurityException(
+                        "课件封面重编码后尚未通过安全扫描，保持隔离状态", coverScan);
+            }
+        }
+
         String coverPath = null;
         String originalPath = null;
         String previewPath = null;
@@ -105,12 +169,18 @@ public class CourseDetailServiceImpl implements CourseDetailService {
                     coverPath, uploader.getId(), cover.getInfo().getSize());
             recoveryTaskIds.add(coverRecoveryTask);
             fileStorageUtil.copyToAllocatedPath(cover.getPath(), coverPath);
+            if (secureFileGate) {
+                requireScannedTarget(coverPath, "COURSE_COVER", uploader.getId());
+            }
 
             originalPath = fileStorageUtil.allocatePath(ORIGINAL_ROOT, materialFile.getInfo().getExtension());
             long originalRecoveryTask = fileDeletionTaskService.enqueueCourseOrphanCleanup(
                     originalPath, uploader.getId(), materialFile.getInfo().getSize());
             recoveryTaskIds.add(originalRecoveryTask);
             fileStorageUtil.copyToAllocatedPath(materialFile.getPath(), originalPath);
+            if (secureFileGate) {
+                requireScannedTarget(originalPath, "COURSE_MATERIAL", uploader.getId());
+            }
             Path storedOriginal = fileStorageUtil.loadFile(originalPath);
 
             String previewStatus = "READY";
@@ -123,6 +193,9 @@ public class CourseDetailServiceImpl implements CourseDetailService {
                 Path previewTarget = fileStorageUtil.loadFile(allocatedPreviewPath);
                 try {
                     officePreviewService.convertToPdf(storedOriginal, previewTarget);
+                    if (secureFileGate) {
+                        requireScannedTarget(allocatedPreviewPath, "COURSE_PREVIEW", uploader.getId());
+                    }
                     previewPath = allocatedPreviewPath;
                     committedFileTaskIds.add(previewRecoveryTask);
                 } catch (IOException | RuntimeException conversionError) {
@@ -137,6 +210,9 @@ public class CourseDetailServiceImpl implements CourseDetailService {
                         previewPath, uploader.getId(), materialFile.getInfo().getSize());
                 recoveryTaskIds.add(previewRecoveryTask);
                 fileStorageUtil.copyToAllocatedPath(storedOriginal, previewPath);
+                if (secureFileGate) {
+                    requireScannedTarget(previewPath, "COURSE_PREVIEW", uploader.getId());
+                }
                 committedFileTaskIds.add(previewRecoveryTask);
             }
 
@@ -156,6 +232,10 @@ public class CourseDetailServiceImpl implements CourseDetailService {
             entity.setFileExtension(materialFile.getInfo().getExtension());
             entity.setMimeType(materialFile.getInfo().getMimeType());
             entity.setPreviewStatus(previewStatus);
+            if (secureFileGate) {
+                entity.setScanStatus(FileSecurityStatusName.CLEAN);
+                entity.setScanDiagnosticStatus(FileSecurityStatusName.CLEAN);
+            }
             entity.setStatus(1);
 
             if (courseDetailMapper.insertCourseDetail(entity) != 1) {
@@ -176,12 +256,23 @@ public class CourseDetailServiceImpl implements CourseDetailService {
 
     @Override
     @Transactional
-    public boolean deleteCourseById(int id) {
+    public boolean deleteCourseById(int id, UserEntity actor) {
         CourseDetailEntity existing = courseDetailMapper.getCourseByIdForUpdate(id);
         if (existing == null) {
             throw new NoSuchElementException("课件不存在");
         }
-        if (courseDetailMapper.softDeleteCourseById(id) != 1) {
+        if (actor == null || actor.getId() == null || actor.getLevel() == null) {
+            throw new SecurityException("无权删除该课件");
+        }
+        final int updated;
+        if (actor.getLevel() == 0) {
+            updated = courseDetailMapper.softDeleteCourseByIdForAdmin(id, actor.getId());
+        } else if (actor.getLevel() == 1 && actor.getId().equals(existing.getUploaderUserId())) {
+            updated = courseDetailMapper.softDeleteCourseByIdForOwner(id, actor.getId());
+        } else {
+            throw new SecurityException("无权删除该课件");
+        }
+        if (updated != 1) {
             return false;
         }
         fileDeletionTaskService.enqueueCourseFiles(existing);
@@ -225,6 +316,7 @@ public class CourseDetailServiceImpl implements CourseDetailService {
             throw new NoSuchElementException("课件不存在");
         }
         Path path = fileStorageUtil.loadFile(existing.getOriginalFilePath());
+        if (secureFileGate) requireClean(path, existing);
         if (!Files.isRegularFile(path)) {
             throw new NoSuchElementException("课件原文件不存在");
         }
@@ -241,6 +333,7 @@ public class CourseDetailServiceImpl implements CourseDetailService {
             throw new NoSuchElementException("课件预览暂不可用");
         }
         Path path = fileStorageUtil.loadFile(existing.getPreviewFilePath());
+        if (secureFileGate) requireClean(path, existing);
         if (!Files.isRegularFile(path)) {
             throw new NoSuchElementException("课件预览文件不存在");
         }
@@ -339,18 +432,30 @@ public class CourseDetailServiceImpl implements CourseDetailService {
                 : null);
         material.setDownloadUrl("/courseDetail/materials/" + material.getId() + "/download");
         if (!StringUtils.hasText(material.getUploaderName())) {
-            material.setUploaderName(material.getAuthor());
+            material.setUploaderName(anonymousUploaderName(material));
         }
+
+        // The mapper supplies only the reviewed public uploader projection.
+        // Do not let legacy author data or the internal user key escape through
+        // a public entity returned by this service.
+        material.setAuthor(null);
+        material.setUploaderUserId(null);
     }
 
     private String displayName(UserEntity user) {
         if (StringUtils.hasText(user.getTeamname())) {
             return user.getTeamname().trim();
         }
-        if (StringUtils.hasText(user.getRealname())) {
-            return user.getRealname().trim();
+        if (StringUtils.hasText(user.getDisplayName())) {
+            return user.getDisplayName().trim();
         }
-        return StringUtils.hasText(user.getUsername()) ? user.getUsername().trim() : "用户" + user.getId();
+        return user.getId() == null ? "匿名课件上传者" : "课件上传者#" + user.getId();
+    }
+
+    private String anonymousUploaderName(CourseDetailEntity material) {
+        return material.getId() == null
+                ? "匿名课件上传者"
+                : "课件上传者#" + material.getId();
     }
 
     private void safeDelete(String relativePath) {
@@ -422,6 +527,33 @@ public class CourseDetailServiceImpl implements CourseDetailService {
         if (identifier == null || !FILE_IDENTIFIER.matcher(identifier).matches()) {
             throw new IllegalArgumentException("文件标识不合法");
         }
+    }
+
+    private FileScanResult scanService(Path path, String scope, int ownerId) {
+        FileScanResult result = fileScanService.getLatest(path);
+        if (!result.isClean()) result = fileScanService.scan(path, scope, ownerId);
+        return result;
+    }
+
+    private void requireScannedTarget(String relativePath, String scope, int ownerId) {
+        Path target = fileStorageUtil.loadFile(relativePath);
+        FileScanResult result = fileScanService.scan(target, scope, ownerId);
+        if (!result.isClean()) {
+            throw new com.vihu.ganlu.security.file.FileSecurityException(
+                    "正式文件尚未通过安全扫描，禁止公开或下载", result);
+        }
+    }
+
+    private void requireClean(Path path, CourseDetailEntity existing) {
+        if (!"CLEAN".equals(existing.getScanStatus())) {
+            throw new com.vihu.ganlu.security.file.FileSecurityException(
+                    "课件尚未通过安全扫描，禁止公开或下载");
+        }
+        fileScanService.requireClean(path);
+    }
+
+    private static final class FileSecurityStatusName {
+        private static final String CLEAN = "CLEAN";
     }
 
     private void requireToken(String token) {

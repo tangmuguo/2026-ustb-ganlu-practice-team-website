@@ -3,8 +3,10 @@ package com.vihu.ganlu.actions;
 import com.vihu.ganlu.entitys.MessageEntity;
 import com.vihu.ganlu.entitys.UserEntity;
 import com.vihu.ganlu.entitys.message.MessageCreateRequest;
+import com.vihu.ganlu.configs.GlobalExceptionHandler;
 import com.vihu.ganlu.security.AuthInterceptor;
 import com.vihu.ganlu.security.TokenService;
+import com.vihu.ganlu.service.AuditEventService;
 import com.vihu.ganlu.service.UserService;
 import com.vihu.ganlu.service.impl.MessageServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +23,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -37,7 +40,7 @@ class MessageActionTests {
     void setUp() {
         messageService = mock(MessageServiceImpl.class);
         MessageAction action = new MessageAction(messageService);
-        mockMvc = standaloneSetup(action).build();
+        mockMvc = standaloneSetup(action).setControllerAdvice(new GlobalExceptionHandler()).build();
     }
 
     @Test
@@ -68,11 +71,31 @@ class MessageActionTests {
                         .contentType("application/json")
                         .content("{\"content\":\"hello\",\"userId\":1}")
                         .requestAttr(AuthInterceptor.CURRENT_USER_ATTRIBUTE, user(2, 2)))
-                .andExpect(status().isOk())
+                .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.code", is(200)))
                 .andExpect(jsonPath("$.content.id", is(9)));
 
         verify(messageService).addMessage(any(MessageCreateRequest.class), eq(2));
+    }
+
+    @Test
+    void blockedContentDoesNotWriteSuccessAudit() throws Exception {
+        AuditEventService auditService = mock(AuditEventService.class);
+        MessageServiceImpl blockedService = mock(MessageServiceImpl.class);
+        when(blockedService.addMessage(any(MessageCreateRequest.class), eq(2)))
+                .thenThrow(new IllegalArgumentException("留言不能包含外链或URL"));
+        MockMvc blockedMvc = standaloneSetup(new MessageAction(blockedService, auditService))
+                .setControllerAdvice(new GlobalExceptionHandler()).build();
+
+        blockedMvc.perform(post("/message/add")
+                        .contentType("application/json")
+                        .content("{\"content\":\"请访问 https://example.com\"}")
+                        .requestAttr(AuthInterceptor.CURRENT_USER_ATTRIBUTE, user(2, 2)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code", is(400)))
+                .andExpect(jsonPath("$.content").doesNotExist());
+
+        verify(auditService, never()).record(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -101,8 +124,8 @@ class MessageActionTests {
         mockMvc.perform(get("/message/list?page=0&pageSize=10"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code", is(400)))
-                .andExpect(jsonPath("$.message", is("page必须大于等于1")))
-                .andExpect(jsonPath("$.content").exists());
+                .andExpect(jsonPath("$.message", is("请求参数不正确")))
+                .andExpect(jsonPath("$.content").doesNotExist());
     }
 
     @Test
@@ -110,8 +133,8 @@ class MessageActionTests {
         mockMvc.perform(get("/message/list?page=abc&pageSize=10"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code", is(400)))
-                .andExpect(jsonPath("$.message", is("请求参数格式错误")))
-                .andExpect(jsonPath("$.content").exists());
+                .andExpect(jsonPath("$.message", is("请求参数不正确")))
+                .andExpect(jsonPath("$.content").doesNotExist());
     }
 
     @Test
@@ -122,8 +145,8 @@ class MessageActionTests {
                         .requestAttr(AuthInterceptor.CURRENT_USER_ATTRIBUTE, user(2, 2)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code", is(400)))
-                .andExpect(jsonPath("$.message", is("请求参数格式错误")))
-                .andExpect(jsonPath("$.content").exists());
+                .andExpect(jsonPath("$.message", is("请求格式不正确")))
+                .andExpect(jsonPath("$.content").doesNotExist());
     }
 
     @Test
@@ -134,8 +157,8 @@ class MessageActionTests {
                         .requestAttr(AuthInterceptor.CURRENT_USER_ATTRIBUTE, user(2, 2)))
                 .andExpect(status().isUnsupportedMediaType())
                 .andExpect(jsonPath("$.code", is(415)))
-                .andExpect(jsonPath("$.message", is("不支持的 Content-Type")))
-                .andExpect(jsonPath("$.content").exists());
+                .andExpect(jsonPath("$.message", is("不支持的请求类型")))
+                .andExpect(jsonPath("$.content").doesNotExist());
     }
 
     @Test
@@ -145,14 +168,14 @@ class MessageActionTests {
         mockMvc.perform(get("/message/list"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.code", is(500)))
-                .andExpect(jsonPath("$.message", is("服务器内部错误")))
-                .andExpect(jsonPath("$.content").exists());
+                .andExpect(jsonPath("$.message", is("服务器暂时无法处理请求")))
+                .andExpect(jsonPath("$.content").doesNotExist());
     }
 
     @Test
     void deleteMessage_studentForbidden_shouldReturn403() throws Exception {
         doThrow(new SecurityException("无删除权限"))
-                .when(messageService).deleteMessage(7, 3);
+                .when(messageService).deleteMessage(7, 3, null);
 
         mockMvc.perform(post("/message/deleteMessage")
                         .contentType("application/json")
@@ -161,7 +184,7 @@ class MessageActionTests {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code", is(403)));
 
-        verify(messageService).deleteMessage(7, 3);
+        verify(messageService).deleteMessage(7, 3, null);
     }
 
     private UserEntity user(int id, int level) {
@@ -177,7 +200,8 @@ class MessageActionTests {
         ReflectionTestUtils.setField(tokenService, "secret", "test-token-secret-with-more-than-32-bytes");
         ReflectionTestUtils.setField(tokenService, "expirationSeconds", 3600L);
         AuthInterceptor interceptor = new AuthInterceptor(tokenService, mock(UserService.class));
-        return standaloneSetup(action).addInterceptors(interceptor).build();
+        return standaloneSetup(action).setControllerAdvice(new GlobalExceptionHandler())
+                .addInterceptors(interceptor).build();
     }
 }
 

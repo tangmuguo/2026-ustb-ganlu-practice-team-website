@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.vihu.ganlu.mappers.PrivacyRequestMapper">
+    <resultMap id="privacyRequestMap" type="com.vihu.ganlu.entitys.privacy.PrivacyRequestEntity">
+        <id column="id" property="id"/>
+        <result column="requester_user_id" property="requesterUserId"/>
+        <result column="request_type" property="requestType"/>
+        <result column="consent_type" property="consentType"/>
+        <result column="scope_code" property="scopeCode"/>
+        <result column="description" property="description"/>
+        <result column="status" property="status"/>
+        <result column="handled_by_user_id" property="handledByUserId"/>
+        <result column="handled_at" property="handledAt"/>
+        <result column="decision_code" property="decisionCode"/>
+        <result column="decision_reason" property="decisionReason"/>
+        <result column="retention_decision" property="retentionDecision"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <sql id="columns">
+        id, requester_user_id, request_type, consent_type, scope_code,
+        description, status, handled_by_user_id, handled_at, decision_code,
+        decision_reason, retention_decision, created_at, updated_at
+    </sql>
+
+    <insert id="insert" parameterType="com.vihu.ganlu.entitys.privacy.PrivacyRequestEntity"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO privacy_request (
+            requester_user_id, request_type, consent_type, scope_code,
+            description, status, created_at, updated_at
+        ) VALUES (
+            #{requesterUserId}, #{requestType}, #{consentType}, #{scopeCode},
+            #{description}, 'OPEN', NOW(), NOW()
+        )
+    </insert>
+
+    <select id="findById" resultMap="privacyRequestMap">
+        SELECT <include refid="columns"/> FROM privacy_request WHERE id = #{id}
+    </select>
+
+    <select id="findByIdForUpdate" resultMap="privacyRequestMap">
+        SELECT <include refid="columns"/> FROM privacy_request WHERE id = #{id} FOR UPDATE
+    </select>
+
+    <select id="findByIdForRequester" resultMap="privacyRequestMap">
+        SELECT <include refid="columns"/>
+        FROM privacy_request
+        WHERE id = #{id} AND requester_user_id = #{requesterUserId}
+    </select>
+
+    <select id="findByRequester" resultMap="privacyRequestMap">
+        SELECT <include refid="columns"/>
+        FROM privacy_request
+        WHERE requester_user_id = #{requesterUserId}
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+
+    <select id="countByRequester" resultType="int">
+        SELECT COUNT(1) FROM privacy_request WHERE requester_user_id = #{requesterUserId}
+    </select>
+
+    <select id="findRecent" resultMap="privacyRequestMap">
+        SELECT <include refid="columns"/> FROM privacy_request
+        <if test="status != null and status != ''">
+            WHERE status = #{status}
+        </if>
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+
+    <select id="countRecent" resultType="int">
+        SELECT COUNT(1) FROM privacy_request
+        <if test="status != null and status != ''">
+            WHERE status = #{status}
+        </if>
+    </select>
+
+    <select id="countOpenWithdrawal" resultType="int">
+        SELECT COUNT(1)
+        FROM privacy_request
+        WHERE requester_user_id = #{requesterUserId}
+          AND request_type = 'WITHDRAW_CONSENT'
+          AND consent_type = #{consentType}
+          AND status IN ('OPEN', 'PROCESSING')
+    </select>
+
+    <update id="updateDecision">
+        UPDATE privacy_request
+        SET status = #{status},
+            handled_by_user_id = #{actorUserId},
+            handled_at = NOW(),
+            decision_code = #{decisionCode},
+            decision_reason = #{decisionReason},
+            retention_decision = #{retentionDecision},
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status IN ('OPEN', 'PROCESSING')
+          AND EXISTS (
+              SELECT 1 FROM user actor
+              WHERE actor.id = #{actorUserId} AND actor.level = 0
+          )
+    </update>
+</mapper>

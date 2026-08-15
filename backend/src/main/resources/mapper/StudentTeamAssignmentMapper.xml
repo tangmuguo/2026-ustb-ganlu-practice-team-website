@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.vihu.ganlu.mappers.StudentTeamAssignmentMapper">
+    <insert id="insertActiveAssignment" parameterType="com.vihu.ganlu.entitys.StudentTeamAssignmentEntity"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO student_team_assignment (
+            student_user_id, team_id, assigned_by_user_id, assigned_at, scope
+        )
+        SELECT student.id, t.id, actor.id, NOW(), #{scope}
+        FROM `user` student
+        INNER JOIN team t
+          ON t.id = #{teamId}
+         AND t.status IN ('DRAFT', 'PUBLISHED')
+        INNER JOIN `user` actor
+          ON actor.id = #{assignedByUserId}
+         AND (
+              actor.level = 0
+              OR (
+                  actor.level = 1
+                  AND actor.verification_status = 'VERIFIED'
+                  AND t.owner_user_id = actor.id
+              )
+         )
+        WHERE student.id = #{studentUserId}
+          AND student.level = 2
+          AND #{scope} = 'MANAGE'
+    </insert>
+
+    <update id="revokeActiveAssignment">
+        UPDATE student_team_assignment
+        SET revoked_at = NOW()
+        WHERE student_user_id = #{studentUserId}
+          AND team_id = #{teamId}
+          AND revoked_at IS NULL
+          AND EXISTS (
+              SELECT 1 FROM team t
+              WHERE t.id = #{teamId}
+                AND t.status IN ('DRAFT', 'PUBLISHED')
+                AND EXISTS (
+                    SELECT 1 FROM `user` a
+                    WHERE a.id = #{actorUserId}
+                      AND (
+                          a.level = 0
+                          OR (a.level = 1
+                              AND a.verification_status = 'VERIFIED'
+                              AND t.owner_user_id = a.id)
+                      )
+                )
+          )
+    </update>
+
+    <select id="hasActiveAssignment" resultType="int">
+        SELECT COUNT(1)
+        FROM student_team_assignment
+        WHERE student_user_id = #{studentUserId}
+          AND team_id = #{teamId}
+          AND revoked_at IS NULL
+          AND EXISTS (
+              SELECT 1 FROM team t
+              WHERE t.id = student_team_assignment.team_id
+                AND t.status IN ('DRAFT', 'PUBLISHED')
+          )
+    </select>
+</mapper>

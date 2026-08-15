@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { Delete } from '@element-plus/icons-vue'
+import { Delete, Warning } from '@element-plus/icons-vue'
 import ReplyComposer from '@/components/message/ReplyComposer.vue'
 import ReplyList from '@/components/message/ReplyList.vue'
 import { formatMessageTime } from '@/utils/date'
@@ -16,6 +16,18 @@ const props = defineProps({
     default: false
   },
   canDelete: {
+    type: Boolean,
+    default: false
+  },
+  canReport: {
+    type: Boolean,
+    default: false
+  },
+  currentUserId: {
+    type: [Number, String],
+    default: null
+  },
+  isModerator: {
     type: Boolean,
     default: false
   },
@@ -41,7 +53,9 @@ defineEmits([
   'update:replyDraft',
   'submitReply',
   'deleteMessage',
-  'deleteReply'
+  'deleteReply',
+  'reportMessage',
+  'reportReply'
 ])
 
 const replies = computed(() => (
@@ -50,6 +64,9 @@ const replies = computed(() => (
 
 const author = computed(() => getMessageAuthor(props.message))
 const initial = computed(() => Array.from(author.value.displayName)[0] || '甘')
+const canDeleteMessage = computed(() => props.canDelete && (
+  props.isModerator || Number(props.currentUserId) === Number(props.message.userId)
+))
 </script>
 
 <template>
@@ -65,15 +82,12 @@ const initial = computed(() => Array.from(author.value.displayName)[0] || '甘')
           <span class="role-tag" :class="author.roleClass">{{ author.roleName }}</span>
         </div>
         <div class="message-meta">
-          <span v-if="author.username && author.username !== author.displayName">
-            @{{ author.username }}
-          </span>
           <time>{{ formatMessageTime(message.createTime) }}</time>
         </div>
       </div>
 
       <el-button
-        v-if="canDelete"
+        v-if="canDeleteMessage"
         class="delete-message"
         type="danger"
         plain
@@ -84,6 +98,16 @@ const initial = computed(() => Array.from(author.value.displayName)[0] || '甘')
       >
         删除留言
       </el-button>
+      <el-button
+        v-if="canReport"
+        type="warning"
+        text
+        :icon="Warning"
+        aria-label="举报留言"
+        @click="$emit('reportMessage', message.id)"
+      >
+        举报
+      </el-button>
     </header>
 
     <p class="message-content">{{ message.content }}</p>
@@ -91,8 +115,12 @@ const initial = computed(() => Array.from(author.value.displayName)[0] || '甘')
     <ReplyList
       :replies="replies"
       :can-delete="canDelete"
+      :can-report="canReport"
+      :current-user-id="currentUserId"
+      :is-moderator="isModerator"
       :deleting-reply-id="deletingReplyId"
       @delete="$emit('deleteReply', $event)"
+      @report="$emit('reportReply', $event)"
     />
 
     <ReplyComposer

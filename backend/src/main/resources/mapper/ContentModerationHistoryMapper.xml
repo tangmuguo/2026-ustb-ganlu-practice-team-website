@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.vihu.ganlu.mappers.ContentModerationHistoryMapper">
+    <insert id="insert" parameterType="com.vihu.ganlu.entitys.ContentModerationHistoryEntity"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO content_moderation_history (
+            content_type, content_id, previous_status, new_status, actor_user_id,
+            reason_code, note, created_at
+        ) VALUES (
+            #{contentType}, #{contentId}, #{previousStatus}, #{newStatus}, #{actorUserId},
+            #{reasonCode}, #{note}, NOW()
+        )
+    </insert>
+</mapper>

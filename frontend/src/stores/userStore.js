@@ -40,8 +40,4 @@ export const userinfoStore = defineStore('UserInfo', () => {
     setUser,
     clearUser,
   }
-}, {
-  persist: {
-    pick: ['token', 'currentUser'],
-  },
 })

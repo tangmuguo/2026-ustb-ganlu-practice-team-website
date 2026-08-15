@@ -93,12 +93,6 @@
             <artifactId>joda-time</artifactId>
             <version>2.9</version>
         </dependency>
-        <!-- 阿里json.-->
-        <dependency>
-            <groupId>com.alibaba</groupId>
-            <artifactId>fastjson</artifactId>
-            <version>1.2.54</version>
-        </dependency>
         <dependency>
             <groupId>com.github.penggle</groupId>
             <artifactId>kaptcha</artifactId>

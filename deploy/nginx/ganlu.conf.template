@@ -1,0 +1,120 @@
+# Render this template with a deployment-time renderer that substitutes only
+# the listed non-secret paths/host name. Do not place certificates, passwords
+# or JWT material in this repository or in the rendered Nginx configuration.
+#
+# Required placeholders:
+#   ${GANLU_PUBLIC_HOST}      public DNS name, e.g. volunteer.example.org
+#   ${GANLU_TLS_CERT_PATH}    certificate chain readable by nginx
+#   ${GANLU_TLS_KEY_PATH}     private key readable only by root/nginx
+#   ${GANLU_FRONTEND_ROOT}    directory containing the built Vite dist/ files
+
+limit_req_zone $binary_remote_addr zone=ganlu_api_per_ip:10m rate=30r/m;
+limit_conn_zone $binary_remote_addr zone=ganlu_conn_per_ip:10m;
+
+upstream ganlu_backend {
+    server 127.0.0.1:8080;
+    keepalive 16;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${GANLU_PUBLIC_HOST};
+    server_tokens off;
+    return 308 https://${GANLU_PUBLIC_HOST}$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name ${GANLU_PUBLIC_HOST};
+    server_tokens off;
+
+    ssl_certificate ${GANLU_TLS_CERT_PATH};
+    ssl_certificate_key ${GANLU_TLS_KEY_PATH};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_tickets off;
+
+    client_max_body_size 210m;
+    # These values stay below the application's 120-minute upload reservation TTL.
+    client_body_timeout 60m;
+    proxy_read_timeout 60m;
+    proxy_send_timeout 60m;
+
+    root ${GANLU_FRONTEND_ROOT};
+    index index.html;
+
+    # Keep baseline transport/browser protections on proxied API responses too.
+    # CSP remains scoped to the SPA route below so it can be evolved with the UI.
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # Frontend assets are immutable build output. Uploaded files are never
+    # served from this root; /images/ stays behind the application policy.
+    location /assets/ {
+        try_files $uri =404;
+        expires 7d;
+        add_header Cache-Control "public, max-age=604800, immutable" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    }
+
+    location /api/ {
+        limit_req zone=ganlu_api_per_ip burst=20 nodelay;
+        limit_conn ganlu_conn_per_ip 20;
+        proxy_pass http://ganlu_backend/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port 443;
+        proxy_set_header Connection "";
+        proxy_request_buffering off;
+        proxy_buffering off;
+    }
+
+    # Public images remain validated and authorization-gated by the Spring
+    # application. Do not replace this proxy with an alias to UPLOAD_DIR.
+    location /images/ {
+        proxy_pass http://ganlu_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection "";
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    }
+
+    # Never expose application working directories or source/config files.
+    location ~* ^/(?:protected|staging|quarantine|temp_chunks|office-work|WEB-INF|META-INF)/ {
+        return 404;
+    }
+    location ~* /\.(?:env|git|svn) {
+        return 404;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
+        add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self' data:" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    }
+}

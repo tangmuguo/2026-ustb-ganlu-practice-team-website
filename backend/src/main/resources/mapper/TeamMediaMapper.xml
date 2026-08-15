@@ -15,6 +15,8 @@
         <result column="related_type" property="relatedType"/>
         <result column="related_id" property="relatedId"/>
         <result column="status" property="status"/>
+        <result column="scan_status" property="scanStatus"/>
+        <result column="scan_diagnostic_status" property="scanDiagnosticStatus"/>
         <result column="reject_reason" property="rejectReason"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
@@ -25,11 +27,11 @@
         insert into team_media(
             filename, relative_path, mime_type, file_size,
             uploader_id, team_id, related_type, related_id,
-            status, reject_reason, created_at
+            status, scan_status, scan_diagnostic_status, reject_reason, created_at
         ) VALUES (
             #{filename}, #{relativePath}, #{mimeType}, #{fileSize},
             #{uploaderId}, #{teamId}, #{relatedType}, #{relatedId},
-            #{status}, #{rejectReason}, NOW()
+            #{status}, #{scanStatus}, #{scanDiagnosticStatus}, #{rejectReason}, NOW()
         )
     </insert>
 
@@ -67,6 +69,8 @@
         select m.* from team_media m
         where m.team_id = #{teamId}
           and m.status = 'PUBLISHED'
+          and m.scan_status = 'CLEAN'
+          and m.scan_diagnostic_status = 'CLEAN'
           and (
                 m.related_type IS NULL
                 OR m.related_type = ''

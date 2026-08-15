@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.vihu.ganlu.mappers.MediaPrivacyConsentMapper">
+    <resultMap id="mediaPrivacyConsentMap" type="com.vihu.ganlu.entitys.MediaPrivacyConsentEntity">
+        <id column="id" property="id"/>
+        <result column="asset_type" property="assetType"/>
+        <result column="asset_id" property="assetId"/>
+        <result column="subject_user_id" property="subjectUserId"/>
+        <result column="consent_status" property="consentStatus"/>
+        <result column="policy_version" property="policyVersion"/>
+        <result column="evidence_digest" property="evidenceDigest"/>
+        <result column="granted_at" property="grantedAt"/>
+        <result column="withdrawn_at" property="withdrawnAt"/>
+        <result column="recorded_by_user_id" property="recordedByUserId"/>
+        <result column="audit_event_id" property="auditEventId"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <select id="findActive" resultMap="mediaPrivacyConsentMap">
+        SELECT * FROM media_privacy_consent
+        WHERE asset_type = #{assetType}
+          AND ((asset_id = #{assetId}) OR (asset_id IS NULL AND #{assetId} IS NULL))
+          AND subject_user_id = #{subjectUserId}
+          AND consent_status = 'GRANTED'
+          AND withdrawn_at IS NULL
+        ORDER BY granted_at DESC, id DESC
+        LIMIT 1
+    </select>
+
+    <insert id="insertConsent" parameterType="com.vihu.ganlu.entitys.MediaPrivacyConsentEntity"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO media_privacy_consent(
+            asset_type, asset_id, subject_user_id, consent_status, policy_version,
+            evidence_digest, granted_at, withdrawn_at, recorded_by_user_id,
+            audit_event_id, created_at, updated_at
+        ) VALUES (
+            #{assetType}, #{assetId}, #{subjectUserId}, #{consentStatus}, #{policyVersion},
+            #{evidenceDigest}, #{grantedAt}, #{withdrawnAt}, #{recordedByUserId},
+            #{auditEventId}, NOW(), NOW()
+        )
+    </insert>
+
+    <update id="withdrawConsent">
+        UPDATE media_privacy_consent
+        SET consent_status = 'WITHDRAWN', withdrawn_at = NOW(),
+            updated_at = NOW(), recorded_by_user_id = #{operatorUserId}
+        WHERE id = #{id} AND consent_status = 'GRANTED' AND withdrawn_at IS NULL
+    </update>
+
+    <update id="withdrawAllForSubject">
+        UPDATE media_privacy_consent
+        SET consent_status = 'WITHDRAWN', withdrawn_at = NOW(),
+            updated_at = NOW(), recorded_by_user_id = #{operatorUserId}
+        WHERE subject_user_id = #{subjectUserId}
+          AND consent_status = 'GRANTED'
+          AND withdrawn_at IS NULL
+    </update>
+</mapper>

@@ -46,30 +46,42 @@
         FOR UPDATE
     </select>
 
-    <insert id="insert" parameterType="com.vihu.ganlu.entitys.NewsEntity" useGeneratedKeys="true" keyProperty="id">
+    <insert id="insert" useGeneratedKeys="true" keyProperty="news.id">
         INSERT INTO news
             (caption, content, imageUrl, linkUrl,createAt)
-        VALUES
-            (#{caption}, #{content}, #{imageUrl}, #{linkUrl},now())
+        SELECT #{news.caption}, #{news.content}, #{news.imageUrl}, #{news.linkUrl}, NOW()
+        WHERE EXISTS (
+            SELECT 1 FROM user actor
+            WHERE actor.id = #{actorUserId} AND actor.level = 0
+        )
     </insert>
 
-    <update id="update" parameterType="com.vihu.ganlu.entitys.NewsEntity">
+    <update id="update">
         UPDATE news
         SET
-            caption = #{caption},
-            content = #{content}
-            <if test="linkUrl != null">
-                ,linkUrl = #{linkUrl}
+            caption = #{news.caption},
+            content = #{news.content}
+            <if test="news.linkUrl != null">
+                ,linkUrl = #{news.linkUrl}
             </if>
-            <if test="imageUrl != null">
-                ,imageUrl = #{imageUrl}
+            <if test="news.imageUrl != null">
+                ,imageUrl = #{news.imageUrl}
             </if>
 
-        WHERE id = #{id}
+        WHERE id = #{news.id}
+          AND EXISTS (
+              SELECT 1 FROM user actor
+              WHERE actor.id = #{actorUserId} AND actor.level = 0
+          )
     </update>
 
-    <delete id="delete" parameterType="int">
-        DELETE FROM news WHERE id = #{id}
+    <delete id="delete">
+        DELETE FROM news
+        WHERE id = #{id}
+          AND EXISTS (
+              SELECT 1 FROM user actor
+              WHERE actor.id = #{actorUserId} AND actor.level = 0
+          )
     </delete>
 
 </mapper>

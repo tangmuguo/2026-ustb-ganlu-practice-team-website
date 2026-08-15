@@ -1,6 +1,7 @@
 package com.vihu.ganlu.service;
 
 import com.vihu.ganlu.entitys.NewsEntity;
+import com.vihu.ganlu.entitys.UserEntity;
 
 import java.util.List;
 
@@ -14,11 +15,11 @@ public interface NewService {
     NewsEntity getNewsById(int id);
 
     // 添加新闻
-    int addNews(NewsEntity news);
+    int addNews(NewsEntity news, UserEntity actor);
 
     // 修改新闻
-    int updateNews(NewsEntity news);
+    int updateNews(NewsEntity news, UserEntity actor);
 
     // 删除新闻
-    int deleteNews(int id);
+    int deleteNews(int id, UserEntity actor);
 }

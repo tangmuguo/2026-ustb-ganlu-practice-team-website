@@ -1,6 +1,8 @@
 package com.vihu.ganlu.security;
 
+import com.vihu.ganlu.audit.AuditRequestContext;
 import com.vihu.ganlu.entitys.UserEntity;
+import com.vihu.ganlu.service.AuditEventService;
 import com.vihu.ganlu.service.UserService;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,16 +25,23 @@ public class AuthInterceptor implements HandlerInterceptor {
     private final TokenService tokenService;
     private final UserService userService;
     private final AuthContext authContext;
+    private final AuditEventService auditEventService;
 
     @Autowired
-    public AuthInterceptor(TokenService tokenService, UserService userService, AuthContext authContext) {
+    public AuthInterceptor(TokenService tokenService, UserService userService, AuthContext authContext,
+                           AuditEventService auditEventService) {
         this.tokenService = tokenService;
         this.userService = userService;
         this.authContext = authContext;
+        this.auditEventService = auditEventService;
+    }
+
+    public AuthInterceptor(TokenService tokenService, UserService userService, AuthContext authContext) {
+        this(tokenService, userService, authContext, null);
     }
 
     public AuthInterceptor(TokenService tokenService, UserService userService) {
-        this(tokenService, userService, new AuthContext());
+        this(tokenService, userService, new AuthContext(), null);
     }
 
     @Override
@@ -57,29 +66,32 @@ public class AuthInterceptor implements HandlerInterceptor {
         if (currentUser == null) {
             String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
             if (authorization == null || !authorization.startsWith("Bearer ")) {
-                return reject(response, HttpStatus.UNAUTHORIZED, "请先登录");
+                return reject(request, response, HttpStatus.UNAUTHORIZED, "请先登录", null, "MISSING_TOKEN");
             }
             try {
                 String token = authorization.substring("Bearer ".length()).trim();
                 if (token.isEmpty()) {
-                    return reject(response, HttpStatus.UNAUTHORIZED, "Token无效或已过期");
+                    return reject(request, response, HttpStatus.UNAUTHORIZED, "Token无效或已过期", null, "INVALID_TOKEN");
                 }
                 Integer userId = tokenService.verifyAndGetUserId(token);
                 currentUser = userService.findUserById(userId);
+                if (!tokenService.isTokenCurrent(token, currentUser)) {
+                    return reject(request, response, HttpStatus.UNAUTHORIZED, "Token无效或已过期", null, "STALE_TOKEN");
+                }
             } catch (RuntimeException ex) {
-                return reject(response, HttpStatus.UNAUTHORIZED, "Token无效或已过期");
+                return reject(request, response, HttpStatus.UNAUTHORIZED, "Token无效或已过期", null, "INVALID_TOKEN");
             }
         }
 
         if (currentUser == null || currentUser.getLevel() == null) {
-            return reject(response, HttpStatus.UNAUTHORIZED, "账号不存在或已失效");
+            return reject(request, response, HttpStatus.UNAUTHORIZED, "账号不存在或已失效", null, "ACCOUNT_INACTIVE");
         }
 
         RequireRoles requireRoles = findAnnotation(handlerMethod, RequireRoles.class);
         int currentLevel = currentUser.getLevel();
         if (requireRoles != null && Arrays.stream(requireRoles.value())
                 .noneMatch(level -> level == currentLevel)) {
-            return reject(response, HttpStatus.FORBIDDEN, "无访问权限");
+            return reject(request, response, HttpStatus.FORBIDDEN, "无访问权限", currentUser, "ROLE_NOT_ALLOWED");
         }
 
         request.setAttribute(CURRENT_USER_ATTRIBUTE, currentUser);
@@ -92,12 +104,20 @@ public class AuthInterceptor implements HandlerInterceptor {
         authContext.clear();
     }
 
-    private boolean reject(HttpServletResponse response, HttpStatus status, String message) throws IOException {
+    private boolean reject(HttpServletRequest request, HttpServletResponse response, HttpStatus status, String message,
+                           UserEntity actor, String reasonCode) throws IOException {
+        if (auditEventService != null) {
+            auditEventService.record(actor, "AUTHORIZATION", "HTTP_ENDPOINT", request.getRequestURI(), "DENIED", reasonCode);
+        }
+        AuditRequestContext.Values context = AuditRequestContext.get();
+        String requestId = context == null ? null : context.getRequestId();
         response.setStatus(status.value());
         response.setCharacterEncoding("UTF-8");
         response.setContentType("application/json;charset=UTF-8");
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
         response.getWriter().write("{\"code\":" + status.value()
-                + ",\"message\":\"" + message + "\",\"content\":null}");
+                + ",\"message\":\"" + message + "\",\"content\":null,\"requestId\":"
+                + (requestId == null ? "null" : "\"" + requestId + "\"") + "}");
         return false;
     }
 

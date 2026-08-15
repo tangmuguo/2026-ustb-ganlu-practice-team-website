@@ -1,5 +1,6 @@
 package com.vihu.ganlu.actions;
 
+import com.github.pagehelper.PageInfo;
 import com.vihu.ganlu.entitys.CourseDetailEntity;
 import com.vihu.ganlu.entitys.UserEntity;
 import com.vihu.ganlu.security.AuthInterceptor;
@@ -18,6 +19,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -26,6 +28,8 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -77,6 +81,30 @@ class CourseDetailSecurityIntegrationTests {
     }
 
     @Test
+    void publicSearchAndDetailUseIdentitySafeWhitelistProjection() throws Exception {
+        CourseDetailEntity material = material(12);
+        material.setUploaderName("REVIEWED_PUBLIC_NAME");
+        material.setAuthor("PRIVATE_NAME_FIXTURE");
+        material.setUploaderUserId(9912);
+        when(materialService.getCourseById(12)).thenReturn(material);
+        when(materialService.search(any())).thenReturn(new PageInfo<>(Collections.singletonList(material)));
+
+        String detailJson = mockMvc.perform(get("/courseDetail/materials/12"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+        String searchJson = mockMvc.perform(get("/courseDetail/materials"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        assertPublicMaterialJson(detailJson);
+        assertPublicMaterialJson(searchJson);
+    }
+
+    @Test
     void studentCanPreviewAndDownloadButCannotUploadOrDelete() throws Exception {
         CourseDetailEntity material = material(9);
         Path file = tempDirectory.resolve("lesson.pdf");
@@ -103,7 +131,7 @@ class CourseDetailSecurityIntegrationTests {
     void teamAccountCanCreateDeleteAndCancelUploads() throws Exception {
         CourseDetailEntity created = material(10);
         when(materialService.createMaterial(any(), any())).thenReturn(created);
-        when(materialService.deleteCourseById(10)).thenReturn(true);
+        when(materialService.deleteCourseById(10, users.get(2))).thenReturn(true);
         String authorization = bearer(users.get(2));
 
         mockMvc.perform(post("/courseDetail/materials")
@@ -164,5 +192,17 @@ class CourseDetailSecurityIntegrationTests {
         material.setPreviewFilePath("protected/material-previews/secret.pdf");
         material.setOriginalFilePath("protected/materials/secret.pdf");
         return material;
+    }
+
+    private void assertPublicMaterialJson(String json) {
+        assertTrue(json.contains("REVIEWED_PUBLIC_NAME"));
+        assertFalse(json.contains("PRIVATE_NAME_FIXTURE"));
+        assertFalse(json.contains("\"author\""));
+        assertFalse(json.contains("\"uploaderUserId\""));
+        assertFalse(json.contains("\"phone\""));
+        assertFalse(json.contains("\"school\""));
+        assertFalse(json.contains("\"grade\""));
+        assertFalse(json.contains("verification"));
+        assertFalse(json.contains("consent"));
     }
 }

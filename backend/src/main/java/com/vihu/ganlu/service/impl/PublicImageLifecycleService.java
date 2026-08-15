@@ -6,7 +6,13 @@ import com.vihu.ganlu.mappers.PublicImageQuotaMapper;
 import com.vihu.ganlu.utils.FileStorageUtil;
 import com.vihu.ganlu.utils.PublicImageValidator;
 import com.vihu.ganlu.utils.PublicImagePathPolicy;
+import com.vihu.ganlu.security.file.ChildPrivacyGateService;
+import com.vihu.ganlu.security.file.FileScanResult;
+import com.vihu.ganlu.security.file.FileScanService;
+import com.vihu.ganlu.security.file.ImageSanitizer;
+import com.vihu.ganlu.security.file.MalwareScanner;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -39,6 +45,8 @@ public class PublicImageLifecycleService {
     private final PublicImageValidator validator;
     private final PublicImageQuotaMapper quotaMapper;
     private final FileDeletionTaskService deletionTaskService;
+    private final FileScanService fileScanService;
+    private final ImageSanitizer imageSanitizer;
     private final long stagingTtlMillis;
     private final long userQuotaBytes;
     private final int maxStagedFilesPerUser;
@@ -47,6 +55,11 @@ public class PublicImageLifecycleService {
     private final long minFreeDiskBytes;
     private final ConcurrentHashMap<Integer, Object> userLocks = new ConcurrentHashMap<>();
 
+    /**
+     * Legacy constructor retained for focused lifecycle tests.  Spring uses
+     * the fail-closed constructor below, while this path keeps pre-security
+     * unit fixtures deterministic and isolated from scanner infrastructure.
+     */
     public PublicImageLifecycleService(
             FileStorageUtil fileStorageUtil,
             PublicImageValidator validator,
@@ -58,10 +71,35 @@ public class PublicImageLifecycleService {
             @Value("${team.public-image.user-permanent-quota-mb:500}") long permanentQuotaMegabytes,
             @Value("${team.public-image.max-permanent-files-per-user:100}") int maxPermanentFilesPerUser,
             @Value("${team.public-image.min-free-disk-mb:1024}") long minFreeDiskMegabytes) {
+        this(fileStorageUtil, validator, quotaMapper, deletionTaskService,
+                new FileScanService(path -> MalwareScanner.ScanVerdict.CLEAN, 5000),
+                ImageSanitizer.passthroughForTests(),
+                new ChildPrivacyGateService(null),
+                stagingTtlHours, userQuotaMegabytes, maxStagedFilesPerUser,
+                permanentQuotaMegabytes, maxPermanentFilesPerUser, minFreeDiskMegabytes);
+    }
+
+    @Autowired
+    public PublicImageLifecycleService(
+            FileStorageUtil fileStorageUtil,
+            PublicImageValidator validator,
+            PublicImageQuotaMapper quotaMapper,
+            FileDeletionTaskService deletionTaskService,
+            FileScanService fileScanService,
+            ImageSanitizer imageSanitizer,
+            ChildPrivacyGateService childPrivacyGateService,
+            @Value("${team.public-image.staging-ttl-hours:24}") long stagingTtlHours,
+            @Value("${team.public-image.user-temp-quota-mb:50}") long userQuotaMegabytes,
+            @Value("${team.public-image.max-staged-files-per-user:10}") int maxStagedFilesPerUser,
+            @Value("${team.public-image.user-permanent-quota-mb:500}") long permanentQuotaMegabytes,
+            @Value("${team.public-image.max-permanent-files-per-user:100}") int maxPermanentFilesPerUser,
+            @Value("${team.public-image.min-free-disk-mb:1024}") long minFreeDiskMegabytes) {
         this.fileStorageUtil = fileStorageUtil;
         this.validator = validator;
         this.quotaMapper = quotaMapper;
         this.deletionTaskService = deletionTaskService;
+        this.fileScanService = fileScanService;
+        this.imageSanitizer = imageSanitizer;
         this.stagingTtlMillis = Duration.ofHours(Math.max(1L, stagingTtlHours)).toMillis();
         this.userQuotaBytes = Math.max(5L, userQuotaMegabytes) * 1024L * 1024L;
         this.maxStagedFilesPerUser = Math.max(1, maxStagedFilesPerUser);
@@ -87,6 +125,10 @@ public class PublicImageLifecycleService {
 
             String relativePath = fileStorageUtil.storeFile(
                     file, stagingDirectory(userId), validated.getExtension());
+            // The original upload remains in the quarantine/staging namespace
+            // until a CLEAN verdict is available.  A timeout, failure or
+            // unavailable scanner is represented as PENDING and never moves.
+            fileScanService.scan(fileStorageUtil.loadFile(relativePath), "PUBLIC_IMAGE", userId);
             String filename = fileStorageUtil.loadFile(relativePath).getFileName().toString();
             String token = filename.substring(0, filename.lastIndexOf('.'));
             return new PublicImageUploadInfo(
@@ -113,11 +155,43 @@ public class PublicImageLifecycleService {
         requireToken(token);
         synchronized (lockFor(userId)) {
             Path staged = findStagedFile(userId, token, true);
+            FileScanResult scan = fileScanService.getLatest(staged);
+            if (!scan.isClean()) {
+                // Permit a retry after a transient scanner outage, but keep
+                // the file in quarantine whenever the retry is not CLEAN.
+                scan = fileScanService.scan(staged, "PUBLIC_IMAGE", userId);
+            }
+            if (!scan.isClean()) {
+                throw new com.vihu.ganlu.security.file.FileSecurityException(
+                        "图片尚未通过安全扫描，保持隔离状态", scan);
+            }
             String extension = FileStorageUtil.extensionOf(staged.getFileName().toString());
+            // Decode and write a fresh image before any controlled/public move;
+            // source EXIF/XMP/GPS metadata is intentionally not copied.
+            imageSanitizer.sanitizeInPlace(staged, extension);
+            // The sanitizer changes the bytes. Re-scan the exact bytes that
+            // will leave quarantine so the ledger digest/verdict cannot refer
+            // only to the un-normalized upload.
+            scan = fileScanService.scan(staged, "PUBLIC_IMAGE", userId);
+            if (!scan.isClean()) {
+                throw new com.vihu.ganlu.security.file.FileSecurityException(
+                        "图片重编码后尚未通过安全扫描，保持隔离状态", scan);
+            }
             long fileSize = safeSize(staged);
             reservePermanentQuota(userId, fileSize);
-            String publicPath = fileStorageUtil.moveInto(
-                    staged, managedRoot(makePublic) + "/" + userId, extension);
+            String publicPath = fileStorageUtil.allocatePath(
+                    managedRoot(makePublic) + "/" + userId, extension);
+            if (!fileScanService.moveRecord(staged.toString(),
+                    fileStorageUtil.loadFile(publicPath).toString())) {
+                throw new com.vihu.ganlu.security.file.FileSecurityException(
+                        "图片安全记录无法迁移，禁止进入正式目录");
+            }
+            try {
+                fileStorageUtil.moveFile(fileStorageUtil.toRelativePath(staged), publicPath);
+            } catch (RuntimeException error) {
+                fileScanService.moveRecord(fileStorageUtil.loadFile(publicPath).toString(), staged.toString());
+                throw error;
+            }
             registerRollbackCleanup(publicPath);
             PublicImageAssetEntity asset = new PublicImageAssetEntity();
             asset.setRelativePath(publicPath);
@@ -133,6 +207,7 @@ public class PublicImageLifecycleService {
     @Transactional(propagation = Propagation.MANDATORY)
     public String moveManagedImage(String relativePath, boolean makePublic) {
         String normalized = requireManagedImagePath(relativePath);
+        fileScanService.requireClean(fileStorageUtil.loadFile(normalized));
         PublicImageAssetEntity asset = quotaMapper.findAsset(normalized);
         if (asset == null || asset.getAssetId() == null) {
             throw new IllegalStateException("图片资源账本缺失，禁止改变公开状态");
@@ -142,7 +217,18 @@ public class PublicImageLifecycleService {
 
         String filename = fileStorageUtil.loadFile(normalized).getFileName().toString();
         String targetPath = targetRoot + "/" + asset.getOwnerUserId() + "/" + filename;
-        fileStorageUtil.moveFile(normalized, targetPath);
+        if (!fileScanService.moveRecord(fileStorageUtil.loadFile(normalized).toString(),
+                fileStorageUtil.loadFile(targetPath).toString())) {
+            throw new com.vihu.ganlu.security.file.FileSecurityException(
+                    "图片安全记录无法迁移，禁止改变公开状态");
+        }
+        try {
+            fileStorageUtil.moveFile(normalized, targetPath);
+        } catch (RuntimeException error) {
+            fileScanService.moveRecord(fileStorageUtil.loadFile(targetPath).toString(),
+                    fileStorageUtil.loadFile(normalized).toString());
+            throw error;
+        }
         registerRollbackMove(targetPath, normalized);
         if (quotaMapper.updateAssetPath(asset.getAssetId(), targetPath) != 1) {
             throw new IllegalStateException("更新图片资源位置失败");
@@ -179,6 +265,7 @@ public class PublicImageLifecycleService {
                 || asset.getFileSize() <= 0 || !Files.isRegularFile(fileStorageUtil.loadFile(normalized))) {
             throw new IllegalStateException("公共图片迁移未完成，禁止发布或修改该业务记录");
         }
+        fileScanService.requireClean(fileStorageUtil.loadFile(normalized));
     }
 
     @Scheduled(fixedDelayString = "${team.public-image.cleanup-interval-ms:3600000}")
@@ -268,6 +355,20 @@ public class PublicImageLifecycleService {
                         fileStorageUtil.moveFile(currentPath, rollbackPath);
                     } catch (RuntimeException error) {
                         log.error("回滚图片移动失败 {} -> {}", currentPath, rollbackPath, error);
+                        return;
+                    }
+                    try {
+                        boolean scanRecordMoved = fileScanService.moveRecord(
+                                fileStorageUtil.loadFile(currentPath).toString(),
+                                fileStorageUtil.loadFile(rollbackPath).toString());
+                        if (!scanRecordMoved) {
+                            log.error("回滚图片扫描记录失败 {} -> {}", currentPath, rollbackPath);
+                        }
+                    } catch (RuntimeException error) {
+                        // The file has already been restored.  Do not make a failed
+                        // afterCompletion callback mask the database rollback; the
+                        // missing ledger remains fail-closed until it is re-scanned.
+                        log.error("回滚图片扫描记录异常 {} -> {}", currentPath, rollbackPath, error);
                     }
                 }
             }

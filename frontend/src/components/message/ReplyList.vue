@@ -1,14 +1,26 @@
 <script setup>
-import { Delete } from '@element-plus/icons-vue'
+import { Delete, Warning } from '@element-plus/icons-vue'
 import { formatMessageTime } from '@/utils/date'
 import { getMessageAuthor } from '@/utils/messageAuthor'
 
-defineProps({
+const props = defineProps({
   replies: {
     type: Array,
     default: () => []
   },
   canDelete: {
+    type: Boolean,
+    default: false
+  },
+  canReport: {
+    type: Boolean,
+    default: false
+  },
+  currentUserId: {
+    type: [Number, String],
+    default: null
+  },
+  isModerator: {
     type: Boolean,
     default: false
   },
@@ -18,7 +30,7 @@ defineProps({
   }
 })
 
-defineEmits(['delete'])
+defineEmits(['delete', 'report'])
 
 function getDisplayName(item) {
   return getMessageAuthor(item).displayName
@@ -34,6 +46,10 @@ function getRoleName(item) {
 
 function getRoleClass(item) {
   return getMessageAuthor(item).roleClass
+}
+
+function canDeleteItem(item) {
+  return props.canDelete && (props.isModerator || Number(props.currentUserId) === Number(item.userId))
 }
 </script>
 
@@ -60,7 +76,7 @@ function getRoleClass(item) {
             <div class="reply-side">
               <time>{{ formatMessageTime(reply.createTime) }}</time>
               <el-button
-                v-if="canDelete"
+                v-if="canDeleteItem(reply)"
                 type="danger"
                 text
                 :icon="Delete"
@@ -70,6 +86,16 @@ function getRoleClass(item) {
                 @click="$emit('delete', reply.id)"
               >
                 删除
+              </el-button>
+              <el-button
+                v-if="canReport"
+                type="warning"
+                text
+                :icon="Warning"
+                aria-label="举报回复"
+                @click="$emit('report', reply.id)"
+              >
+                举报
               </el-button>
             </div>
           </div>

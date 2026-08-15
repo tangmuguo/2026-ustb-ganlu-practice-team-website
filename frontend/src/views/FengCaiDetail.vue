@@ -1,11 +1,12 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Download, Document, RefreshRight, VideoCamera } from '@element-plus/icons-vue'
+import { ArrowLeft, Download, Document, RefreshRight, VideoCamera, Warning } from '@element-plus/icons-vue'
 import MemberList from '@/components/MemberList.vue'
 import HonorList from '@/components/HonorList.vue'
 import PhotoList from '@/components/PhotoList.vue'
 import LogList from '@/components/LogList.vue'
+import ReportContentDialog from '@/components/ReportContentDialog.vue'
 import TeamHero from '@/components/fengcai/TeamHero.vue'
 import TeamDetailSkeleton from '@/components/fengcai/TeamDetailSkeleton.vue'
 import { getPublicTeamContent, getTeamDetail } from '@/apis/fengcaiAPI'
@@ -32,6 +33,7 @@ const loading = ref(true)
 const errorMessage = ref('')
 const contentWarning = ref('')
 const notFound = ref(false)
+const reportDialogVisible = ref(false)
 
 // 兼容旧路由参数名 id，但所有数据查询都按 teamId 发起。
 const teamId = computed(() => String(route.params.teamId ?? route.params.id ?? ''))
@@ -46,6 +48,35 @@ const otherAttachments = computed(() => attachments.value.filter((attachment) =>
     && !relatedType.includes('HONOR')
     && !relatedType.includes('LOG')
 }))
+
+const reportableTargets = computed(() => {
+  const groups = [
+    ['队员照片', 'TEAM_IMAGE', members.value],
+    ['支教地区照片', 'TEAM_IMAGE', regionPhotos.value],
+    ['教学互动照片', 'TEAM_IMAGE', teachingPhotos.value],
+    ['荣誉记录', 'TEAM_WORD', honors.value],
+    ['课堂日志', 'TEAM_WORD', logs.value],
+    ['团队附件', 'TEAM_MEDIA', attachments.value],
+  ]
+  const seen = new Set()
+  const targets = []
+  groups.forEach(([label, targetType, items]) => {
+    const safeItems = Array.isArray(items) ? items : []
+    safeItems.forEach((item) => {
+      const numericId = Number(item?.id ?? item?.mediaId)
+      if (!Number.isInteger(numericId) || numericId < 1) return
+      const key = `${targetType}:${numericId}`
+      if (seen.has(key)) return
+      seen.add(key)
+      targets.push({ key, targetType, targetId: numericId, label: `${label}（#${numericId}）` })
+    })
+  })
+  return targets
+})
+
+function openReportDialog() {
+  if (reportableTargets.value.length) reportDialogVisible.value = true
+}
 
 function itemType(item) {
   return String(item?.type ?? item?.contentType ?? item?.category ?? '').toUpperCase()
@@ -236,6 +267,22 @@ watch(teamId, loadDetail, { immediate: true })
       <template v-else-if="team">
         <TeamHero :team="team" />
 
+        <section class="report-entry" aria-label="公开内容举报">
+          <div>
+            <strong>发现公开内容存在问题？</strong>
+            <p>请选择具体内容提交举报。提交时无需填写电话、姓名或其他联系方式。</p>
+          </div>
+          <el-button
+            type="warning"
+            plain
+            :icon="Warning"
+            :disabled="!reportableTargets.length"
+            @click="openReportDialog"
+          >
+            举报公开内容
+          </el-button>
+        </section>
+
         <el-alert
           v-if="contentWarning"
           class="content-alert"
@@ -366,6 +413,11 @@ watch(teamId, loadDetail, { immediate: true })
           </div>
           <p v-else class="empty-copy">暂无已发布的其他附件</p>
         </section>
+
+        <ReportContentDialog
+          v-model="reportDialogVisible"
+          :targets="reportableTargets"
+        />
       </template>
     </div>
   </main>
@@ -400,6 +452,31 @@ watch(teamId, loadDetail, { immediate: true })
 
 .content-alert {
   margin-top: 24px;
+}
+
+.report-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 24px;
+  padding: 16px 18px;
+  border: 1px solid #f0dfba;
+  border-radius: 16px;
+  color: #6d5426;
+  background: #fffaf0;
+}
+
+.report-entry strong {
+  color: #60491f;
+  font-size: 14px;
+}
+
+.report-entry p {
+  margin-top: 4px;
+  color: #8a7449;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .detail-section {
@@ -535,6 +612,15 @@ watch(teamId, loadDetail, { immediate: true })
   .attachment-card {
     align-items: flex-start;
     flex-wrap: wrap;
+  }
+
+  .report-entry {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .report-entry .el-button {
+    width: 100%;
   }
 
   .attachment-card__content {

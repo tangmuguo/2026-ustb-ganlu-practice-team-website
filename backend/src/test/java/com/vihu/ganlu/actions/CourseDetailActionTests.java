@@ -79,11 +79,16 @@ class CourseDetailActionTests {
 
     @Test
     void deleteDelegatesToSoftDeleteService() {
-        when(service.deleteCourseById(9)).thenReturn(true);
+        UserEntity actor = new UserEntity();
+        actor.setId(7);
+        actor.setLevel(1);
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest();
+        servletRequest.setAttribute(AuthInterceptor.CURRENT_USER_ATTRIBUTE, actor);
+        when(service.deleteCourseById(9, actor)).thenReturn(true);
 
-        ResponseEntity<?> response = action.delete(9);
+        ResponseEntity<?> response = action.delete(9, servletRequest);
 
         assertEquals(200, response.getStatusCodeValue());
-        verify(service).deleteCourseById(9);
+        verify(service).deleteCourseById(9, actor);
     }
 }

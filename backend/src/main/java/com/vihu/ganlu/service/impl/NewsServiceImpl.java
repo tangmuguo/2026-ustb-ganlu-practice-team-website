@@ -1,6 +1,7 @@
 package com.vihu.ganlu.service.impl;
 
 import com.vihu.ganlu.entitys.NewsEntity;
+import com.vihu.ganlu.entitys.UserEntity;
 import com.vihu.ganlu.mappers.NewsMapper;
 import com.vihu.ganlu.service.NewService;
 import org.springframework.stereotype.Service;
@@ -36,18 +37,20 @@ public class NewsServiceImpl implements NewService {
 
     @Override
     @Transactional
-    public int addNews(NewsEntity news) {
+    public int addNews(NewsEntity news, UserEntity actor) {
+        requireAdministrator(actor);
         requireUploadOwner(news);
         news.setImageUrl(imageLifecycleService.promote(
                 news.getImageUploadUserId(), news.getImageUploadToken()));
-        int inserted = newsMapper.insert(news);
+        int inserted = newsMapper.insert(news, actor.getId());
         if (inserted != 1) throw new IllegalStateException("保存新闻失败");
         return inserted;
     }
 
     @Override
     @Transactional
-    public int updateNews(NewsEntity news) {
+    public int updateNews(NewsEntity news, UserEntity actor) {
+        requireAdministrator(actor);
         NewsEntity existing = news == null ? null : newsMapper.findByIdForUpdate(news.getId());
         if (existing == null) return 0;
         String oldPath = existing.getImageUrl();
@@ -61,17 +64,18 @@ public class NewsServiceImpl implements NewService {
             imageLifecycleService.requireManagedImageAsset(oldPath);
             news.setImageUrl(oldPath);
         }
-        int updated = newsMapper.update(news);
+        int updated = newsMapper.update(news, actor.getId());
         if (updated != 1 && replacingImage) throw new IllegalStateException("更新新闻失败");
         return updated;
     }
 
     @Override
     @Transactional
-    public int deleteNews(int id) {
+    public int deleteNews(int id, UserEntity actor) {
+        requireAdministrator(actor);
         NewsEntity existing = newsMapper.findByIdForUpdate(id);
         if (existing == null) return 0;
-        int deleted = newsMapper.delete(id);
+        int deleted = newsMapper.delete(id, actor.getId());
         if (deleted == 1) {
             imageLifecycleService.deletePublicImageAfterCommit(existing.getImageUrl());
         }
@@ -86,6 +90,12 @@ public class NewsServiceImpl implements NewService {
     private void requireUploadOwner(NewsEntity news) {
         if (!hasUploadToken(news) || news.getImageUploadUserId() == null) {
             throw new IllegalArgumentException("请先上传并暂存新闻封面");
+        }
+    }
+
+    private void requireAdministrator(UserEntity actor) {
+        if (actor == null || actor.getId() == null || actor.getLevel() == null || actor.getLevel() != 0) {
+            throw new SecurityException("无权管理新闻");
         }
     }
 }

@@ -9,6 +9,14 @@ import com.vihu.ganlu.entitys.TeamPageImageEntity;
 import com.vihu.ganlu.entitys.TeamPageWordEntity;
 import com.vihu.ganlu.service.TeamMediaService;
 import com.vihu.ganlu.utils.FileStorageUtil;
+import com.vihu.ganlu.security.file.ChildPrivacyGateService;
+import com.vihu.ganlu.security.file.FileScanResult;
+import com.vihu.ganlu.security.file.FileScanService;
+import com.vihu.ganlu.security.file.PrivacyAssetType;
+import com.vihu.ganlu.security.file.QuarantineStorageService;
+import com.vihu.ganlu.security.file.QuarantinedFile;
+import com.vihu.ganlu.security.file.MalwareScanner;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,11 +35,16 @@ public class TeamMediaServiceImpl implements TeamMediaService {
     private final FileStorageUtil fileStorageUtil;
     private final TeamMediaCapacityService capacityService;
     private final FileDeletionTaskService deletionTaskService;
+    private final FileScanService fileScanService;
+    private final QuarantineStorageService quarantineStorageService;
+    private final ChildPrivacyGateService childPrivacyGateService;
+    private final boolean secureUploadFlow;
     private final int ownerMaxFiles;
     private final long ownerMaxBytes;
     private final int globalMaxFiles;
     private final long globalMaxBytes;
 
+    /** Legacy constructor retained for storage/quota unit tests. */
     public TeamMediaServiceImpl(
             TeamMediaMapper teamMediaMapper,
             TeamMediaQuotaMapper quotaMapper,
@@ -44,6 +57,29 @@ public class TeamMediaServiceImpl implements TeamMediaService {
             @Value("${team.media.owner-max-total-mb:2048}") long ownerMaxTotalMb,
             @Value("${team.media.global-max-files:2000}") int globalMaxFiles,
             @Value("${team.media.global-max-total-mb:20480}") long globalMaxTotalMb) {
+        this(teamMediaMapper, quotaMapper, teamPageImageMapper, teamPageWordMapper, fileStorageUtil,
+                capacityService, deletionTaskService,
+                new FileScanService(path -> MalwareScanner.ScanVerdict.CLEAN, 5000), null,
+                new ChildPrivacyGateService(null),
+                ownerMaxFiles, ownerMaxTotalMb, globalMaxFiles, globalMaxTotalMb);
+    }
+
+    @Autowired
+    public TeamMediaServiceImpl(
+            TeamMediaMapper teamMediaMapper,
+            TeamMediaQuotaMapper quotaMapper,
+            TeamPageImageMapper teamPageImageMapper,
+            TeamPageWordMapper teamPageWordMapper,
+            FileStorageUtil fileStorageUtil,
+            TeamMediaCapacityService capacityService,
+            FileDeletionTaskService deletionTaskService,
+            FileScanService fileScanService,
+            QuarantineStorageService quarantineStorageService,
+            ChildPrivacyGateService childPrivacyGateService,
+            @Value("${team.media.owner-max-files:50}") int ownerMaxFiles,
+            @Value("${team.media.owner-max-total-mb:2048}") long ownerMaxTotalMb,
+            @Value("${team.media.global-max-files:2000}") int globalMaxFiles,
+            @Value("${team.media.global-max-total-mb:20480}") long globalMaxTotalMb) {
         this.teamMediaMapper = teamMediaMapper;
         this.quotaMapper = quotaMapper;
         this.teamPageImageMapper = teamPageImageMapper;
@@ -51,6 +87,10 @@ public class TeamMediaServiceImpl implements TeamMediaService {
         this.fileStorageUtil = fileStorageUtil;
         this.capacityService = capacityService;
         this.deletionTaskService = deletionTaskService;
+        this.fileScanService = fileScanService;
+        this.quarantineStorageService = quarantineStorageService;
+        this.childPrivacyGateService = childPrivacyGateService;
+        this.secureUploadFlow = quarantineStorageService != null && fileScanService != null;
         this.ownerMaxFiles = Math.max(1, ownerMaxFiles);
         this.ownerMaxBytes = Math.max(200L, ownerMaxTotalMb) * 1024L * 1024L;
         this.globalMaxFiles = Math.max(this.ownerMaxFiles, globalMaxFiles);
@@ -67,7 +107,22 @@ public class TeamMediaServiceImpl implements TeamMediaService {
         capacityService.ensureFormalCapacity(fileSize);
         reserveQuota(uploaderId, fileSize);
 
-        String relativePath = fileStorageUtil.storeFile(file, "media/" + uploaderId, validated.getExtension());
+        String relativePath;
+        FileScanResult scanResult = null;
+        if (secureUploadFlow) {
+            QuarantinedFile quarantined = quarantineStorageService.stage(
+                    file, "TEAM_MEDIA", uploaderId, validated.getExtension());
+            scanResult = quarantineStorageService.scan(quarantined);
+            if (scanResult.isClean()) {
+                relativePath = quarantineStorageService.promoteIfClean(quarantined, "protected/media");
+            } else {
+                // PENDING/INFECTED files remain below quarantine and can never
+                // be served by the public/download gates.
+                relativePath = quarantined.getQuarantinePath();
+            }
+        } else {
+            relativePath = fileStorageUtil.storeFile(file, "media/" + uploaderId, validated.getExtension());
+        }
         registerRollbackCleanup(relativePath);
         TeamMediaEntity entity = new TeamMediaEntity();
         entity.setFilename(FileStorageUtil.safeLeafName(file.getOriginalFilename()));
@@ -79,6 +134,10 @@ public class TeamMediaServiceImpl implements TeamMediaService {
         entity.setRelatedType(relatedType);
         entity.setRelatedId(relatedId);
         entity.setStatus("PENDING");
+        if (scanResult != null) {
+            entity.setScanStatus(scanResult.getStatus().name());
+            entity.setScanDiagnosticStatus(scanResult.getDiagnosticVerdict().name());
+        }
         if (teamMediaMapper.insertTeamMedia(entity) != 1) {
             throw new IllegalStateException("保存附件记录失败");
         }
@@ -110,6 +169,20 @@ public class TeamMediaServiceImpl implements TeamMediaService {
     public boolean updateStatus(int id, String status, String rejectReason) {
         TeamMediaEntity existing = teamMediaMapper.findByIdForUpdate(id);
         if (existing == null) return false;
+        if (secureUploadFlow && "PUBLISHED".equals(status)) {
+            if (!"CLEAN".equals(existing.getScanStatus())
+                    || existing.getRelativePath() == null
+                    || !fileScanService.isClean(fileStorageUtil.loadFile(existing.getRelativePath()))) {
+                throw new com.vihu.ganlu.security.file.FileSecurityException(
+                        "附件尚未通过安全扫描，禁止公开或下载");
+            }
+            PrivacyAssetType type = privacyType(existing.getRelatedType());
+            if (type != null) {
+                childPrivacyGateService.requirePublicationAllowed(type,
+                        existing.getId() == null ? null : existing.getId().longValue(),
+                        existing.getUploaderId(), null);
+            }
+        }
         if (teamMediaMapper.updateStatus(id, status, rejectReason) != 1) {
             throw new IllegalStateException("更新附件状态失败");
         }
@@ -209,5 +282,17 @@ public class TeamMediaServiceImpl implements TeamMediaService {
                 }
             }
         });
+    }
+
+    private PrivacyAssetType privacyType(String relatedType) {
+        if ("VIDEO".equalsIgnoreCase(relatedType)
+                || "CHILD_VIDEO".equalsIgnoreCase(relatedType)) {
+            return PrivacyAssetType.CHILD_VIDEO;
+        }
+        if ("CLASSROOM_LOG".equalsIgnoreCase(relatedType)
+                || "LOG".equalsIgnoreCase(relatedType)) {
+            return PrivacyAssetType.CLASSROOM_LOG;
+        }
+        return null;
     }
 }

@@ -344,6 +344,33 @@ class TeamContentActionTests {
         verify(mediaService).findPublicByTeamId(5);
     }
 
+    @SuppressWarnings("unchecked")
+    @Test
+    void getPublicTeamContent_filtersImagesThatAreNotClean() {
+        TeamEntity team = new TeamEntity();
+        team.setId(5);
+        team.setStatus(TeamEntity.Status.PUBLISHED);
+        when(teamMapper.findById(5)).thenReturn(team);
+
+        TeamPageImageEntity clean = image(1, "PUBLISHED", 5, "images/clean.jpg");
+        TeamPageImageEntity pendingScan = image(2, "PUBLISHED", 5, "images/pending.jpg");
+        pendingScan.setScanStatus("PENDING");
+        pendingScan.setScanDiagnosticStatus("UNAVAILABLE");
+        when(imageService.findByTeamIdAndStatus(5, "PUBLISHED"))
+                .thenReturn(java.util.Arrays.asList(clean, pendingScan));
+        when(wordService.findByTeamIdAndStatus(5, "PUBLISHED")).thenReturn(Collections.emptyList());
+        when(mediaService.findPublicByTeamId(5)).thenReturn(Collections.emptyList());
+
+        ResponseEntity<?> response = action.getPublicTeamContent(5);
+
+        java.util.Map<String, Object> body = (java.util.Map<String, Object>) response.getBody();
+        java.util.Map<String, Object> content = (java.util.Map<String, Object>) body.get("content");
+        java.util.List<TeamPageImageEntity> images =
+                (java.util.List<TeamPageImageEntity>) content.get("images");
+        assertEquals(1, images.size());
+        assertEquals(1, images.get(0).getId());
+    }
+
     @Test
     void getPublicTeamContent_mediaFilteredByParentStatus() {
         // Item 6: 公开端只返回父内容也是 PUBLISHED 的附件（过滤逻辑在 mapper SQL）
@@ -416,9 +443,17 @@ class TeamContentActionTests {
         TeamMediaEntity m = new TeamMediaEntity();
         m.setId(10);
         m.setStatus("PUBLISHED");
+        m.setTeamId(5);
+        m.setScanStatus("CLEAN");
+        m.setScanDiagnosticStatus("CLEAN");
         m.setRelatedType("WORD");
         m.setRelatedId(20);
         when(mediaService.findById(10)).thenReturn(m);
+
+        TeamEntity team = new TeamEntity();
+        team.setId(5);
+        team.setStatus(TeamEntity.Status.PUBLISHED);
+        when(teamMapper.findById(5)).thenReturn(team);
 
         TeamPageWordEntity parent = new TeamPageWordEntity();
         parent.setId(20);
@@ -547,6 +582,8 @@ class TeamContentActionTests {
         TeamMediaEntity m = new TeamMediaEntity();
         m.setId(10);
         m.setStatus("PUBLISHED");
+        m.setScanStatus("CLEAN");
+        m.setScanDiagnosticStatus("CLEAN");
         m.setTeamId(null); // 无团队归属
         when(mediaService.findById(10)).thenReturn(m);
 
@@ -720,6 +757,19 @@ class TeamContentActionTests {
     }
 
     @Test
+    void serveImage_nonCleanImage_returns404BeforeAnyFileRead() {
+        TeamPageImageEntity image = image(10, "PUBLISHED", 5, "images/x.jpg");
+        image.setScanStatus("PENDING");
+        image.setScanDiagnosticStatus("UNAVAILABLE");
+        when(imageService.findById(10)).thenReturn(image);
+
+        ResponseEntity<?> resp = action.serveImage(10, new MockHttpServletRequest());
+
+        assertEquals(404, resp.getStatusCodeValue());
+        verifyNoInteractions(fileStorageUtil);
+    }
+
+    @Test
     void serveImage_authorizationHeader_adminCanView() throws Exception {
         java.nio.file.Path tmp = java.nio.file.Files.createTempFile("test-img", ".jpg");
         MockHttpServletRequest request = new MockHttpServletRequest();
@@ -774,6 +824,9 @@ class TeamContentActionTests {
         img.setStatus(status);
         img.setTeamId(teamId);
         img.setImageUrl(imageUrl);
+        // 审核状态可为 PENDING/REJECTED，但测试中的已入库文件默认已完成扫描。
+        img.setScanStatus("CLEAN");
+        img.setScanDiagnosticStatus("CLEAN");
         return img;
     }
 
@@ -786,6 +839,9 @@ class TeamContentActionTests {
         m.setRelativePath("media/test.mp4");
         m.setMimeType("video/mp4");
         m.setFileSize(100L);
+        // 审核状态与安全扫描状态分离：内部审核附件也必须先通过扫描。
+        m.setScanStatus("CLEAN");
+        m.setScanDiagnosticStatus("CLEAN");
         return m;
     }
 

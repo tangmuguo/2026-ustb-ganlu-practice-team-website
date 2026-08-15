@@ -1,6 +1,5 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
 import ElementPlus from "element-plus"
 import 'element-plus/dist/index.css'
 import './assets/tailwind.css'
@@ -12,7 +11,6 @@ import axios from 'axios'
 const app = createApp(App)
 app.config.globalProperties.$http = axios
 const pinia=createPinia()
-pinia.use(piniaPluginPersistedstate)
 app.use(pinia)
 app.use(ElementPlus)
 app.use(router)

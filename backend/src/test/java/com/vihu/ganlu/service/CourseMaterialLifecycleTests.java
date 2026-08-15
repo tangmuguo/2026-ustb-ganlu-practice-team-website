@@ -59,13 +59,13 @@ class CourseMaterialLifecycleTests {
         FileStorageUtil storage = mock(FileStorageUtil.class);
         CourseDetailEntity course = course(41, 0, "protected/materials/a.pdf");
         when(mapper.getCourseByIdForUpdate(41)).thenReturn(course);
-        when(mapper.softDeleteCourseById(41)).thenReturn(1);
+        when(mapper.softDeleteCourseByIdForOwner(41, 7)).thenReturn(1);
         CourseDetailServiceImpl service = service(mapper, storage, mock(MaterialUploadStorageService.class), tasks);
 
-        assertTrue(service.deleteCourseById(41));
+        assertTrue(service.deleteCourseById(41, courseOwner()));
 
         verify(mapper).getCourseByIdForUpdate(41);
-        verify(mapper).softDeleteCourseById(41);
+        verify(mapper).softDeleteCourseByIdForOwner(41, 7);
         verify(tasks).enqueueCourseFiles(course);
         verifyNoInteractions(storage);
     }
@@ -104,12 +104,12 @@ class CourseMaterialLifecycleTests {
         CourseDetailEntity second = sharedCourse(62);
         when(mapper.getCourseByIdForUpdate(61)).thenReturn(first);
         when(mapper.getCourseByIdForUpdate(62)).thenReturn(second);
-        when(mapper.softDeleteCourseById(anyInt())).thenReturn(1);
+        when(mapper.softDeleteCourseByIdForOwner(anyInt(), eq(7))).thenReturn(1);
         CourseDetailServiceImpl service = service(
                 mapper, mock(FileStorageUtil.class), mock(MaterialUploadStorageService.class), tasks);
 
-        assertTrue(service.deleteCourseById(61));
-        assertTrue(service.deleteCourseById(62));
+        assertTrue(service.deleteCourseById(61, courseOwner()));
+        assertTrue(service.deleteCourseById(62, courseOwner()));
 
         verify(tasks).enqueueCourseFiles(first);
         verify(tasks).enqueueCourseFiles(second);
@@ -416,6 +416,12 @@ class CourseMaterialLifecycleTests {
         UserEntity user = new UserEntity();
         user.setId(7);
         user.setUsername("tester");
+        return user;
+    }
+
+    private UserEntity courseOwner() {
+        UserEntity user = uploader();
+        user.setLevel(1);
         return user;
     }
 

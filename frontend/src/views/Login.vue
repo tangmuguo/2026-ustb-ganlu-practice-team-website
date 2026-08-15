@@ -54,7 +54,7 @@ async function submit() {
     <section class="login-story">
       <span>WELCOME BACK</span>
       <h1>欢迎回到<br>甘露支教</h1>
-      <p>登录后可以使用 AI 小助手、参与互动，并根据账号权限管理课件和团队内容。</p>
+      <p>登录后可参与互动，并根据账号权限管理课件和团队内容。</p>
     </section>
     <section class="login-card">
       <h2>账号登录</h2>
@@ -64,7 +64,7 @@ async function submit() {
         <el-form-item label="密码" prop="password"><el-input v-model="form.password" size="large" type="password" show-password autocomplete="current-password" @keyup.enter="submit" /></el-form-item>
         <el-button class="login-submit" type="primary" size="large" native-type="submit" :loading="loading">登录</el-button>
       </el-form>
-      <div class="register-link">还没有学生账号？<RouterLink to="/regs">注册学生账号</RouterLink></div>
+      <div class="register-link">学生账号请联系已核验团队或管理员线下完成核验和开通。</div>
     </section>
   </div>
 </template>

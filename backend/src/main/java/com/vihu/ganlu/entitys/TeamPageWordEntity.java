@@ -10,6 +10,8 @@ public class TeamPageWordEntity {
     Integer teamId;
     String status;
     String rejectReason;
+    String scanStatus;
+    String scanDiagnosticStatus;
     Date logDate;
     Integer userId;
     Integer pageId;

@@ -6,7 +6,6 @@ const features = [
   { title: '课件共享', description: '按年份、科目和关键词查找教学资源，登录后可预览与下载。', to: '/showm', icon: 'Reading', tone: 'blue' },
   { title: '团队风采', description: '按年份浏览支教小队，查看队员、照片、日志与荣誉。', to: '/fengcai', icon: 'UserFilled', tone: 'green' },
   { title: '互动留言', description: '让教师、志愿者和学生围绕教学与成长持续交流。', to: '/messageboard', icon: 'ChatDotRound', tone: 'gold' },
-  { title: 'AI 小助手', description: '登录后获得备课思路、课堂活动和知识讲解建议。', to: '/ai', icon: 'MagicStick', tone: 'purple' },
 ]
 </script>
 

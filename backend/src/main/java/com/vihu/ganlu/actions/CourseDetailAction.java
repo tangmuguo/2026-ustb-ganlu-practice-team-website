@@ -2,6 +2,7 @@ package com.vihu.ganlu.actions;
 
 import com.github.pagehelper.PageInfo;
 import com.vihu.ganlu.entitys.CourseDetailEntity;
+import com.vihu.ganlu.entitys.CourseDetailPublicDto;
 import com.vihu.ganlu.entitys.MaterialCreateRequest;
 import com.vihu.ganlu.entitys.MaterialSearchQuery;
 import com.vihu.ganlu.entitys.UploadedFileInfo;
@@ -9,10 +10,12 @@ import com.vihu.ganlu.entitys.UserEntity;
 import com.vihu.ganlu.security.AuthInterceptor;
 import com.vihu.ganlu.security.PublicEndpoint;
 import com.vihu.ganlu.security.RequireRoles;
+import com.vihu.ganlu.service.AuditEventService;
 import com.vihu.ganlu.service.CourseDetailService;
 import com.vihu.ganlu.utils.FileStorageUtil;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -36,23 +39,33 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/courseDetail")
 public class CourseDetailAction {
     private final CourseDetailService courseDetailService;
+    private final AuditEventService auditEventService;
 
-    public CourseDetailAction(CourseDetailService courseDetailService) {
+    @Autowired
+    public CourseDetailAction(CourseDetailService courseDetailService, AuditEventService auditEventService) {
         this.courseDetailService = courseDetailService;
+        this.auditEventService = auditEventService;
+    }
+
+    /** Retained for focused tests that do not exercise persistence-backed audit logging. */
+    public CourseDetailAction(CourseDetailService courseDetailService) {
+        this(courseDetailService, null);
     }
 
     @PublicEndpoint
     @GetMapping("/materials")
     public ResponseEntity<?> search(@ModelAttribute MaterialSearchQuery query) {
         PageInfo<CourseDetailEntity> page = courseDetailService.search(query);
-        return ResponseEntity.ok(responseBody(200, "查询成功", page));
+        return ResponseEntity.ok(responseBody(200, "查询成功", publicPage(page)));
     }
 
     @PublicEndpoint
@@ -62,25 +75,35 @@ public class CourseDetailAction {
         if (material == null) {
             throw new NoSuchElementException("课件不存在");
         }
-        return ResponseEntity.ok(responseBody(200, "查询成功", material));
+        return ResponseEntity.ok(responseBody(200, "查询成功", CourseDetailPublicDto.from(material)));
     }
 
     @RequireRoles({0, 1})
     @PostMapping("/materials")
     public ResponseEntity<?> create(@RequestBody MaterialCreateRequest request, HttpServletRequest servletRequest)
             throws IOException {
-        CourseDetailEntity created = courseDetailService.createMaterial(request, currentUser(servletRequest));
+        UserEntity actor = currentUser(servletRequest);
+        CourseDetailEntity created = courseDetailService.createMaterial(request, actor);
         String message = "FAILED".equals(created.getPreviewStatus())
                 ? "上传成功，但 PPT 预览转换失败，可登录后下载原文件"
                 : "上传成功";
-        return ResponseEntity.status(HttpStatus.CREATED).body(responseBody(200, message, created));
+        audit(actor, "MATERIAL_CREATE", "COURSE_DETAIL", created.getId(), "SUCCESS", created.getPreviewStatus());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(responseBody(200, message, CourseDetailPublicDto.from(created)));
     }
 
     @RequireRoles({0, 1})
     @DeleteMapping("/materials/{id}")
-    public ResponseEntity<?> delete(@PathVariable("id") int id) {
-        courseDetailService.deleteCourseById(id);
-        return ResponseEntity.ok(responseBody(200, "删除成功", null));
+    public ResponseEntity<?> delete(@PathVariable("id") int id, HttpServletRequest servletRequest) {
+        UserEntity actor = currentUser(servletRequest);
+        try {
+            courseDetailService.deleteCourseById(id, actor);
+            audit(actor, "MATERIAL_DELETE", "COURSE_DETAIL", id, "SUCCESS", null);
+            return ResponseEntity.ok(responseBody(200, "删除成功", null));
+        } catch (SecurityException error) {
+            audit(actor, "MATERIAL_DELETE", "COURSE_DETAIL", id, "DENIED", "NOT_OWNER_OR_ADMIN");
+            throw error;
+        }
     }
 
     @RequireRoles({0, 1})
@@ -112,6 +135,7 @@ public class CourseDetailAction {
         int userId = currentUser(request).getId();
         UploadedFileInfo file = courseDetailService.mergeChunks(
                 filename, identifier, totalChunks, expectedSize, purpose, userId);
+        audit(currentUser(request), "MATERIAL_UPLOAD_MERGE", "MATERIAL_UPLOAD", null, "SUCCESS", purpose);
         return ResponseEntity.ok(responseBody(200, "文件合并成功", file));
     }
 
@@ -140,7 +164,7 @@ public class CourseDetailAction {
 
     @RequireRoles({0, 1, 2})
     @GetMapping("/materials/{id}/preview")
-    public ResponseEntity<Resource> preview(@PathVariable("id") int id) throws IOException {
+    public ResponseEntity<Resource> preview(@PathVariable("id") int id, HttpServletRequest request) throws IOException {
         Path path = courseDetailService.getPreviewPath(id);
         Resource resource = new UrlResource(path.toUri());
         String extension = FileStorageUtil.extensionOf(path.getFileName().toString());
@@ -165,6 +189,7 @@ public class CourseDetailAction {
         ContentDisposition disposition = ContentDisposition.inline()
                 .filename("preview." + extension, StandardCharsets.UTF_8)
                 .build();
+        audit(currentUser(request), "MATERIAL_PREVIEW", "COURSE_DETAIL", id, "SUCCESS", null);
         return ResponseEntity.ok()
                 .contentType(mediaType)
                 .contentLength(Files.size(path))
@@ -175,7 +200,7 @@ public class CourseDetailAction {
 
     @RequireRoles({0, 1, 2})
     @GetMapping("/materials/{id}/download")
-    public ResponseEntity<Resource> download(@PathVariable("id") int id) throws IOException {
+    public ResponseEntity<Resource> download(@PathVariable("id") int id, HttpServletRequest request) throws IOException {
         CourseDetailEntity material = courseDetailService.getCourseById(id);
         if (material == null) {
             throw new NoSuchElementException("课件不存在");
@@ -194,6 +219,7 @@ public class CourseDetailAction {
         ContentDisposition disposition = ContentDisposition.attachment()
                 .filename(filename, StandardCharsets.UTF_8)
                 .build();
+        audit(currentUser(request), "MATERIAL_DOWNLOAD", "COURSE_DETAIL", id, "SUCCESS", null);
         return ResponseEntity.ok()
                 .contentType(mediaType)
                 .contentLength(Files.size(path))
@@ -204,19 +230,25 @@ public class CourseDetailAction {
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<?> handleBadRequest(IllegalArgumentException exception) {
-        return ResponseEntity.badRequest().body(responseBody(400, exception.getMessage(), null));
+        return ResponseEntity.badRequest().body(responseBody(400, "请求参数不正确", null));
     }
 
     @ExceptionHandler(NoSuchElementException.class)
     public ResponseEntity<?> handleNotFound(NoSuchElementException exception) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(responseBody(404, exception.getMessage(), null));
+                .body(responseBody(404, "请求的课件不存在", null));
     }
 
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<?> handleConflict(IllegalStateException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(responseBody(409, exception.getMessage(), null));
+                .body(responseBody(409, "当前操作无法完成", null));
+    }
+
+    @ExceptionHandler(SecurityException.class)
+    public ResponseEntity<?> handleForbidden(SecurityException exception) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(responseBody(403, "无权删除该课件", null));
     }
 
     @ExceptionHandler(IOException.class)
@@ -241,5 +273,29 @@ public class CourseDetailAction {
         body.put("message", message);
         body.put("content", content);
         return body;
+    }
+
+    /**
+     * Keep the service's pagination metadata intact while replacing its list
+     * with the explicit public whitelist projection.  The raw cast is safe at
+     * runtime because PageInfo is erased and the response is serialized here.
+     */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private PageInfo<?> publicPage(PageInfo<CourseDetailEntity> page) {
+        if (page == null || page.getList() == null) {
+            return page;
+        }
+        List<CourseDetailPublicDto> safeList = page.getList().stream()
+                .map(CourseDetailPublicDto::from)
+                .collect(Collectors.toList());
+        ((PageInfo) page).setList((List) safeList);
+        return page;
+    }
+
+    private void audit(UserEntity actor, String action, String resourceType, Object resourceId,
+                       String outcome, String reasonCode) {
+        if (auditEventService != null) {
+            auditEventService.record(actor, action, resourceType, resourceId, outcome, reasonCode);
+        }
     }
 }

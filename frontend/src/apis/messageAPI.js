@@ -17,11 +17,11 @@ export function addMessage(content) {
   })
 }
 
-export function deleteMessage(id) {
+export function deleteMessage(id, reasonCode) {
   return instance({
     url: AllPATH.messageDeletePath,
     method: 'post',
-    data: { id }
+    data: { id, ...(reasonCode ? { reasonCode } : {}) }
   })
 }
 
@@ -33,10 +33,10 @@ export function addReply(messageId, content) {
   })
 }
 
-export function deleteReply(id) {
+export function deleteReply(id, reasonCode) {
   return instance({
     url: AllPATH.replyDeletePath,
     method: 'post',
-    data: { id }
+    data: { id, ...(reasonCode ? { reasonCode } : {}) }
   })
 }

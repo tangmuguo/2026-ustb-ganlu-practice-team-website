@@ -1,6 +1,5 @@
 package com.vihu.ganlu.security;
 
-import com.vihu.ganlu.actions.AiAction;
 import com.vihu.ganlu.actions.BannerAction;
 import com.vihu.ganlu.actions.CourseDetailAction;
 import com.vihu.ganlu.actions.CourseCategoryAction;
@@ -33,8 +32,7 @@ class SecurityAnnotationCoverageTests {
             CourseCategoryAction.class,
             MessageAction.class,
             TeamAction.class,
-            TeamContentAction.class,
-            AiAction.class
+            TeamContentAction.class
     );
 
     @Test

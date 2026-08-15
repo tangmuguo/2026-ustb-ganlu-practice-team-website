@@ -1,9 +1,12 @@
 package com.vihu.ganlu.utils;
 
-import com.alibaba.fastjson.JSONObject;
 import com.vihu.ganlu.entitys.ResultEntity;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class ResultUtil {
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
     public static String toJsonString(int code,Object obj){
         ResultEntity re=new ResultEntity();
         re.setCode(code);
@@ -13,8 +16,11 @@ public class ResultUtil {
 
         re.setContent(obj);
 
-        String s = JSONObject.toJSONString(re);
-        return s;
+        try {
+            return OBJECT_MAPPER.writeValueAsString(re);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("响应序列化失败", exception);
+        }
     }
 
     private static String getReslustMessage(int code){

@@ -11,121 +11,143 @@
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
         <result column="status" property="status"/>
+        <result column="content_status" property="contentStatus"/>
+        <result column="reviewed_by_user_id" property="reviewedByUserId"/>
+        <result column="reviewed_at" property="reviewedAt"/>
+        <result column="review_reason_code" property="reviewReasonCode"/>
+        <result column="review_note" property="reviewNote"/>
+        <result column="removed_by_user_id" property="removedByUserId"/>
+        <result column="removed_at" property="removedAt"/>
+        <result column="removal_reason_code" property="removalReasonCode"/>
         <result column="username" property="username"/>
         <result column="teamname" property="teamname"/>
         <result column="user_level" property="userLevel"/>
         <result column="display_name" property="displayName"/>
     </resultMap>
 
-    <!-- 新增留言 -->
+    <sql id="safeAuthorFields">
+        u.username,
+        u.teamname,
+        u.level AS user_level,
+        CASE
+          WHEN u.level = 1 THEN COALESCE(NULLIF(u.teamname, ''), NULLIF(u.display_name, ''), CONCAT('团队用户#', m.user_id))
+          WHEN u.level = 2 THEN COALESCE(NULLIF(u.display_name, ''), CONCAT('学生用户#', m.user_id))
+          WHEN u.level = 0 THEN COALESCE(NULLIF(u.display_name, ''), '系统管理员')
+          ELSE CONCAT('用户#', m.user_id)
+        END AS display_name
+    </sql>
+
     <insert id="insertMessage" parameterType="com.vihu.ganlu.entitys.MessageEntity" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO message (
-            user_id,
-            content,
-            create_time,
-            update_time,
-            status
+            user_id, content, create_time, update_time, status, content_status
         ) VALUES (
-                     #{userId},
-                     #{content},
-                     NOW(),
-                     NOW(),
-                     #{status}
-                 )
+            #{userId}, #{content}, NOW(), NOW(), #{status}, 'PENDING'
+        )
     </insert>
 
-    <!-- 获取留言列表（分页） -->
     <select id="selectMessages" resultMap="messagemap">
-        SELECT
-            m.id,
-            m.user_id,
-            m.content,
-            m.create_time,
-            m.update_time,
-            m.status,
-            u.username,
-            u.teamname,
-            u.level AS user_level,
-            CASE
-              WHEN u.level = 1 THEN COALESCE(NULLIF(u.teamname, ''), u.username)
-              WHEN u.level = 2 THEN COALESCE(NULLIF(u.realname, ''), u.username)
-              WHEN u.level = 0 THEN COALESCE(NULLIF(u.realname, ''), '系统管理员')
-              ELSE '已注销用户'
-            END AS display_name
-        FROM
-            message m
-                LEFT JOIN
-            user u ON m.user_id = u.id
-        WHERE
-            m.status = 1
-        ORDER BY
-            m.create_time DESC,
-            m.id DESC
+        SELECT m.id, m.user_id, m.content, m.create_time, m.update_time, m.status,
+               m.content_status, m.reviewed_by_user_id, m.reviewed_at, m.review_reason_code,
+               m.review_note, m.removed_by_user_id, m.removed_at, m.removal_reason_code,
+               <include refid="safeAuthorFields"/>
+        FROM message m
+        LEFT JOIN user u ON m.user_id = u.id
+        WHERE m.status = 1
+          AND m.content_status = 'APPROVED'
+        ORDER BY m.create_time DESC, m.id DESC
         LIMIT #{offset}, #{pageSize}
     </select>
 
-    <!-- 获取留言总数 -->
     <select id="countMessages" resultType="int">
-        SELECT
-            COUNT(*)
-        FROM
-            message
-        WHERE
-            status = 1
+        SELECT COUNT(*) FROM message
+        WHERE status = 1 AND content_status = 'APPROVED'
     </select>
 
-    <!-- 根据ID获取留言 -->
     <select id="selectMessageById" parameterType="int" resultMap="messagemap">
-        SELECT
-            id,
-            user_id,
-            content,
-            create_time,
-            update_time,
-            status
-        FROM
-            message
-        WHERE
-            id = #{id}
-          AND
-            status = 1
+        SELECT m.id, m.user_id, m.content, m.create_time, m.update_time, m.status,
+               m.content_status, m.reviewed_by_user_id, m.reviewed_at, m.review_reason_code,
+               m.review_note, m.removed_by_user_id, m.removed_at, m.removal_reason_code,
+               <include refid="safeAuthorFields"/>
+        FROM message m
+        LEFT JOIN user u ON m.user_id = u.id
+        WHERE m.id = #{id}
+          AND m.status = 1
+          AND m.content_status = 'APPROVED'
     </select>
 
-    <!-- 逻辑删除留言 -->
-    <update id="deleteMessage" parameterType="int">
-        UPDATE
-            message
-        SET
-            status = 0,
+    <select id="selectMessageForModeration" parameterType="int" resultMap="messagemap">
+        SELECT m.id, m.user_id, m.content, m.create_time, m.update_time, m.status,
+               m.content_status, m.reviewed_by_user_id, m.reviewed_at, m.review_reason_code,
+               m.review_note, m.removed_by_user_id, m.removed_at, m.removal_reason_code,
+               <include refid="safeAuthorFields"/>
+        FROM message m
+        LEFT JOIN user u ON m.user_id = u.id
+        WHERE m.id = #{id}
+    </select>
+
+    <select id="selectPendingMessages" resultMap="messagemap">
+        SELECT m.id, m.user_id, m.content, m.create_time, m.update_time, m.status,
+               m.content_status, m.reviewed_by_user_id, m.reviewed_at, m.review_reason_code,
+               m.review_note, m.removed_by_user_id, m.removed_at, m.removal_reason_code,
+               <include refid="safeAuthorFields"/>
+        FROM message m
+        LEFT JOIN user u ON m.user_id = u.id
+        WHERE m.status = 1
+          AND m.content_status = 'PENDING'
+        ORDER BY m.create_time ASC, m.id ASC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <select id="countPendingMessages" resultType="int">
+        SELECT COUNT(*) FROM message WHERE status = 1 AND content_status = 'PENDING'
+    </select>
+
+    <update id="updateContentStatusByAdmin">
+        UPDATE message
+        SET content_status = #{newStatus},
+            status = CASE WHEN #{newStatus} = 'REMOVED' THEN 0 ELSE 1 END,
+            reviewed_by_user_id = #{actorUserId},
+            reviewed_at = NOW(),
+            review_reason_code = #{reasonCode},
+            review_note = #{note},
+            removed_by_user_id = CASE WHEN #{newStatus} = 'REMOVED' THEN #{actorUserId} ELSE NULL END,
+            removed_at = CASE WHEN #{newStatus} = 'REMOVED' THEN NOW() ELSE NULL END,
+            removal_reason_code = CASE WHEN #{newStatus} = 'REMOVED' THEN #{reasonCode} ELSE NULL END,
             update_time = NOW()
-        WHERE
-            id = #{id}
-          AND
-            status = 1
+        WHERE id = #{id}
+          AND content_status &lt;&gt; 'REMOVED'
+          AND EXISTS (
+              SELECT 1 FROM user actor
+              WHERE actor.id = #{actorUserId}
+                AND actor.level = 0
+          )
     </update>
 
-    <!-- 获取用户留言 -->
-    <select id="selectMessagesByUserId" parameterType="int" resultMap="messagemap">
-        SELECT
-            m.id,
-            m.user_id,
-            m.content,
-            m.create_time,
-            m.update_time,
-            m.status,
-            u.username,
-            u.teamname
-        FROM
-            message m
-                LEFT JOIN
-            user u ON m.user_id = u.id
-        WHERE
-            m.user_id = #{userId}
-          AND
-            m.status = 1
-        ORDER BY
-            m.create_time DESC,
-            m.id DESC
-    </select>
+    <update id="removeMessageForActor">
+        UPDATE message
+        SET status = 0,
+            content_status = 'REMOVED',
+            removed_by_user_id = #{actorUserId},
+            removed_at = NOW(),
+            removal_reason_code = #{reasonCode},
+            update_time = NOW()
+        WHERE id = #{id}
+          AND content_status &lt;&gt; 'REMOVED'
+          AND (
+              user_id = #{actorUserId}
+              OR EXISTS (
+                  SELECT 1 FROM user actor
+                  WHERE actor.id = #{actorUserId}
+                    AND actor.level = 0
+              )
+          )
+    </update>
 
+    <select id="countRecentDuplicate" resultType="int">
+        SELECT COUNT(1)
+        FROM message
+        WHERE user_id = #{userId}
+          AND create_time &gt;= #{since}
+          AND LOWER(TRIM(content)) = LOWER(TRIM(#{content}))
+    </select>
 </mapper>

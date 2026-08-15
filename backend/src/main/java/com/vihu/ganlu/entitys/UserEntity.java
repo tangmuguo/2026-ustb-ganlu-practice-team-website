@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
+import java.util.Date;
+
 @Data
 public class UserEntity {
     Integer id;
@@ -18,6 +20,17 @@ public class UserEntity {
     String grade;
     String phone;
     Integer level;
+    String displayName;
+    String verificationStatus;
+    String verificationMethod;
+    Date verifiedAt;
+    Integer verifiedByUserId;
+    String guardianConsentStatus;
+    String guardianConsentVersion;
+    Date guardianConsentedAt;
+    String privacyConsentVersion;
+    Date privacyConsentedAt;
+    Integer sessionVersion;
     @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     String imageUploadToken;
     @JsonIgnore

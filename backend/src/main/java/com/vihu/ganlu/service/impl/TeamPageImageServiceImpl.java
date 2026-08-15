@@ -5,6 +5,9 @@ import com.vihu.ganlu.entitys.TeamPageImageEntity;
 import com.vihu.ganlu.mappers.TeamMediaMapper;
 import com.vihu.ganlu.mappers.TeamPageImageMapper;
 import com.vihu.ganlu.service.TeamPageImageService;
+import com.vihu.ganlu.security.file.ChildPrivacyGateService;
+import com.vihu.ganlu.security.file.PrivacyAssetType;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -15,14 +18,39 @@ public class TeamPageImageServiceImpl implements TeamPageImageService {
     private final TeamPageImageMapper teamPageImageMapper;
     private final TeamMediaMapper teamMediaMapper;
     private final PublicImageLifecycleService imageLifecycleService;
+    private final ChildPrivacyGateService childPrivacyGateService;
+    private final boolean securePublicationGate;
 
+    /** Legacy isolated-test constructor. */
     public TeamPageImageServiceImpl(
             TeamPageImageMapper teamPageImageMapper,
             TeamMediaMapper teamMediaMapper,
             PublicImageLifecycleService imageLifecycleService) {
+        this(teamPageImageMapper, teamMediaMapper, imageLifecycleService,
+                new ChildPrivacyGateService(null), false);
+    }
+
+    @Autowired
+    public TeamPageImageServiceImpl(
+            TeamPageImageMapper teamPageImageMapper,
+            TeamMediaMapper teamMediaMapper,
+            PublicImageLifecycleService imageLifecycleService,
+            ChildPrivacyGateService childPrivacyGateService) {
+        this(teamPageImageMapper, teamMediaMapper, imageLifecycleService,
+                childPrivacyGateService, true);
+    }
+
+    private TeamPageImageServiceImpl(
+            TeamPageImageMapper teamPageImageMapper,
+            TeamMediaMapper teamMediaMapper,
+            PublicImageLifecycleService imageLifecycleService,
+            ChildPrivacyGateService childPrivacyGateService,
+            boolean securePublicationGate) {
         this.teamPageImageMapper = teamPageImageMapper;
         this.teamMediaMapper = teamMediaMapper;
         this.imageLifecycleService = imageLifecycleService;
+        this.childPrivacyGateService = childPrivacyGateService;
+        this.securePublicationGate = securePublicationGate;
     }
 
     @Override
@@ -32,10 +60,20 @@ public class TeamPageImageServiceImpl implements TeamPageImageService {
         requireSupportedNewImageType(e);
         if (e.getStatus() == null || e.getStatus().trim().isEmpty()) e.setStatus("PENDING");
         boolean published = "PUBLISHED".equals(e.getStatus());
+        if (published && securePublicationGate) {
+            childPrivacyGateService.requirePublicationAllowed(
+                    PrivacyAssetType.CHILD_PHOTO, null,
+                    e.getUserId() == null ? e.getImageUploadUserId() : e.getUserId(), null);
+        }
         String imagePath = published
                 ? imageLifecycleService.promote(e.getImageUploadUserId(), e.getImageUploadToken())
                 : imageLifecycleService.promotePrivate(e.getImageUploadUserId(), e.getImageUploadToken());
         e.setImageUrl(imagePath);
+        // The lifecycle only returns after the actual bytes have passed the
+        // scanner and image normalizer. Persist that state explicitly because
+        // the additive SQL column is NOT NULL and defaults to fail-closed.
+        e.setScanStatus("CLEAN");
+        e.setScanDiagnosticStatus("CLEAN");
         int inserted = teamPageImageMapper.insertTeamImage(e);
         if (inserted != 1) throw new IllegalStateException("保存团队图片记录失败");
         return inserted;
@@ -123,6 +161,11 @@ public class TeamPageImageServiceImpl implements TeamPageImageService {
         requireStatus(status);
         TeamPageImageEntity existing = teamPageImageMapper.findByIdForUpdate(id);
         if (existing == null) return false;
+        if ("PUBLISHED".equals(status) && securePublicationGate) {
+            childPrivacyGateService.requirePublicationAllowed(
+                    PrivacyAssetType.CHILD_PHOTO, existing.getId() == null ? null : existing.getId().longValue(),
+                    existing.getUserId(), null);
+        }
         String movedPath = imageLifecycleService.moveManagedImage(
                 existing.getImageUrl(), "PUBLISHED".equals(status));
         if (!movedPath.equals(existing.getImageUrl())

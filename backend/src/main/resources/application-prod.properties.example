@@ -1,5 +1,6 @@
 # 生产环境不提供任何数据库密码、跨域来源或 JWT 密钥的默认值。
 server.port=${SERVER_PORT:8080}
+server.address=${GANLU_SERVER_ADDRESS:127.0.0.1}
 spring.datasource.url=${GANLU_DB_URL}
 spring.datasource.username=${GANLU_DB_USERNAME}
 spring.datasource.password=${GANLU_DB_PASSWORD}
@@ -29,3 +30,8 @@ team.public-image.migration-enabled=${TEAM_PUBLIC_IMAGE_MIGRATION_ENABLED:false}
 file-deletion.retry-interval-ms=${FILE_DELETION_RETRY_INTERVAL_MS:60000}
 app.base-url=${GANLU_APP_BASE_URL}
 security.jwt.secret=${GANLU_JWT_SECRET}
+file.security.scan.enabled=${FILE_SECURITY_SCAN_ENABLED:false}
+file.security.scan.endpoint=${FILE_SECURITY_SCAN_ENDPOINT:}
+file.security.scan.connect-timeout-ms=${FILE_SECURITY_SCAN_CONNECT_TIMEOUT_MS:1000}
+file.security.scan.read-timeout-ms=${FILE_SECURITY_SCAN_READ_TIMEOUT_MS:3000}
+file.security.scan.timeout-ms=${FILE_SECURITY_SCAN_TIMEOUT_MS:5000}

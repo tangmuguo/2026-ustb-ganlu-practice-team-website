@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.vihu.ganlu.mappers.FileSecurityScanMapper">
+    <resultMap id="fileSecurityScanMap" type="com.vihu.ganlu.entitys.FileSecurityScanEntity">
+        <id column="id" property="id"/>
+        <result column="storage_scope" property="storageScope"/>
+        <result column="relative_path" property="relativePath"/>
+        <result column="owner_user_id" property="ownerUserId"/>
+        <result column="scan_status" property="scanStatus"/>
+        <result column="diagnostic_status" property="diagnosticStatus"/>
+        <result column="scanner_name" property="scannerName"/>
+        <result column="scanner_version" property="scannerVersion"/>
+        <result column="sha256" property="sha256"/>
+        <result column="detail" property="detail"/>
+        <result column="started_at" property="startedAt"/>
+        <result column="completed_at" property="completedAt"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="upsert" parameterType="com.vihu.ganlu.entitys.FileSecurityScanEntity">
+        INSERT INTO file_security_scan(
+            storage_scope, relative_path, owner_user_id, scan_status,
+            diagnostic_status, scanner_name, scanner_version, sha256, detail,
+            started_at, completed_at, created_at, updated_at
+        ) VALUES (
+            #{storageScope}, #{relativePath}, #{ownerUserId}, #{scanStatus},
+            #{diagnosticStatus}, #{scannerName}, #{scannerVersion}, #{sha256}, #{detail},
+            NOW(), #{completedAt}, NOW(), NOW()
+        )
+        ON DUPLICATE KEY UPDATE
+            owner_user_id = VALUES(owner_user_id),
+            scan_status = VALUES(scan_status),
+            diagnostic_status = VALUES(diagnostic_status),
+            scanner_name = VALUES(scanner_name),
+            scanner_version = VALUES(scanner_version),
+            sha256 = VALUES(sha256),
+            detail = VALUES(detail),
+            completed_at = VALUES(completed_at),
+            updated_at = NOW()
+    </insert>
+
+    <select id="findByPath" resultMap="fileSecurityScanMap">
+        SELECT * FROM file_security_scan WHERE relative_path = #{relativePath}
+    </select>
+
+    <update id="updatePath">
+        UPDATE file_security_scan
+        SET relative_path = #{toPath}, updated_at = NOW()
+        WHERE relative_path = #{fromPath}
+          AND scan_status = 'CLEAN'
+    </update>
+</mapper>

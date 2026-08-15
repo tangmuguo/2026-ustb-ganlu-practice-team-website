@@ -1,6 +1,7 @@
-# 仅作环境变量索引；实际安全默认值见同目录 application.properties。
-spring.profiles.active=${SPRING_PROFILES_ACTIVE:dev}
-security.jwt.expiration-seconds=${GANLU_JWT_EXPIRATION_SECONDS:28800}
+# 仅作环境变量索引。开发环境必须显式设置 SPRING_PROFILES_ACTIVE=dev；
+# 未指定时应用会使用 prod 并因缺少必要配置而拒绝启动。
+spring.profiles.active=${SPRING_PROFILES_ACTIVE:prod}
+security.jwt.expiration-seconds=${GANLU_JWT_EXPIRATION_SECONDS:1800}
 
 # 团队视频/附件最大 200MB；公共图片仍由业务层限制为 5MB。
 spring.servlet.multipart.max-file-size=${GANLU_MAX_UPLOAD_FILE_SIZE:200MB}
@@ -25,10 +26,17 @@ team.media.upload-reservation-ttl-minutes=${TEAM_MEDIA_UPLOAD_RESERVATION_TTL_MI
 team.public-image.migration-enabled=${TEAM_PUBLIC_IMAGE_MIGRATION_ENABLED:false}
 file-deletion.retry-interval-ms=${FILE_DELETION_RETRY_INTERVAL_MS:60000}
 
-ai.enabled=${AI_ENABLED:false}
-ai.base-url=${DEEPSEEK_BASE_URL:https://api.deepseek.com}
-ai.api-key=${DEEPSEEK_API_KEY:}
-ai.model=${DEEPSEEK_MODEL:deepseek-v4-flash}
+# Scanner integration is opt-in and fail-closed. Do not put scanner keys here.
+file.security.scan.enabled=${FILE_SECURITY_SCAN_ENABLED:false}
+file.security.scan.endpoint=${FILE_SECURITY_SCAN_ENDPOINT:}
+file.security.scan.connect-timeout-ms=${FILE_SECURITY_SCAN_CONNECT_TIMEOUT_MS:1000}
+file.security.scan.read-timeout-ms=${FILE_SECURITY_SCAN_READ_TIMEOUT_MS:3000}
+file.security.scan.timeout-ms=${FILE_SECURITY_SCAN_TIMEOUT_MS:5000}
+
+audit.retention-days=${AUDIT_RETENTION_DAYS:180}
+audit.cleanup-interval-ms=${AUDIT_CLEANUP_INTERVAL_MS:86400000}
+audit.trusted-proxy-addresses=${AUDIT_TRUSTED_PROXY_ADDRESSES:127.0.0.1,::1}
+rate-limit.enabled=${RATE_LIMIT_ENABLED:true}
 
 ganlu.bootstrap-admin.username=${GANLU_BOOTSTRAP_ADMIN_USERNAME:}
 ganlu.bootstrap-admin.password=${GANLU_BOOTSTRAP_ADMIN_PASSWORD:}

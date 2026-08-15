@@ -16,6 +16,9 @@ public class TeamMediaEntity {
     String relatedType;
     Integer relatedId;
     String status;
+    /** PENDING until the security scanner returns CLEAN; never trust status alone. */
+    String scanStatus;
+    String scanDiagnosticStatus;
     String rejectReason;
     Timestamp createdAt;
     Timestamp updatedAt;

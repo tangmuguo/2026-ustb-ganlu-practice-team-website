@@ -1,6 +1,7 @@
 package com.vihu.ganlu.mappers;
 
 import com.vihu.ganlu.entitys.NewsEntity;
+import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
 
@@ -15,11 +16,11 @@ public interface NewsMapper {
     NewsEntity findByIdForUpdate(int id);
 
     // 新增新闻
-    int insert(NewsEntity news);
+    int insert(@Param("news") NewsEntity news, @Param("actorUserId") int actorUserId);
 
     // 更新新闻
-    int update(NewsEntity news);
+    int update(@Param("news") NewsEntity news, @Param("actorUserId") int actorUserId);
 
     // 删除新闻
-    int delete(int id);
+    int delete(@Param("id") int id, @Param("actorUserId") int actorUserId);
 }

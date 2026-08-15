@@ -251,7 +251,11 @@ public class TeamContentAction {
             return ok("查询成功", content);
         }
 
-        List<TeamPageImageEntity> images = teamPageImageService.findByTeamIdAndStatus(teamId, "PUBLISHED");
+        // Mapper 层已按扫描状态筛选；这里再次收口，避免未来查询实现变化或异常数据
+        // 让未完成/失败扫描的历史图片进入公开响应。
+        List<TeamPageImageEntity> images = teamPageImageService.findByTeamIdAndStatus(teamId, "PUBLISHED").stream()
+                .filter(this::isPubliclyReadableImage)
+                .collect(java.util.stream.Collectors.toList());
         List<TeamPageWordEntity> words = teamPageWordService.findByTeamIdAndStatus(teamId, "PUBLISHED");
         // Item 6: 公开端 media 只返回 PUBLISHED 且（无父内容 或 父内容 PUBLISHED 同 team）的记录，
         // 并转 DTO 脱敏（不暴露 relativePath/uploaderId）。
@@ -271,7 +275,7 @@ public class TeamContentAction {
     @GetMapping("/team-content/media/{mediaId}/download")
     public ResponseEntity<?> download(@PathVariable int mediaId) {
         TeamMediaEntity m = teamMediaService.findById(mediaId);
-        if (m == null || !"PUBLISHED".equals(m.getStatus())) {
+        if (m == null || !"PUBLISHED".equals(m.getStatus()) || !isCleanMedia(m)) {
             return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "资源不存在"));
         }
         // media 必须归属某个团队；team_id 为空视为非法记录，直接 404
@@ -311,7 +315,8 @@ public class TeamContentAction {
     public ResponseEntity<?> serveImage(@PathVariable int imageId,
                                         HttpServletRequest request) {
         TeamPageImageEntity img = teamPageImageService.findById(imageId);
-        if (img == null || img.getTeamId() == null || img.getImageUrl() == null) {
+        if (img == null || img.getTeamId() == null || img.getImageUrl() == null
+                || !isCleanImage(img)) {
             return ResponseEntity.status(404).body(ImmutableMap.of("code", 404, "message", "资源不存在"));
         }
 
@@ -435,6 +440,10 @@ public class TeamContentAction {
      * 抽取自 download()，供公开/团队端/管理员端三个接口复用。
      */
     private ResponseEntity<?> buildDownloadResponse(TeamMediaEntity m) {
+        if (m == null || !isCleanMedia(m)) {
+            return ResponseEntity.status(404)
+                    .body(ImmutableMap.of("code", 404, "message", "资源不存在"));
+        }
         Path path = fileStorageUtil.loadFile(m.getRelativePath());
         org.springframework.core.io.Resource resource = new org.springframework.core.io.FileSystemResource(path.toFile());
         return ResponseEntity.ok()
@@ -739,6 +748,22 @@ public class TeamContentAction {
                     && (teamId == null || teamId.equals(e.getTeamId()));
         }
         return false;
+    }
+
+    private boolean isPubliclyReadableImage(TeamPageImageEntity image) {
+        return image != null && "PUBLISHED".equals(image.getStatus()) && isCleanImage(image);
+    }
+
+    private boolean isCleanImage(TeamPageImageEntity image) {
+        return image != null
+                && "CLEAN".equals(image.getScanStatus())
+                && "CLEAN".equals(image.getScanDiagnosticStatus());
+    }
+
+    private boolean isCleanMedia(TeamMediaEntity media) {
+        return media != null
+                && "CLEAN".equals(media.getScanStatus())
+                && "CLEAN".equals(media.getScanDiagnosticStatus());
     }
 
     /**

@@ -17,6 +17,17 @@
         <result column="grade" property="grade"/>
         <result column="phone" property="phone"/>
         <result column="level" property="level"/>
+        <result column="display_name" property="displayName"/>
+        <result column="verification_status" property="verificationStatus"/>
+        <result column="verification_method" property="verificationMethod"/>
+        <result column="verified_at" property="verifiedAt"/>
+        <result column="verified_by_user_id" property="verifiedByUserId"/>
+        <result column="guardian_consent_status" property="guardianConsentStatus"/>
+        <result column="guardian_consent_version" property="guardianConsentVersion"/>
+        <result column="guardian_consented_at" property="guardianConsentedAt"/>
+        <result column="privacy_consent_version" property="privacyConsentVersion"/>
+        <result column="privacy_consented_at" property="privacyConsentedAt"/>
+        <result column="session_version" property="sessionVersion"/>
     </resultMap>
 
 
@@ -35,6 +46,37 @@
 
     <select id="findUserByLevel" parameterType="Integer" resultMap="usermap">
         select * from user where level=#{level}
+    </select>
+
+    <select id="findStudentsByActiveTeam" resultMap="usermap">
+        SELECT u.*
+        FROM user u
+        INNER JOIN student_team_assignment sta
+          ON sta.student_user_id = u.id
+         AND sta.revoked_at IS NULL
+        INNER JOIN team t
+          ON t.id = sta.team_id
+         AND t.status IN ('DRAFT', 'PUBLISHED')
+        WHERE u.level = 2
+          AND sta.team_id = #{teamId}
+        ORDER BY u.id ASC
+    </select>
+
+    <select id="findStudentByIdForTeamForUpdate" resultMap="usermap">
+        SELECT u.*
+        FROM user u
+        WHERE u.id = #{studentId}
+          AND u.level = 2
+          AND EXISTS (
+              SELECT 1
+              FROM student_team_assignment sta
+              INNER JOIN team t ON t.id = sta.team_id
+              WHERE sta.student_user_id = u.id
+                AND sta.team_id = #{teamId}
+                AND sta.revoked_at IS NULL
+                AND t.status IN ('DRAFT', 'PUBLISHED')
+          )
+        FOR UPDATE
     </select>
 
     <select id="findUserBigLevel" parameterType="Integer" resultMap="usermap">
@@ -89,8 +131,18 @@
     </select>
 
     <insert id="addUser" parameterType="com.vihu.ganlu.entitys.UserEntity" useGeneratedKeys="true" keyProperty="id">
-        insert into user(username,password,imageUrl,teamname,helplocation,helpschool,realname,belongschool,grade,phone,level)
-        values (#{username},#{password},#{imageUrl},#{teamname},#{helplocation},#{helpschool},#{realname},#{belongschool},#{grade},#{phone},#{level})
+        insert into user(
+            username,password,imageUrl,teamname,helplocation,helpschool,realname,belongschool,grade,phone,level,
+            display_name,verification_status,verification_method,verified_at,verified_by_user_id,
+            guardian_consent_status,guardian_consent_version,guardian_consented_at,
+            privacy_consent_version,privacy_consented_at,session_version
+        )
+        values (
+            #{username},#{password},#{imageUrl},#{teamname},#{helplocation},#{helpschool},#{realname},#{belongschool},#{grade},#{phone},#{level},
+            #{displayName},#{verificationStatus},#{verificationMethod},#{verifiedAt},#{verifiedByUserId},
+            #{guardianConsentStatus},#{guardianConsentVersion},#{guardianConsentedAt},
+            #{privacyConsentVersion},#{privacyConsentedAt},#{sessionVersion}
+        )
     </insert>
 
     <update id="updateUserById" parameterType="com.vihu.ganlu.entitys.UserEntity" >
@@ -120,6 +172,161 @@
             helplocation=#{helplocation},helpschool=#{helpschool},
             phone=#{phone}
         where id=#{id}
+    </update>
+
+    <update id="updateStudentByIdForTeam">
+        UPDATE user u
+        SET username = #{student.username},
+            <if test="student.password != null and student.password != ''">
+                password = #{student.password},
+                session_version = session_version + 1,
+            </if>
+            realname = #{student.realname},
+            belongschool = #{student.belongschool},
+            grade = #{student.grade},
+            <if test="student.phone != null and student.phone != ''">
+                phone = #{student.phone},
+            </if>
+            display_name = #{student.displayName}
+        WHERE u.id = #{student.id}
+          AND u.level = 2
+          AND EXISTS (
+              SELECT 1
+              FROM student_team_assignment sta
+              INNER JOIN team t ON t.id = sta.team_id
+              WHERE sta.student_user_id = u.id
+                AND sta.team_id = #{teamId}
+                AND sta.revoked_at IS NULL
+                AND t.status IN ('DRAFT', 'PUBLISHED')
+          )
+    </update>
+
+    <delete id="deleteStudentsByIdsForTeam">
+        DELETE FROM user
+        WHERE level = 2
+          AND id IN
+        <foreach collection="ids" item="id" separator="," open="(" close=")">
+            #{id}
+        </foreach>
+          AND EXISTS (
+              SELECT 1
+              FROM student_team_assignment sta
+              INNER JOIN team t ON t.id = sta.team_id
+              WHERE sta.student_user_id = user.id
+                AND sta.team_id = #{teamId}
+                AND sta.revoked_at IS NULL
+                AND t.status IN ('DRAFT', 'PUBLISHED')
+          )
+    </delete>
+
+    <delete id="deleteStudentAfterAssignmentRevoked">
+        DELETE FROM user
+        WHERE id = #{studentId}
+          AND level = 2
+          AND NOT EXISTS (
+              SELECT 1
+              FROM student_team_assignment sta
+              WHERE sta.student_user_id = user.id
+                AND sta.revoked_at IS NULL
+          )
+    </delete>
+
+    <select id="findActiveTeamIdByStudentId" resultType="Integer">
+        SELECT sta.team_id
+        FROM student_team_assignment sta
+        INNER JOIN team t
+          ON t.id = sta.team_id
+         AND t.status IN ('DRAFT', 'PUBLISHED')
+        WHERE sta.student_user_id = #{studentId}
+          AND sta.revoked_at IS NULL
+        LIMIT 1
+    </select>
+
+    <update id="updateStudentVerification">
+        UPDATE user u
+        SET verification_status = #{verificationStatus},
+            verification_method =
+                <choose>
+                    <when test="verificationStatus == 'VERIFIED'">#{verificationMethod}</when>
+                    <otherwise>NULL</otherwise>
+                </choose>,
+            verified_at =
+                <choose>
+                    <when test="verificationStatus == 'VERIFIED'">NOW()</when>
+                    <otherwise>NULL</otherwise>
+                </choose>,
+            verified_by_user_id =
+                <choose>
+                    <when test="verificationStatus == 'VERIFIED'">#{actorUserId}</when>
+                    <otherwise>NULL</otherwise>
+                </choose>,
+            guardian_consent_status = #{guardianConsentStatus},
+            guardian_consent_version = #{guardianConsentVersion},
+            guardian_consented_at =
+                <choose>
+                    <when test="guardianConsentStatus == 'CONSENTED'">NOW()</when>
+                    <otherwise>NULL</otherwise>
+                </choose>,
+            privacy_consent_version = #{privacyConsentVersion},
+            privacy_consented_at =
+                <choose>
+                    <when test="privacyConsentVersion != null and privacyConsentVersion != ''">NOW()</when>
+                    <otherwise>NULL</otherwise>
+                </choose>,
+            session_version = session_version + 1
+        WHERE u.id = #{studentId}
+          AND u.level = 2
+          AND EXISTS (
+              SELECT 1 FROM user actor
+              WHERE actor.id = #{actorUserId}
+                AND actor.level = 0
+          )
+    </update>
+
+    <insert id="insertConsentRecord">
+        INSERT INTO user_consent_record (
+            user_id, consent_type, policy_version, granted_at, withdrawn_at,
+            operator_user_id, evidence_digest, created_at
+        ) VALUES (
+            #{studentId}, #{consentType}, #{policyVersion},
+            <choose><when test="granted">NOW()</when><otherwise>NULL</otherwise></choose>,
+            <choose><when test="granted">NULL</when><otherwise>NOW()</otherwise></choose>,
+            #{actorUserId}, #{evidenceDigest}, NOW()
+        )
+    </insert>
+
+    <!--
+      A withdrawal is an authorization boundary, not a profile edit.  Existing
+      student publication gates require VERIFIED + CONSENTED; marking the gate
+      suspended for either supported consent category makes the change effective
+      immediately without changing student/team ownership semantics.  The
+      session version bump rejects all previously issued JWTs on the next call.
+    -->
+    <update id="withdrawConsentAndInvalidateSession">
+        UPDATE user
+        SET guardian_consent_status =
+                CASE WHEN #{consentType} IN ('GUARDIAN', 'PRIVACY')
+                     THEN 'WITHDRAWN' ELSE guardian_consent_status END,
+            guardian_consented_at =
+                CASE WHEN #{consentType} IN ('GUARDIAN', 'PRIVACY')
+                     THEN NULL ELSE guardian_consented_at END,
+            privacy_consent_version =
+                CASE WHEN #{consentType} = 'PRIVACY'
+                     THEN NULL ELSE privacy_consent_version END,
+            privacy_consented_at =
+                CASE WHEN #{consentType} = 'PRIVACY'
+                     THEN NULL ELSE privacy_consented_at END,
+            verification_status =
+                CASE WHEN level = 2 AND #{consentType} IN ('GUARDIAN', 'PRIVACY')
+                     THEN 'SUSPENDED' ELSE verification_status END,
+            session_version = COALESCE(session_version, 0) + 1
+        WHERE id = #{userId}
+    </update>
+
+    <update id="incrementSessionVersion">
+        UPDATE user
+        SET session_version = session_version + 1
+        WHERE id = #{id}
     </update>
 
     <select id="countTeamBindingsByUserIds" resultType="int">

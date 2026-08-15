@@ -2,20 +2,31 @@ package com.vihu.ganlu.service;
 
 import com.vihu.ganlu.entitys.BannerEntity;
 import com.vihu.ganlu.entitys.NewsEntity;
+import com.vihu.ganlu.entitys.PublicImageAssetEntity;
 import com.vihu.ganlu.entitys.UserEntity;
 import com.vihu.ganlu.mappers.BannerMapper;
 import com.vihu.ganlu.mappers.NewsMapper;
+import com.vihu.ganlu.mappers.PublicImageQuotaMapper;
 import com.vihu.ganlu.mappers.UserMapper;
+import com.vihu.ganlu.security.file.FileScanService;
+import com.vihu.ganlu.security.file.ImageSanitizer;
 import com.vihu.ganlu.service.impl.BannerServiceImpl;
+import com.vihu.ganlu.service.impl.FileDeletionTaskService;
 import com.vihu.ganlu.service.impl.NewsServiceImpl;
 import com.vihu.ganlu.service.impl.PublicImageLifecycleService;
 import com.vihu.ganlu.service.impl.UserServiceImpl;
+import com.vihu.ganlu.utils.FileStorageUtil;
+import com.vihu.ganlu.utils.PublicImageValidator;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.InputStream;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Scanner;
 import java.util.Arrays;
 
@@ -85,9 +96,9 @@ class PublicImageReplacementLockingTests {
         update.setImageUploadToken("token");
         when(mapper.findByIdForUpdate(6)).thenReturn(existing);
         when(lifecycle.promote(3, "token")).thenReturn("images/3/new.jpg");
-        when(mapper.update(update)).thenReturn(1);
+        when(mapper.update(update, 3)).thenReturn(1);
 
-        assertEquals(1, new NewsServiceImpl(mapper, lifecycle).updateNews(update));
+        assertEquals(1, new NewsServiceImpl(mapper, lifecycle).updateNews(update, administrator(3)));
         verify(mapper).findByIdForUpdate(6);
         verify(mapper, never()).findById(6);
     }
@@ -140,9 +151,9 @@ class PublicImageReplacementLockingTests {
         latest.setId(9);
         latest.setImageUrl("images/9/latest.jpg");
         when(mapper.findByIdForUpdate(9)).thenReturn(latest);
-        when(mapper.delete(9)).thenReturn(1);
+        when(mapper.delete(9, 1)).thenReturn(1);
 
-        assertEquals(1, new NewsServiceImpl(mapper, lifecycle).deleteNews(9));
+        assertEquals(1, new NewsServiceImpl(mapper, lifecycle).deleteNews(9, administrator(1)));
         verify(mapper).findByIdForUpdate(9);
         verify(mapper, never()).findById(9);
         verify(lifecycle).deletePublicImageAfterCommit("images/9/latest.jpg");
@@ -187,11 +198,56 @@ class PublicImageReplacementLockingTests {
         verify(mapper, never()).updateStatus(anyInt(), anyInt());
     }
 
+    @Test
+    void rollbackAfterManagedImageMoveRestoresItsScanLedgerPath() {
+        FileStorageUtil storage = mock(FileStorageUtil.class);
+        PublicImageQuotaMapper quotaMapper = mock(PublicImageQuotaMapper.class);
+        FileScanService scanService = mock(FileScanService.class);
+        String filename = "11111111-1111-1111-1111-111111111111.jpg";
+        String sourcePath = "images_pending/7/" + filename;
+        String targetPath = "images/7/" + filename;
+        Path source = Paths.get("C:/ganlu-test/" + sourcePath).toAbsolutePath();
+        Path target = Paths.get("C:/ganlu-test/" + targetPath).toAbsolutePath();
+        PublicImageAssetEntity asset = new PublicImageAssetEntity();
+        asset.setAssetId(42L);
+        asset.setOwnerUserId(7);
+        when(storage.loadFile(sourcePath)).thenReturn(source);
+        when(storage.loadFile(targetPath)).thenReturn(target);
+        when(quotaMapper.findAsset(sourcePath)).thenReturn(asset);
+        when(scanService.moveRecord(source.toString(), target.toString())).thenReturn(true);
+        when(scanService.moveRecord(target.toString(), source.toString())).thenReturn(true);
+        when(quotaMapper.updateAssetPath(42L, targetPath)).thenReturn(1);
+
+        PublicImageLifecycleService lifecycle = new PublicImageLifecycleService(
+                storage, mock(PublicImageValidator.class), quotaMapper,
+                mock(FileDeletionTaskService.class), scanService, mock(ImageSanitizer.class), null,
+                24, 50, 10, 500, 100, 1024);
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            assertEquals(targetPath, lifecycle.moveManagedImage(sourcePath, true));
+            TransactionSynchronizationManager.getSynchronizations().forEach(sync ->
+                    sync.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        verify(storage).moveFile(targetPath, sourcePath);
+        verify(scanService).moveRecord(target.toString(), source.toString());
+    }
+
     private BannerEntity banner(int id, String imageUrl) {
         BannerEntity banner = new BannerEntity();
         banner.setId(id);
         banner.setImageUrl(imageUrl);
         return banner;
+    }
+
+    private UserEntity administrator(int id) {
+        UserEntity user = new UserEntity();
+        user.setId(id);
+        user.setLevel(0);
+        return user;
     }
 
     private void assertForUpdate(String resource, String statementId) {

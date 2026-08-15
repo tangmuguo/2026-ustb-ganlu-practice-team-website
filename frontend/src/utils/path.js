@@ -4,10 +4,6 @@ const AllPATH = {
   teamsPath: "user/teams",
   studentsPath: "user/students",
   addTeamPath:"user/add_team",
-  updateTeamPath:"user/update_team",
-  addStudentPath:"user/add_student",
-  deleteTeamPath:"user/delete_team",
-  regPath: "user/reg",
   //课件
   uploadImagePath:"courseDetail/uploadImage",
   uploadMaterialPath:"courseDetail/uploadFile",

@@ -7,11 +7,9 @@ public class UserSummary {
     private String teamname;
     private String helplocation;
     private String helpschool;
-    private String realname;
-    private String belongschool;
-    private String grade;
-    private String phone;
+    private String displayName;
     private Integer level;
+    private Boolean interactiveContentEnabled;
 
     public static UserSummary from(UserEntity user) {
         UserSummary summary = new UserSummary();
@@ -21,11 +19,11 @@ public class UserSummary {
         summary.teamname = user.getTeamname();
         summary.helplocation = user.getHelplocation();
         summary.helpschool = user.getHelpschool();
-        summary.realname = user.getRealname();
-        summary.belongschool = user.getBelongschool();
-        summary.grade = user.getGrade();
-        summary.phone = user.getPhone();
+        summary.displayName = displayNameFor(user);
         summary.level = user.getLevel();
+        summary.interactiveContentEnabled = user.getLevel() == null || user.getLevel() != 2
+                || ("VERIFIED".equals(user.getVerificationStatus())
+                && "CONSENTED".equals(user.getGuardianConsentStatus()));
         return summary;
     }
 
@@ -35,9 +33,21 @@ public class UserSummary {
     public String getTeamname() { return teamname; }
     public String getHelplocation() { return helplocation; }
     public String getHelpschool() { return helpschool; }
-    public String getRealname() { return realname; }
-    public String getBelongschool() { return belongschool; }
-    public String getGrade() { return grade; }
-    public String getPhone() { return phone; }
+    public String getDisplayName() { return displayName; }
     public Integer getLevel() { return level; }
+    public Boolean getInteractiveContentEnabled() { return interactiveContentEnabled; }
+
+    public static String displayNameFor(UserEntity user) {
+        if (user == null) return "已注销用户";
+        if (user.getTeamname() != null && !user.getTeamname().trim().isEmpty()) {
+            return user.getTeamname().trim();
+        }
+        if (user.getDisplayName() != null && !user.getDisplayName().trim().isEmpty()) {
+            return user.getDisplayName().trim();
+        }
+        if (user.getLevel() != null && user.getLevel() == 0) {
+            return "系统管理员";
+        }
+        return user.getId() == null ? "注册用户" : "用户#" + user.getId();
+    }
 }

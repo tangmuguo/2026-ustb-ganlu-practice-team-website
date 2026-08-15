@@ -4,6 +4,7 @@ public class ApiResponse<T> {
     private int code;
     private String message;
     private T content;
+    private String requestId;
 
     public ApiResponse() {
     }
@@ -44,5 +45,14 @@ public class ApiResponse<T> {
 
     public void setContent(T content) {
         this.content = content;
+    }
+
+    public String getRequestId() { return requestId; }
+
+    public void setRequestId(String requestId) { this.requestId = requestId; }
+
+    public ApiResponse<T> withRequestId(String requestId) {
+        this.requestId = requestId;
+        return this;
     }
 }

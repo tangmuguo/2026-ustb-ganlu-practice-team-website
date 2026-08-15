@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.vihu.ganlu.mappers.ContentReportMapper">
+    <resultMap id="contentReportMap" type="com.vihu.ganlu.entitys.ContentReportEntity">
+        <id column="id" property="id"/>
+        <result column="reporter_user_id" property="reporterUserId"/>
+        <result column="target_type" property="targetType"/>
+        <result column="target_id" property="targetId"/>
+        <result column="category" property="category"/>
+        <result column="description" property="description"/>
+        <result column="status" property="status"/>
+        <result column="handled_by_user_id" property="handledByUserId"/>
+        <result column="handled_at" property="handledAt"/>
+        <result column="resolution_code" property="resolutionCode"/>
+        <result column="resolution_note" property="resolutionNote"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.vihu.ganlu.entitys.ContentReportEntity"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO content_report (
+            reporter_user_id, target_type, target_id, category, description, status, created_at, updated_at
+        ) VALUES (
+            #{reporterUserId}, #{targetType}, #{targetId}, #{category}, #{description}, 'OPEN', NOW(), NOW()
+        )
+    </insert>
+
+    <select id="findRecent" resultMap="contentReportMap">
+        SELECT * FROM content_report
+        <if test="status != null and status != ''">
+            WHERE status = #{status}
+        </if>
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+
+    <select id="countRecent" resultType="int">
+        SELECT COUNT(1) FROM content_report
+        <if test="status != null and status != ''">
+            WHERE status = #{status}
+        </if>
+    </select>
+
+    <update id="updateResolution">
+        UPDATE content_report
+        SET status = #{status},
+            handled_by_user_id = #{actorUserId},
+            handled_at = NOW(),
+            resolution_code = #{resolutionCode},
+            resolution_note = #{resolutionNote},
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND EXISTS (
+              SELECT 1 FROM user actor
+              WHERE actor.id = #{actorUserId}
+                AND actor.level = 0
+          )
+    </update>
+</mapper>

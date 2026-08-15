@@ -42,7 +42,7 @@ const availableCategories = computed(() => {
   return categories.filter((category) => supportedGeneralSubjects.has(category.courseName))
 })
 const uploaderName = computed(() => userStore.currentUser?.teamname
-  || userStore.currentUser?.realname
+  || userStore.currentUser?.displayName
   || userStore.currentUser?.username
   || '')
 

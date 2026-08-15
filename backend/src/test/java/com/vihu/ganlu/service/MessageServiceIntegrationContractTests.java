@@ -52,8 +52,15 @@ class MessageServiceIntegrationContractTests {
     @Test
     void studentCanPublishButCannotDelete() {
         UserEntity student = new UserEntity(); student.setId(3); student.setLevel(2);
+        student.setVerificationStatus("VERIFIED");
+        student.setGuardianConsentStatus("CONSENTED");
         when(userMapper.findUserById(3)).thenReturn(student);
         when(messageMapper.insertMessage(any())).thenReturn(1);
+        MessageEntity anotherUsersMessage = new MessageEntity();
+        anotherUsersMessage.setId(1);
+        anotherUsersMessage.setUserId(9);
+        anotherUsersMessage.setContentStatus("APPROVED");
+        when(messageMapper.selectMessageForModeration(1)).thenReturn(anotherUsersMessage);
 
         assertEquals("一条合规留言", service.addMessage("一条合规留言", 3).getContent());
         assertThrows(SecurityException.class, () -> service.deleteMessage(1, 3));

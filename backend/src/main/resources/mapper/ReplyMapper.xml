@@ -12,134 +12,182 @@
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
         <result column="status" property="status"/>
+        <result column="content_status" property="contentStatus"/>
+        <result column="reviewed_by_user_id" property="reviewedByUserId"/>
+        <result column="reviewed_at" property="reviewedAt"/>
+        <result column="review_reason_code" property="reviewReasonCode"/>
+        <result column="review_note" property="reviewNote"/>
+        <result column="removed_by_user_id" property="removedByUserId"/>
+        <result column="removed_at" property="removedAt"/>
+        <result column="removal_reason_code" property="removalReasonCode"/>
         <result column="username" property="username"/>
         <result column="teamname" property="teamname"/>
         <result column="user_level" property="userLevel"/>
         <result column="display_name" property="displayName"/>
     </resultMap>
 
-    <!-- 新增回复 -->
+    <sql id="safeAuthorFields">
+        u.username,
+        u.teamname,
+        u.level AS user_level,
+        CASE
+          WHEN u.level = 1 THEN COALESCE(NULLIF(u.teamname, ''), NULLIF(u.display_name, ''), CONCAT('团队用户#', r.user_id))
+          WHEN u.level = 2 THEN COALESCE(NULLIF(u.display_name, ''), CONCAT('学生用户#', r.user_id))
+          WHEN u.level = 0 THEN COALESCE(NULLIF(u.display_name, ''), '系统管理员')
+          ELSE CONCAT('用户#', r.user_id)
+        END AS display_name
+    </sql>
+
     <insert id="insertReply" parameterType="com.vihu.ganlu.entitys.ReplyEntity" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO reply (
-            message_id,
-            user_id,
-            content,
-            create_time,
-            update_time,
-            status
+            message_id, user_id, content, create_time, update_time, status, content_status
         ) VALUES (
-                     #{messageId},
-                     #{userId},
-                     #{content},
-                     NOW(),
-                     NOW(),
-                     #{status}
-                 )
+            #{messageId}, #{userId}, #{content}, NOW(), NOW(), #{status}, 'PENDING'
+        )
     </insert>
 
-    <!-- 获取留言的所有回复 -->
     <select id="selectRepliesByMessageId" parameterType="int" resultMap="replymap">
-        SELECT
-            r.id,
-            r.message_id,
-            r.user_id,
-            r.content,
-            r.create_time,
-            r.update_time,
-            r.status,
-            u.username,
-            u.teamname
-        FROM
-            reply r
-                LEFT JOIN
-            user u ON r.user_id = u.id
-        WHERE
-            r.message_id = #{messageId}
-          AND
-            r.status = 1
-        ORDER BY
-            r.create_time DESC,
-            r.id DESC
-    </select>
-
-    <!-- 获取当前页留言的所有回复 -->
-    <select id="selectRepliesByMessageIds" resultMap="replymap">
         SELECT r.id, r.message_id, r.user_id, r.content, r.create_time, r.update_time, r.status,
-               u.username, u.teamname, u.level AS user_level,
-               CASE
-                 WHEN u.level = 1 THEN COALESCE(NULLIF(u.teamname, ''), u.username)
-                 WHEN u.level = 2 THEN COALESCE(NULLIF(u.realname, ''), u.username)
-                 WHEN u.level = 0 THEN COALESCE(NULLIF(u.realname, ''), '系统管理员')
-                 ELSE '已注销用户'
-               END AS display_name
+               r.content_status, r.reviewed_by_user_id, r.reviewed_at, r.review_reason_code,
+               r.review_note, r.removed_by_user_id, r.removed_at, r.removal_reason_code,
+               <include refid="safeAuthorFields"/>
         FROM reply r
         LEFT JOIN user u ON r.user_id = u.id
-        WHERE r.status = 1 AND r.message_id IN
+        WHERE r.message_id = #{messageId}
+          AND r.status = 1
+          AND r.content_status = 'APPROVED'
+        ORDER BY r.create_time DESC, r.id DESC
+    </select>
+
+    <select id="selectRepliesByMessageIds" resultMap="replymap">
+        SELECT r.id, r.message_id, r.user_id, r.content, r.create_time, r.update_time, r.status,
+               r.content_status, r.reviewed_by_user_id, r.reviewed_at, r.review_reason_code,
+               r.review_note, r.removed_by_user_id, r.removed_at, r.removal_reason_code,
+               <include refid="safeAuthorFields"/>
+        FROM reply r
+        LEFT JOIN user u ON r.user_id = u.id
+        WHERE r.status = 1
+          AND r.content_status = 'APPROVED'
+          AND r.message_id IN
         <foreach collection="messageIds" item="messageId" open="(" separator="," close=")">
             #{messageId}
         </foreach>
         ORDER BY r.message_id ASC, r.create_time DESC, r.id DESC
     </select>
 
-    <!-- 根据ID获取回复 -->
     <select id="selectReplyById" parameterType="int" resultMap="replymap">
-        SELECT
-            id,
-            message_id,
-            user_id,
-            content,
-            create_time,
-            update_time,
-            status
-        FROM
-            reply
-        WHERE
-            id = #{id}
-          AND
-            status = 1
+        SELECT r.id, r.message_id, r.user_id, r.content, r.create_time, r.update_time, r.status,
+               r.content_status, r.reviewed_by_user_id, r.reviewed_at, r.review_reason_code,
+               r.review_note, r.removed_by_user_id, r.removed_at, r.removal_reason_code,
+               <include refid="safeAuthorFields"/>
+        FROM reply r
+        LEFT JOIN user u ON r.user_id = u.id
+        WHERE r.id = #{id}
+          AND r.status = 1
+          AND r.content_status = 'APPROVED'
     </select>
 
-    <!-- 逻辑删除回复 -->
-    <update id="deleteReply" parameterType="int">
-        UPDATE
-            reply
-        SET
-            status = 0,
+    <select id="selectReplyForModeration" parameterType="int" resultMap="replymap">
+        SELECT r.id, r.message_id, r.user_id, r.content, r.create_time, r.update_time, r.status,
+               r.content_status, r.reviewed_by_user_id, r.reviewed_at, r.review_reason_code,
+               r.review_note, r.removed_by_user_id, r.removed_at, r.removal_reason_code,
+               <include refid="safeAuthorFields"/>
+        FROM reply r
+        LEFT JOIN user u ON r.user_id = u.id
+        WHERE r.id = #{id}
+    </select>
+
+    <select id="selectPendingReplies" resultMap="replymap">
+        SELECT r.id, r.message_id, r.user_id, r.content, r.create_time, r.update_time, r.status,
+               r.content_status, r.reviewed_by_user_id, r.reviewed_at, r.review_reason_code,
+               r.review_note, r.removed_by_user_id, r.removed_at, r.removal_reason_code,
+               <include refid="safeAuthorFields"/>
+        FROM reply r
+        LEFT JOIN user u ON r.user_id = u.id
+        WHERE r.status = 1
+          AND r.content_status = 'PENDING'
+        ORDER BY r.create_time ASC, r.id ASC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <select id="countPendingReplies" resultType="int">
+        SELECT COUNT(*) FROM reply WHERE status = 1 AND content_status = 'PENDING'
+    </select>
+
+    <update id="updateContentStatusByAdmin">
+        UPDATE reply
+        SET content_status = #{newStatus},
+            status = CASE WHEN #{newStatus} = 'REMOVED' THEN 0 ELSE 1 END,
+            reviewed_by_user_id = #{actorUserId},
+            reviewed_at = NOW(),
+            review_reason_code = #{reasonCode},
+            review_note = #{note},
+            removed_by_user_id = CASE WHEN #{newStatus} = 'REMOVED' THEN #{actorUserId} ELSE NULL END,
+            removed_at = CASE WHEN #{newStatus} = 'REMOVED' THEN NOW() ELSE NULL END,
+            removal_reason_code = CASE WHEN #{newStatus} = 'REMOVED' THEN #{reasonCode} ELSE NULL END,
             update_time = NOW()
-        WHERE
-            id = #{id}
-          AND
-            status = 1
+        WHERE id = #{id}
+          AND content_status &lt;&gt; 'REMOVED'
+          AND EXISTS (
+              SELECT 1 FROM user actor
+              WHERE actor.id = #{actorUserId}
+                AND actor.level = 0
+          )
     </update>
 
-    <update id="deleteRepliesByMessageId" parameterType="int">
-        UPDATE reply SET status = 0, update_time = NOW()
-        WHERE message_id = #{messageId} AND status = 1
+    <update id="removeReplyForActor">
+        UPDATE reply
+        SET status = 0,
+            content_status = 'REMOVED',
+            reviewed_by_user_id = CASE WHEN EXISTS (
+                SELECT 1 FROM user actor
+                WHERE actor.id = #{actorUserId}
+                  AND actor.level = 0
+            ) THEN #{actorUserId} ELSE reviewed_by_user_id END,
+            reviewed_at = CASE WHEN EXISTS (
+                SELECT 1 FROM user actor
+                WHERE actor.id = #{actorUserId}
+                  AND actor.level = 0
+            ) THEN NOW() ELSE reviewed_at END,
+            review_reason_code = CASE WHEN EXISTS (
+                SELECT 1 FROM user actor
+                WHERE actor.id = #{actorUserId}
+                  AND actor.level = 0
+            ) THEN #{reasonCode} ELSE review_reason_code END,
+            removed_by_user_id = #{actorUserId},
+            removed_at = NOW(),
+            removal_reason_code = #{reasonCode},
+            update_time = NOW()
+        WHERE id = #{id}
+          AND content_status &lt;&gt; 'REMOVED'
+          AND (
+              user_id = #{actorUserId}
+              OR EXISTS (
+                  SELECT 1 FROM user actor
+                  WHERE actor.id = #{actorUserId}
+                    AND actor.level = 0
+              )
+          )
     </update>
 
-    <!-- 获取用户回复 -->
-    <select id="selectRepliesByUserId" parameterType="int" resultMap="replymap">
-        SELECT
-            r.id,
-            r.message_id,
-            r.user_id,
-            r.content,
-            r.create_time,
-            r.update_time,
-            r.status,
-            u.username,
-            u.teamname
-        FROM
-            reply r
-                LEFT JOIN
-            user u ON r.user_id = u.id
-        WHERE
-            r.user_id = #{userId}
-          AND
-            r.status = 1
-        ORDER BY
-            r.create_time DESC,
-            r.id DESC
+    <select id="selectRepliesForRemoval" parameterType="int" resultMap="replymap">
+        SELECT r.id, r.message_id, r.user_id, r.content, r.create_time, r.update_time, r.status,
+               r.content_status, r.reviewed_by_user_id, r.reviewed_at, r.review_reason_code,
+               r.review_note, r.removed_by_user_id, r.removed_at, r.removal_reason_code,
+               <include refid="safeAuthorFields"/>
+        FROM reply r
+        LEFT JOIN user u ON r.user_id = u.id
+        WHERE r.message_id = #{messageId}
+          AND r.content_status &lt;&gt; 'REMOVED'
+        ORDER BY r.create_time ASC, r.id ASC
     </select>
 
+    <select id="countRecentDuplicate" resultType="int">
+        SELECT COUNT(1)
+        FROM reply
+        WHERE user_id = #{userId}
+          AND message_id = #{messageId}
+          AND create_time &gt;= #{since}
+          AND LOWER(TRIM(content)) = LOWER(TRIM(#{content}))
+    </select>
 </mapper>

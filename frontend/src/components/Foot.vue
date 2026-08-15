@@ -18,6 +18,7 @@ import { siteContent } from '@/config/siteContent'
           <RouterLink to="/showm">课件共享</RouterLink>
           <RouterLink to="/fengcai">团队风采</RouterLink>
           <RouterLink to="/messageboard">互动留言</RouterLink>
+          <RouterLink to="/privacy">隐私与未成年人保护</RouterLink>
         </div>
       </section>
 
@@ -32,7 +33,14 @@ import { siteContent } from '@/config/siteContent'
     </div>
     <div class="copyright">
       <span>© {{ new Date().getFullYear() }} 甘露支教</span>
-      <span>备案信息待负责人确认</span>
+      <a
+        class="filing-link"
+        href="https://beian.miit.gov.cn/"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        {{ siteContent.filing.icp }}
+      </a>
     </div>
   </footer>
 </template>
@@ -123,6 +131,14 @@ h2 {
   color: #84addd;
   border-top: 1px solid rgba(189, 219, 255, 0.18);
   font-size: 13px;
+}
+
+.filing-link {
+  color: inherit;
+}
+
+.filing-link:hover {
+  color: #d7e9ff;
 }
 
 @media (max-width: 800px) {

@@ -19,7 +19,7 @@ const publicLinks = [
 ]
 
 const displayName = computed(() => userStore.currentUser?.teamname
-  || userStore.currentUser?.realname
+  || userStore.currentUser?.displayName
   || userStore.currentUser?.username
   || '我的账号')
 
@@ -28,6 +28,7 @@ const level = computed(() => Number(userStore.currentUser?.level))
 const managementItems = computed(() => {
   if (!userStore.isLoggedIn) return []
 
+  const privacyRequest = { command: '/privacy-requests', label: '隐私权利请求' }
   const common = [
     { command: '/uppt', label: '上传课件' },
     { command: '/mmanage', label: '课件管理' },
@@ -40,25 +41,34 @@ const managementItems = computed(() => {
       { command: '/muser', label: '团队账号管理' },
       { command: '/regt', label: '创建团队账号' },
       { command: '/mstudent', label: '学生账号管理' },
+      { command: '/content-safety', label: '内容审核与举报' },
       { command: '/admin/team-content', label: '团队内容审核' },
       ...common,
+      privacyRequest,
     ]
   }
 
   if (level.value === 1) {
     return [
       { command: '/mstudent', label: '学生账号管理' },
-      { command: '/mnews', label: '新闻管理' },
       { command: '/team-content-manage', label: '团队内容管理' },
       ...common,
+      privacyRequest,
     ]
   }
 
-  return []
+  return [privacyRequest]
 })
 
-function logout() {
-  userStore.clearUser()
+async function logout() {
+  try {
+    const { logout: revokeSession } = await import('@/apis/userAPI')
+    await revokeSession()
+  } catch {
+    // Local cleanup is still required when the token is already expired/offline.
+  } finally {
+    userStore.clearUser()
+  }
   mobileOpen.value = false
   router.push('/')
 }
@@ -93,7 +103,6 @@ watch(() => route.fullPath, () => {
         >
           {{ item.label }}
         </RouterLink>
-        <RouterLink v-if="userStore.isLoggedIn" to="/ai" class="nav-link">AI 小助手</RouterLink>
       </nav>
 
       <div class="account-area">
@@ -105,7 +114,6 @@ watch(() => route.fullPath, () => {
           </button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="/ai">AI 小助手</el-dropdown-item>
               <el-dropdown-item
                 v-for="item in managementItems"
                 :key="item.command"
@@ -127,7 +135,6 @@ watch(() => route.fullPath, () => {
     <el-drawer v-model="mobileOpen" title="甘露支教" size="min(86vw, 360px)" direction="rtl">
       <nav class="mobile-nav" aria-label="移动端导航">
         <RouterLink v-for="item in publicLinks" :key="item.to" :to="item.to">{{ item.label }}</RouterLink>
-        <RouterLink v-if="userStore.isLoggedIn" to="/ai">AI 小助手</RouterLink>
         <template v-if="userStore.isLoggedIn">
           <div class="mobile-divider">账号功能</div>
           <RouterLink v-for="item in managementItems" :key="item.command" :to="item.command">
@@ -135,7 +142,7 @@ watch(() => route.fullPath, () => {
           </RouterLink>
           <button type="button" @click="logout">退出登录</button>
         </template>
-        <RouterLink v-else class="mobile-login" to="/login">登录 / 注册</RouterLink>
+        <RouterLink v-else class="mobile-login" to="/login">登录</RouterLink>
       </nav>
     </el-drawer>
   </header>

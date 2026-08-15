@@ -1,5 +1,6 @@
 package com.vihu.ganlu.entitys;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -16,10 +17,18 @@ public class ReplyEntity {
     private Date createTime;
     private Date updateTime;
     private Boolean status;
+    @JsonIgnore private String contentStatus;
+    @JsonIgnore private Integer reviewedByUserId;
+    @JsonIgnore private Date reviewedAt;
+    @JsonIgnore private String reviewReasonCode;
+    @JsonIgnore private String reviewNote;
+    @JsonIgnore private Integer removedByUserId;
+    @JsonIgnore private Date removedAt;
+    @JsonIgnore private String removalReasonCode;
 
     // 非数据库字段
-    private String username;
-    private String teamname;
-    private Integer userLevel;
+    @JsonIgnore private String username;
+    @JsonIgnore private String teamname;
+    @JsonIgnore private Integer userLevel;
     private String displayName;
 }

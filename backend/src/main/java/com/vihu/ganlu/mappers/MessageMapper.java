@@ -4,6 +4,7 @@ import com.vihu.ganlu.entitys.MessageEntity;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.util.Date;
 import java.util.List;
 @Mapper
 public interface MessageMapper {
@@ -18,10 +19,19 @@ public interface MessageMapper {
 
     // 根据ID获取留言
     MessageEntity selectMessageById(Integer id);
+    MessageEntity selectMessageForModeration(@Param("id") Integer id);
+    List<MessageEntity> selectPendingMessages(@Param("offset") int offset, @Param("pageSize") int pageSize);
+    int countPendingMessages();
+    int updateContentStatusByAdmin(@Param("id") Integer id,
+                                   @Param("actorUserId") Integer actorUserId,
+                                   @Param("newStatus") String newStatus,
+                                   @Param("reasonCode") String reasonCode,
+                                   @Param("note") String note);
+    int removeMessageForActor(@Param("id") Integer id,
+                              @Param("actorUserId") Integer actorUserId,
+                              @Param("reasonCode") String reasonCode);
 
-    // 逻辑删除留言（管理员）
-    int deleteMessage(Integer id);
-
-    // 获取用户留言
-    List<MessageEntity> selectMessagesByUserId(Integer userId);
+    int countRecentDuplicate(@Param("userId") Integer userId,
+                             @Param("content") String content,
+                             @Param("since") Date since);
 }

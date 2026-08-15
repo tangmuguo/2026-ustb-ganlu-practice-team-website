@@ -16,6 +16,7 @@ import {
   deleteReply,
   getMessages
 } from '@/apis/messageAPI'
+import { createContentReport } from '@/apis/contentSafetyAPI'
 import MessageComposer from '@/components/message/MessageComposer.vue'
 import MessageItem from '@/components/message/MessageItem.vue'
 import MessageListSkeleton from '@/components/message/MessageListSkeleton.vue'
@@ -55,14 +56,17 @@ const userLevel = computed(() => {
   return Number.isInteger(parsed) ? parsed : null
 })
 const canPublish = computed(() => (
-  isLoggedIn.value && [0, 1, 2].includes(userLevel.value)
+  isLoggedIn.value && (
+    [0, 1].includes(userLevel.value)
+    || (userLevel.value === 2 && userStore.currentUser?.interactiveContentEnabled === true)
+  )
 ))
-const canDelete = computed(() => (
-  isLoggedIn.value && [0, 1].includes(userLevel.value)
-))
+const canDelete = computed(() => isLoggedIn.value)
+const isModerator = computed(() => userLevel.value === 0)
+const currentUserId = computed(() => Number(userStore.currentUser?.id) || null)
 const currentDisplayName = computed(() => (
   userStore.currentUser?.teamname
-  || userStore.currentUser?.realname
+  || userStore.currentUser?.displayName
   || userStore.currentUser?.username
   || '注册用户'
 ))
@@ -210,8 +214,7 @@ async function submitMessage() {
   try {
     ensureSuccessfulResponse(await addMessage(content), '留言发布失败')
     newMessage.value = ''
-    ElMessage.success('留言发布成功')
-    await fetchMessages()
+    ElMessage.success('留言已提交，审核通过后会公开显示')
   } catch (error) {
     showActionError(error, '留言发布失败，请稍后重试')
   } finally {
@@ -247,8 +250,7 @@ async function submitReply(messageId) {
   try {
     ensureSuccessfulResponse(await addReply(messageId, content), '回复发布失败')
     replyDrafts.value[messageId] = ''
-    ElMessage.success('回复发布成功')
-    await fetchMessages()
+    ElMessage.success('回复已提交，审核通过后会公开显示')
   } catch (error) {
     showActionError(error, '回复发布失败，请稍后重试')
   } finally {
@@ -271,20 +273,38 @@ async function confirmDelete(title, message) {
   }
 }
 
-async function removeMessage(id) {
-  if (!canDelete.value) {
-    ElMessage.error('当前账号没有删除权限')
-    return
+async function removalReasonFor(id, collection, title) {
+  const item = collection.find((entry) => Number(entry.id) === Number(id))
+  if (!isModerator.value || Number(item?.userId) === currentUserId.value) return null
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '请填写处置原因代码（例如 HARMFUL_CONTENT 或 PRIVACY_RISK）。原文和处置记录会被保留。',
+      title,
+      {
+        inputPattern: /^[A-Z][A-Z0-9_]{1,63}$/,
+        inputErrorMessage: '请输入大写英文、数字或下划线组成的原因代码',
+        confirmButtonText: '确认处置',
+        cancelButtonText: '取消',
+      },
+    )
+    return value
+  } catch {
+    return undefined
   }
+}
+
+async function removeMessage(id) {
   const confirmed = await confirmDelete(
     '删除留言',
     '删除后该留言及其回复将不再展示，确认继续吗？'
   )
   if (!confirmed) return
+  const reasonCode = await removalReasonFor(id, messages.value, '管理员处置留言')
+  if (reasonCode === undefined) return
 
   deletingMessageId.value = id
   try {
-    ensureSuccessfulResponse(await deleteMessage(id), '删除留言失败')
+    ensureSuccessfulResponse(await deleteMessage(id, reasonCode), '删除留言失败')
     ElMessage.success('留言已删除')
     await fetchMessages({ correctPage: true })
   } catch (error) {
@@ -295,25 +315,44 @@ async function removeMessage(id) {
 }
 
 async function removeReply(id) {
-  if (!canDelete.value) {
-    ElMessage.error('当前账号没有删除权限')
-    return
-  }
   const confirmed = await confirmDelete(
     '删除回复',
     '删除后这条回复将不再展示，确认继续吗？'
   )
   if (!confirmed) return
+  const replies = messages.value.flatMap((message) => message.replies || [])
+  const reasonCode = await removalReasonFor(id, replies, '管理员处置回复')
+  if (reasonCode === undefined) return
 
   deletingReplyId.value = id
   try {
-    ensureSuccessfulResponse(await deleteReply(id), '删除回复失败')
+    ensureSuccessfulResponse(await deleteReply(id, reasonCode), '删除回复失败')
     ElMessage.success('回复已删除')
     await fetchMessages()
   } catch (error) {
     showActionError(error, '删除回复失败，请稍后重试')
   } finally {
     deletingReplyId.value = null
+  }
+}
+
+async function reportContent(targetType, targetId) {
+  if (!isLoggedIn.value) {
+    ElMessage.warning('登录后才能提交举报')
+    goToLogin()
+    return
+  }
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '请简要描述问题。举报工单仅供管理员处理，不会公开举报人资料。',
+      '举报内容',
+      { inputPlaceholder: '例如：疑似泄露个人信息', inputType: 'textarea', confirmButtonText: '提交举报', cancelButtonText: '取消' },
+    )
+    const response = await createContentReport({ targetType, targetId, category: 'OTHER', description: value || '' })
+    const ticketId = response?.data?.content?.ticketId
+    ElMessage.success(ticketId ? `举报已受理，工单编号：${ticketId}` : '举报已受理')
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') showActionError(error, '举报提交失败，请稍后重试')
   }
 }
 
@@ -398,13 +437,13 @@ onMounted(() => {
         <div class="guest-copy">
           <p class="guest-kicker">当前为游客模式</p>
           <h2 id="guest-card-title">登录后参与互动</h2>
-          <p>你可以浏览全部留言和回复。登录后即可发布留言、回复其他用户。</p>
+          <p>{{ isLoggedIn ? '学生账号需完成线下核验和监护人授权后才能发布互动内容。' : '你可以浏览已审核公开的留言和回复。登录后，符合条件的账号可参与互动。' }}</p>
           <div class="guest-features" aria-label="游客权限说明">
             <span>自由浏览</span>
-            <span>登录参与</span>
+            <span>{{ isLoggedIn ? '等待核验' : '登录参与' }}</span>
           </div>
         </div>
-        <el-button type="primary" size="large" :icon="UserFilled" @click="goToLogin">
+        <el-button v-if="!isLoggedIn" type="primary" size="large" :icon="UserFilled" @click="goToLogin">
           前往登录
         </el-button>
       </section>
@@ -456,6 +495,9 @@ onMounted(() => {
               :message="message"
               :can-reply="canPublish"
               :can-delete="canDelete"
+              :can-report="isLoggedIn"
+              :current-user-id="currentUserId"
+              :is-moderator="isModerator"
               :reply-draft="replyDrafts[message.id] || ''"
               :reply-loading="submittingReplyIds.has(message.id)"
               :deleting-message-id="deletingMessageId"
@@ -464,6 +506,8 @@ onMounted(() => {
               @submit-reply="submitReply"
               @delete-message="removeMessage"
               @delete-reply="removeReply"
+              @report-message="reportContent('MESSAGE', $event)"
+              @report-reply="reportContent('REPLY', $event)"
             />
           </div>
 

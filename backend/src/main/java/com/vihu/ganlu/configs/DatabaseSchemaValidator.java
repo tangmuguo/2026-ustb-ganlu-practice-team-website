@@ -100,7 +100,7 @@ public class DatabaseSchemaValidator implements InitializingBean {
                 message.append(" 缺少字段: ").append(String.join(", ", missingColumns)).append("。");
             }
             message.append(" 请先备份现有库，再按 database/patches/README.md 的固定顺序执行：")
-                    .append("00 → 10 → 11 → 12 → 13 → 14 → 15 → 20 → 30 → 31。")
+                    .append("00 → 10 → 11 → 12 → 13 → 14 → 15 → 20 → 30 → 31 → 32 → 33 → 34 → 35 → 36 → 37。")
                     .append(" 仅排障时可设置 GANLU_SCHEMA_VALIDATION_ENABLED=false；这不会修复数据库，不能用于正常运行。");
             throw new IllegalStateException(message.toString());
         }
@@ -112,26 +112,53 @@ public class DatabaseSchemaValidator implements InitializingBean {
         require(requirements, "course", "status");
         require(requirements, "course_detail", "uploader_user_id", "year", "custom_subject", "cover_path",
                 "original_file_path", "preview_file_path", "original_filename", "file_extension", "mime_type",
-                "preview_status", "status");
+                "preview_status", "status", "scan_status", "scan_diagnostic_status");
         require(requirements, "file_deletion_task", "id", "asset_type", "asset_id", "relative_path", "owner_user_id",
                 "file_size", "status", "retry_count", "last_error", "next_retry_at", "created_at", "updated_at");
-        require(requirements, "message");
+        require(requirements, "message", "content_status", "reviewed_by_user_id", "reviewed_at",
+                "review_reason_code", "review_note", "removed_by_user_id", "removed_at", "removal_reason_code");
         require(requirements, "news");
         require(requirements, "public_image_asset", "asset_id", "relative_path", "owner_user_id", "file_size", "created_at");
         require(requirements, "public_image_quota", "owner_user_id", "used_file_count", "used_bytes", "updated_at");
-        require(requirements, "reply");
+        require(requirements, "reply", "content_status", "reviewed_by_user_id", "reviewed_at",
+                "review_reason_code", "review_note", "removed_by_user_id", "removed_at", "removal_reason_code");
         require(requirements, "team", "owner_user_id", "region", "school", "description", "cover_url", "status",
                 "created_at", "updated_at");
         require(requirements, "team_media", "filename", "relative_path", "mime_type", "file_size", "uploader_id",
-                "team_id", "related_type", "related_id", "status", "reject_reason", "created_at", "updated_at");
+                "team_id", "related_type", "related_id", "status", "scan_status", "scan_diagnostic_status",
+                "reject_reason", "created_at", "updated_at");
         require(requirements, "team_media_global_quota", "singleton_id", "used_file_count", "used_bytes", "updated_at");
         require(requirements, "team_media_quota", "owner_user_id", "used_file_count", "used_bytes", "updated_at");
         require(requirements, "team_media_upload_reservation", "reservation_id", "owner_user_id", "reserved_bytes",
                 "status", "expires_at", "created_at", "released_at");
         require(requirements, "team_page", "team_id", "status", "created_at", "updated_at");
-        require(requirements, "team_page_images", "team_id", "status", "reject_reason", "log_date");
-        require(requirements, "team_page_word", "team_id", "status", "reject_reason", "log_date");
-        require(requirements, "user");
+        require(requirements, "team_page_images", "team_id", "status", "scan_status", "scan_diagnostic_status",
+                "reject_reason", "log_date");
+        require(requirements, "team_page_word", "team_id", "status", "scan_status", "scan_diagnostic_status",
+                "reject_reason", "log_date");
+        require(requirements, "user", "display_name", "verification_status", "verification_method", "verified_at",
+                "verified_by_user_id", "guardian_consent_status", "guardian_consent_version", "guardian_consented_at",
+                "privacy_consent_version", "privacy_consented_at", "session_version");
+        require(requirements, "student_team_assignment", "student_user_id", "team_id", "assigned_by_user_id",
+                "assigned_at", "revoked_at", "scope");
+        require(requirements, "user_consent_record", "user_id", "consent_type", "policy_version", "granted_at",
+                "withdrawn_at", "operator_user_id", "evidence_digest", "created_at");
+        require(requirements, "content_moderation_history", "content_type", "content_id", "previous_status",
+                "new_status", "actor_user_id", "reason_code", "created_at");
+        require(requirements, "content_report", "reporter_user_id", "target_type", "target_id", "category",
+                "description", "status", "handled_by_user_id", "handled_at", "resolution_code", "resolution_note");
+        require(requirements, "audit_event", "id", "occurred_at", "actor_user_id", "actor_role", "action",
+                "resource_type", "resource_id", "outcome", "reason_code", "request_id", "source_ip");
+        require(requirements, "audit_preservation_hold", "id", "audit_event_id", "reason_code", "created_by_user_id",
+                "created_at", "released_at", "released_by_user_id");
+        require(requirements, "file_security_scan", "storage_scope", "relative_path", "scan_status",
+                "diagnostic_status", "sha256", "detail", "created_at", "updated_at");
+        require(requirements, "media_privacy_consent", "asset_type", "asset_id", "subject_user_id",
+                "consent_status", "policy_version", "evidence_digest", "granted_at", "withdrawn_at",
+                "recorded_by_user_id", "audit_event_id", "created_at", "updated_at");
+        require(requirements, "privacy_request", "requester_user_id", "request_type", "consent_type",
+                "scope_code", "description", "status", "handled_by_user_id", "handled_at",
+                "decision_code", "decision_reason", "retention_decision", "created_at", "updated_at");
         return Collections.unmodifiableMap(requirements);
     }
 

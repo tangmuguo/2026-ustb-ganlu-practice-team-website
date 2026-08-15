@@ -28,6 +28,8 @@ public class CourseDetailEntity {
     private String fileExtension;
     private String mimeType;
     private String previewStatus;
+    private String scanStatus;
+    private String scanDiagnosticStatus;
     private Integer status;
     private Date createTime;
     private Date updateTime;

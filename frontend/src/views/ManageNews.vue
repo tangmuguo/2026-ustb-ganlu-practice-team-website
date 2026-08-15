@@ -201,7 +201,7 @@ onMounted(() => {
 })
 
 onBeforeMount(() => {
-  access([0, 1]) // 管理员和甘露团队账号均可管理新闻
+  access([0])
 })
 </script>
 
