@@ -6,32 +6,35 @@
 
 | 顺序 | 文件 | 作用 | 当前状态 |
 | --- | --- | --- | --- |
-| 1 | `00_user_security.sql` | 用户名/手机号唯一约束、密码列长度 | 已提供 |
-| 2 | `10_team_core.sql` | 团队风采核心表迁移 | 已提供 |
-| 3 | `11_team_content.sql` | 团队风采内容管理 | 已从依赖 PR #12 集成 |
-| 4 | `12_team_owner_unique.sql` | 团队负责人一对一唯一约束 | 已从依赖 PR #12 集成 |
-| 5 | `13_public_image_quota.sql` | 四类公共图片账本结构；存量数据由应用读取真实文件后迁移，课件封面独立管理 | 已提供 |
-| 6 | `14_team_media_lifecycle.sql` | 附件配额、跨实例在途上传预留、持久化删除任务 | 已提供 |
-| 7 | `20_message_board.sql` | 留言与回复查询索引 | 已提供 |
-| 8 | `30_material_center.sql` | 课件中心字段、索引和上传会话表 | 已提供 |
-| 9 | `31_material_file_lifecycle.sql` | 课件内部及与公共图片跨生命周期共享路径阻断、课件文件任务类型 | 已提供 |
-| 10 | `32_material_general_subjects.sql` | 通识课程收敛为语文、数学、英语，旧科目停用但保留历史关联 | 已提供 |
-| 11 | `33_security_assessment_identity_and_tenant.sql` | 学生归属、核验与监护人/隐私授权的最小留痕 | 已提供；存量学生保持待核验/未归属 |
-| 12 | `34_security_assessment_content_moderation.sql` | 留言/回复待审核状态机和内容处置历史 | 已提供；存量公开内容转为待人工复核 |
-| 13 | `35_security_assessment_audit_and_reports.sql` | 操作审计、保全标记和内容举报工单 | 已提供 |
-| 14 | `36_security_assessment_file_scan_and_quarantine.sql` | 文件扫描账本、隔离区、儿童媒体公开授权 | 已提供；存量文件保持待扫描/未授权 |
-| 15 | `37_security_assessment_privacy_requests.sql` | 更正、删除评估与撤回同意的隐私权利工单 | 已提供；不执行物理删除 |
+| 1 | `00_user_security.sql` | 用户名/手机号唯一约束、密码列长度 | 已纳入当前 `main` |
+| 2 | `10_team_core.sql` | 团队风采核心表迁移 | 已纳入当前 `main` |
+| 3 | `11_team_content.sql` | 团队风采内容管理 | 已纳入当前 `main` |
+| 4 | `12_team_owner_unique.sql` | 团队负责人一对一唯一约束 | 已纳入当前 `main` |
+| 5 | `13_public_image_quota.sql` | 四类公共图片账本结构；存量数据由应用读取真实文件后迁移，课件封面独立管理 | 已纳入当前 `main` |
+| 6 | `14_team_media_lifecycle.sql` | 附件配额、跨实例在途上传预留、持久化删除任务 | 已纳入当前 `main` |
+| 7 | `15_team_content_history_publish.sql` | 历史团队内容回填和文件迁移的双阶段维护流程 | 必须先 dry-run，再由负责人显式 apply |
+| 辅助 | `15_migrate_images_files.sh` | patch 15 的历史图片物理迁移脚本 | 不是 SQL 补丁；只在 patch 15 apply 后的维护窗口使用 |
+| 8 | `20_message_board.sql` | 留言与回复查询索引 | 已纳入当前 `main` |
+| 9 | `30_material_center.sql` | 课件中心字段、索引和上传会话表 | 已纳入当前 `main` |
+| 10 | `31_material_file_lifecycle.sql` | 课件内部及与公共图片跨生命周期共享路径阻断、课件文件任务类型 | 已纳入当前 `main` |
+| 11 | `32_material_general_subjects.sql` | 通识课程收敛为语文、数学、英语，旧科目停用但保留历史关联 | 已纳入当前 `main` |
+| 12 | `33_security_assessment_identity_and_tenant.sql` | 学生归属、核验与监护人/隐私授权的最小留痕 | 已纳入当前 `main`；存量学生保持待核验/未归属 |
+| 13 | `34_security_assessment_content_moderation.sql` | 留言/回复待审核状态机和内容处置历史 | 已纳入当前 `main`；存量公开内容转为待人工复核 |
+| 14 | `35_security_assessment_audit_and_reports.sql` | 操作审计、保全标记和内容举报工单 | 已纳入当前 `main` |
+| 15 | `36_security_assessment_file_scan_and_quarantine.sql` | 文件扫描账本、隔离区、儿童媒体公开授权 | 已纳入当前 `main`；存量文件保持待扫描/未授权 |
+| 16 | `37_security_assessment_privacy_requests.sql` | 更正、删除评估与撤回同意的隐私权利工单 | 已纳入当前 `main`；不执行物理删除 |
 
-全量联调必须等孙木文按 `PR #5 → PR #12 → 本 Draft PR` 完成审核与集成后，在数据库备份副本中按上表顺序重新验证。
+文件存在只表示源码已纳入，不表示任何 MySQL 实例已经执行过；历史 PR/交接文档不能替代本次迁移记录。
 
 ## 全新本地数据库
 
 1. 用 MySQL Workbench 创建字符集为 `utf8mb4` 的 `ganlu` Schema。
 2. 先执行根目录 `ganlu.sql`。
 3. 完整顺序固定为 `00 → 10 → 11 → 12 → 13 → 14 → 15 → 20 → 30 → 31 → 32 → 33 → 34 → 35 → 36 → 37`；其中部分变更已经进入基线，脚本会跳过已存在的索引或表。
-4. `10_team_core.sql` 会创建迁移备份表，并会拒绝重复或部分执行。若它报错，停止操作并保留提示，不要直接删备份表重跑。
-5. 建议重新创建一份干净的本地库，从基线开始按完整规定顺序验证。
-6. 补丁 13 不再用 0 字节猜测旧图片。全链执行完后，按 `docs/integration/team-content.md` 的维护窗口步骤运行管理员预检与迁移；报告未达到 `consistent=true` 时禁止开放发布和编辑。处理孤儿前必须与有效课件封面引用交叉核对，`images/materials/` 及被课件引用的历史封面不属于四类账本。
+4. 执行 15 前，必须在维护窗口为 `@patch15_cutoff` 选择经负责人确认的旧数据截止时间。第一次运行只会生成候选清单并以 `SIGNAL` 结束，这是预期的 dry-run；核对清单后才可设置 `@patch15_apply := 1` 用相同 cutoff 再运行。不要使用 `mysql --force` 跳过该门禁。存在历史图片候选时，随后按脚本头部说明执行 `15_migrate_images_files.sh`。
+5. `10_team_core.sql` 会创建迁移备份表，并会拒绝重复或部分执行。若它报错，停止操作并保留提示，不要直接删备份表重跑。
+6. 建议重新创建一份干净的本地库，从基线开始按完整规定顺序验证。
+7. 补丁 13 不再用 0 字节猜测旧图片。全链执行完后，调用管理员公共图片预检和迁移接口前必须进入维护窗口；报告未达到 `consistent=true` 时禁止开放发布和编辑。处理孤儿前必须与有效课件封面引用交叉核对，`images/materials/` 及被课件引用的历史封面不属于四类账本。
 
 ## 已有数据库
 
@@ -39,8 +42,9 @@
 2. 检查空用户名、重复用户名、重复手机号及非法团队年份；`00`、`10` 检测到问题会主动停止。
 3. 在备份副本执行补丁并核对表、索引和历史数据数量。
 4. 记录每个脚本的执行时间、执行人、结果和错误信息。
-5. 只有安全负责人确认备份可恢复、补丁顺序无误、所有模块验收通过后，才能在正式库执行。补丁 33 至 37 写入的核验、审核、举报、扫描、授权和隐私工单证据不得通过删表或删列“回滚”。
+5. 对含有历史团队内容的库，在 15 的 dry-run 输出候选清单后暂停并复核；只有同一 cutoff 的清单、文件迁移计划和回滚点均确认后，才能执行 apply。
+6. 只有安全负责人确认备份可恢复、补丁顺序无误、所有模块验收通过后，才能在正式库执行。补丁 33 至 37 写入的核验、审核、举报、扫描、授权和隐私工单证据不得通过删表或删列“回滚”。
 
 ## 当前限制
 
-2026-08-02 的集成环境中 MySQL84 Windows 服务在运行，但 `mysql` 命令未加入 `PATH`，且集成人员没有数据库凭据。因此本轮只完成了 SQL 静态审查，没有对任何本地或生产数据库执行脚本。详见 `docs/integration/最终联调记录.md`。
+仓库不含由数据库负责人签字的 MySQL 8 备份副本或生产库执行记录。因此，本说明只能证明脚本随源码提供，不能证明补丁已经在目标环境成功执行。每次演练应单独记录目标 Schema、备份位置、cutoff、执行人、开始/结束时间、校验结果和回滚点。
